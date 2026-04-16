@@ -27,7 +27,7 @@ class ProjectConfig:
 
     name: str
     description: str = ""
-    version: str = "2.4.0"
+    version: str = "2.3.9"
     author: str = ""
     license: str = "MIT"
 
@@ -105,7 +105,7 @@ class ConfigManager:
     DEFAULT_CONFIG: dict[str, Any] = {
         "name": "my-project",
         "description": "A Super Dev project",
-        "version": "2.4.0",
+        "version": "2.3.9",
         "platform": "web",
         "frontend": "next",  # 默认使用 Next.js
         "backend": "node",

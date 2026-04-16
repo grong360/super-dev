@@ -23,7 +23,7 @@ from ..seeai_design_system import (
     get_seeai_design_packs,
 )
 
-SUPER_DEV_VERSION = "2.4.0"
+SUPER_DEV_VERSION = "2.3.9"
 SEEAI_SKILL_NAME = "super-dev-seeai"
 
 
