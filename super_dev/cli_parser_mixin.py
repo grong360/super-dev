@@ -1787,6 +1787,19 @@ class CliParserMixin:
         hooks_test_parser = hooks_subparsers.add_parser("test", help="测试执行指定 hook（dry-run）")
         hooks_test_parser.add_argument("event", help="Hook 事件名")
 
+        # hooks generate — 生成宿主钩子配置
+        hooks_generate_parser = hooks_subparsers.add_parser(
+            "generate", help="生成宿主 hook 配置"
+        )
+        hooks_generate_parser.add_argument(
+            "--host",
+            action="append",
+            help="指定宿主 (可多次使用，默认全部)",
+        )
+        hooks_generate_parser.add_argument(
+            "--dry-run", action="store_true", help="预览而不实际写入"
+        )
+
         # harness 命令 - 管理 workflow/framework/hook harness 报告
         harness_parser = subparsers.add_parser(
             "harness",
@@ -2038,6 +2051,83 @@ class CliParserMixin:
             help="LLM 调用费用报告",
             description="显示流水线各阶段的 LLM 调用耗时与 token 消耗",
         )
+
+        # compliance 命令 — 规格合规检查
+        compliance_parser = subparsers.add_parser(
+            "compliance",
+            help="规格合规检查 (Spec Compliance)",
+            description="检查 PRD 要求与实现代码的可追溯性，架构漂移检测，UIUX 合规验证",
+        )
+        compliance_parser.add_argument(
+            "--type",
+            choices=["all", "spec", "architecture", "uiux"],
+            default="all",
+            help="检查类型 (默认: all)",
+        )
+        compliance_parser.add_argument("--json", action="store_true", help="以 JSON 格式输出")
+        compliance_parser.add_argument(
+            "--save", action="store_true", help="保存报告到 output/"
+        )
+
+        # parity 命令 — 多宿主对等性检查
+        parity_parser = subparsers.add_parser(
+            "parity",
+            help="多宿主对等性检查",
+            description="检查所有宿主的 commands/skills 内容一致性",
+        )
+        parity_parser.add_argument(
+            "--reference",
+            default="claude-code",
+            help="参考宿主 (默认: claude-code)",
+        )
+        parity_parser.add_argument("--json", action="store_true", help="以 JSON 格式输出")
+        parity_parser.add_argument(
+            "--save", action="store_true", help="保存报告到 output/"
+        )
+
+        # context 命令 — 上下文记忆管理
+        context_parser = subparsers.add_parser(
+            "context",
+            help="上下文记忆管理",
+            description="管理跨 session 的项目记忆和 codified context",
+        )
+        context_subparsers = context_parser.add_subparsers(
+            dest="context_action",
+            title="上下文命令",
+        )
+        context_evolve_parser = context_subparsers.add_parser(
+            "evolve", help="进化 codified context"
+        )
+        context_evolve_parser.add_argument("--json", action="store_true", help="以 JSON 格式输出")
+        context_brief_parser = context_subparsers.add_parser(
+            "brief", help="自动生成 Session Brief"
+        )
+        context_brief_parser.add_argument("--json", action="store_true", help="以 JSON 格式输出")
+
+        # testgen 命令 — 从规格生成测试
+        testgen_parser = subparsers.add_parser(
+            "testgen",
+            help="从规格生成测试 (Spec-to-Test)",
+            description="从 PRD 和架构文档自动生成验收测试和 API 契约测试",
+        )
+        testgen_parser.add_argument(
+            "--type",
+            choices=["all", "acceptance", "contract"],
+            default="all",
+            help="生成类型 (默认: all)",
+        )
+        testgen_parser.add_argument("--json", action="store_true", help="以 JSON 格式输出")
+
+        # feedback-collect 命令 — 从 Git 历史收集反馈
+        feedback_collect_parser = subparsers.add_parser(
+            "feedback-collect",
+            help="从 Git 历史收集反馈",
+            description="分析 git log 提取教训并映射到知识域",
+        )
+        feedback_collect_parser.add_argument(
+            "--max-commits", type=int, default=100, help="分析的最大提交数 (默认 100)"
+        )
+        feedback_collect_parser.add_argument("--json", action="store_true", help="以 JSON 格式输出")
 
         # diff 命令 — 查看流水线阶段变更
         diff_parser = subparsers.add_parser(

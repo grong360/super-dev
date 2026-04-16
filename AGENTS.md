@@ -2,178 +2,180 @@
 
 ## Project Overview
 
-Super Dev is a Python CLI tool (v2.3.8) that orchestrates AI-driven development pipelines inside host environments (e.g., Claude Code). It is a governance and quality layer — not an independent AI agent — enforcing phase-based workflows with confirmation gates, quality scoring, and audit artifact generation.
+Super Dev is a Python CLI tool (v2.3.8) that orchestrates AI-driven development pipelines inside host environments (e.g., Claude Code). It provides governance, quality gates, and audit artifacts for commercial-grade software delivery. It is NOT an independent AI agent — it's a governance layer that runs inside a host's coding environment.
 
 ## Project Structure & Module Organization
 
 ```
 super_dev/
-  cli.py                    # Main CLI entry point (~295k lines), composed via mixins
-  cli_parser_mixin.py       # argparse command definitions
-  cli_analysis_mixin.py     # analysis subcommands
-  cli_governance_mixin.py   # governance/enforcement subcommands
-  cli_host_ops_mixin.py     # host tool operations (~210k lines)
-  cli_host_report_renderers.py  # host report rendering helpers
-  cli_experience_mixin.py   # UX enhancements
-  cli_deploy_runtime_mixin.py   # deployment/runtime commands
-  cli_release_quality_mixin.py  # release & quality commands
-  cli_spec_mixin.py         # spec management commands
-  branding.py               # CLI branding and visual identity
-  catalogs.py               # catalog data definitions
-  error_handler.py          # centralized error handling
-  exceptions.py             # custom exception classes
-  i18n.py                   # internationalization support
-  guard.py                  # guard/safety checks
-  tips.py                   # user tips and guidance
-  migrate.py                # migration utilities
-  onboarding.py             # first-run onboarding flow
-  completion.py             # shell completion support
-  terminal.py               # terminal utilities
-  version_check.py          # version checking logic
-  webhooks.py               # webhook handling
-  workflow_state.py         # workflow state management
-  workflow_harness.py       # workflow test harness
-  operational_harness.py    # operational test harness
-  framework_harness.py      # framework test harness
-  harness_registry.py       # harness registry
-  hook_harness.py           # hook test harness
-  frameworks.py             # framework detection/management
-  proof_pack.py             # proof pack artifact generation
-  release_readiness.py      # release readiness evaluation
-  pipeline_cost.py          # pipeline cost tracking
-  review_state.py           # review state management
-  reminders.py              # user reminders
-  project_templates.py      # project template definitions
-  knowledge_evolution.py    # knowledge base evolution
-  knowledge_tracker.py      # knowledge reference tracking
-  _enforcement_bridge.py    # bridge between enforcement and other modules
+  cli.py                         # Main CLI entry point (~298k lines), composed via mixins
+  cli_parser_mixin.py            # argparse command definitions
+  cli_analysis_mixin.py          # analysis subcommands
+  cli_governance_mixin.py        # governance/enforcement subcommands
+  cli_host_ops_mixin.py          # host tool operations (~227k lines)
+  cli_host_report_renderers.py   # host report rendering helpers
+  cli_experience_mixin.py        # UX enhancements
+  cli_deploy_runtime_mixin.py    # deployment/runtime commands
+  cli_release_quality_mixin.py   # release & quality commands
+  cli_spec_mixin.py              # spec management commands
+  branding.py                    # CLI branding and visual identity
+  catalogs.py                    # catalog data definitions
+  error_handler.py               # centralized error handling
+  exceptions.py                  # custom exception classes
+  i18n.py                        # internationalization support
+  guard.py                       # guard/safety checks
+  host_adapters.py               # host environment adapters
+  host_registry.py               # host registration/discovery
+  merge_safety.py                # merge safety checks
+  retry.py                       # retry utilities
+  runtime_evidence.py            # runtime evidence collection
+  seeai_design_system.py         # SEEAI design system definitions
+  seeai_smoke_scenarios.py       # SEEAI smoke test scenarios
+  sequential_thinking.py         # sequential thinking utilities
+  session_checkpoint.py          # session checkpoint management
+  workflow_contract.py           # workflow contract definitions
 
-  orchestrator/             # Pipeline engine, governance, quality gates
-    engine.py               # main pipeline engine driving phase transitions
-    governance.py           # governance policy enforcement
-    quality.py              # quality gate evaluation
-    knowledge.py            # knowledge injection into pipeline stages
-    knowledge_pusher.py     # knowledge push orchestration
-    overseer.py             # Overseer agent for plan-execute orchestration
-    plan_executor.py        # Plan-Execute engine for Claude-Codex hybrid mode
-    experts.py              # expert persona management in pipeline
-    context_compact.py      # context compaction for long pipelines
-    contracts.py            # pipeline contract definitions
-    telemetry.py            # pipeline telemetry and metrics
+  orchestrator/                  # Pipeline engine, governance, quality gates
+    engine.py                    # main pipeline engine driving phase transitions
+    governance.py                # governance policy enforcement
+    quality.py                   # quality gate evaluation
+    knowledge.py / knowledge_pusher.py  # knowledge injection into pipeline stages
+    overseer.py                  # Overseer agent for plan-execute orchestration
+    plan_executor.py             # Plan-Execute engine for Claude-Codex hybrid mode
+    experts.py                   # expert persona management in pipeline
+    context_compact.py           # context compaction for long pipelines
+    contracts.py                 # pipeline contract definitions
+    telemetry.py                 # pipeline telemetry and metrics
 
-  creators/                 # Document, prompt, frontend, and backend generators
-    document_generator.py   # PRD, architecture, UIUX document generation
+  creators/                      # Document, prompt, frontend, and backend generators
+    document_generator.py        # PRD, architecture, UIUX document generation
     document_generator_content_mixin.py  # document content generation mixin
-    prompt_generator.py     # LLM prompt construction
-    prompt_templates.py     # prompt template definitions
-    prompt_sections.py      # prompt section builders
-    frontend_builder.py     # frontend scaffolding
-    implementation_builder.py  # backend implementation scaffolding
-    spec_builder.py         # spec generation from documents
-    adr_generator.py        # Architecture Decision Record generation
-    api_contract.py         # API contract generation
-    component_scaffold.py   # component scaffolding
-    nextjs_scaffold.py      # Next.js project scaffolding
-    requirement_parser.py   # requirement parsing utilities
-    task_executor.py        # task execution within creator pipeline
-    creator.py              # base creator class
-    compact_template.py     # compact template utilities
+    prompt_generator.py / prompt_templates.py / prompt_sections.py  # LLM prompts
+    frontend_builder.py          # frontend scaffolding
+    implementation_builder.py    # backend implementation scaffolding
+    spec_builder.py              # spec generation from documents
+    adr_generator.py             # Architecture Decision Record generation
+    api_contract.py              # API contract generation
+    component_scaffold.py        # component scaffolding
+    nextjs_scaffold.py           # Next.js project scaffolding
+    requirement_parser.py        # requirement parsing utilities
+    task_executor.py             # task execution within creator pipeline
+    creator.py                   # base creator class
+    compact_template.py          # compact template utilities
 
-  design/                   # Design intelligence (aesthetics, UX, charts, codegen)
-    ui_intelligence.py      # UI design intelligence engine
-    aesthetics.py           # visual aesthetics analysis
-    ux_guide.py             # UX guidance rules
-    engine.py               # design engine orchestration
-    generator.py            # design artifact generation
-    codegen.py              # design-to-code generation
-    charts.py               # chart design generation
-    landing.py              # landing page design
-    tech_stack.py           # tech stack design decisions
-    tokens.py               # design token management
+  design/                        # Design intelligence (aesthetics, UX, charts, codegen)
+    ui_intelligence.py           # UI design intelligence engine
+    aesthetics.py                # visual aesthetics analysis
+    ux_guide.py                  # UX guidance rules
+    engine.py                    # design engine orchestration
+    generator.py                 # design artifact generation
+    codegen.py                   # design-to-code generation
+    charts.py                    # chart design generation
+    landing.py                   # landing page design
+    tech_stack.py                # tech stack design decisions
+    tokens.py                    # design token management
 
-  reviewers/                # Code review, red-team, quality gate, UI review
-    quality_gate.py         # quality threshold enforcement (default: 90)
-    quality_advisor.py      # quality improvement suggestions
-    redteam.py              # security red-team analysis
-    code_review.py          # automated code review
-    ui_review.py            # UI compliance review
-    validation_rules.py     # configurable validation rules engine
-    external_reviews.py     # external review integrations
-    review_agents.py        # review agent definitions
-    rules/                  # validation rule definitions
+  reviewers/                     # Code review, red-team, quality gate, UI review
+    quality_gate.py              # quality threshold enforcement (default: 90)
+    quality_advisor.py           # quality improvement suggestions
+    redteam.py                   # security red-team analysis
+    code_review.py               # automated code review
+    ui_review.py                 # UI compliance review
+    validation_rules.py          # configurable validation rules engine
+    external_reviews.py          # external review integrations
+    review_agents.py             # review agent definitions
+    rules/                       # validation rule definitions
 
-  enforcement/              # File-level validation and pre-coding checks
-    validation.py           # file-level validation (no emoji icons, color tokens, etc.)
-    pre_code_gate.py        # pre-coding checks
-    host_hooks.py           # hook integration with host tools
+  enforcement/                   # File-level validation and pre-coding checks
+    validation.py                # file-level validation (no emoji icons, color tokens, etc.)
+    pre_code_gate.py             # pre-coding checks
+    host_hooks.py                # hook integration with host tools
 
-  deployers/                # Delivery packaging, CI/CD, deployment rehearsals
-    delivery.py             # delivery packaging
-    cicd.py                 # CI/CD pipeline generation
-    rehearsal.py            # deployment rehearsal definitions
-    rehearsal_runner.py     # deployment rehearsal execution
-    migration.py            # deployment migration utilities
+  deployers/                     # Delivery packaging, CI/CD, deployment rehearsals
+    delivery.py                  # delivery packaging
+    cicd.py                      # CI/CD pipeline generation
+    rehearsal.py / rehearsal_runner.py  # deployment rehearsal definitions and execution
+    migration.py                 # deployment migration utilities
 
-  protocols/                # Shared protocol definitions
-    a2a.py                  # agent-to-agent protocol
-    output_schemas.py       # output schema definitions
+  protocols/                     # Shared protocol definitions
+    a2a.py                       # agent-to-agent protocol
+    output_schemas.py            # output schema definitions
 
-  integrations/             # External tool integration manager
-    manager.py              # integration lifecycle management
-    manager_content_mixin.py  # integration manager content mixin
-    install_manifest.py     # install manifest tracking
+  integrations/                  # External tool integration manager
+    manager.py                   # integration lifecycle management
+    manager_content_mixin.py     # integration manager content mixin
+    install_manifest.py          # install manifest tracking
 
-  web/                      # FastAPI-based web interface
-    api.py                  # main API application
-    helpers.py              # API helper functions
-    rate_limit.py           # API rate limiting
-    frontend/               # web frontend assets
-    routers/                # API route modules
+  skills/                        # Skill definitions for host environments
+    manager.py                   # skill lifecycle management
+    skill_template.py            # skill template generation
 
-  config/                   # Configuration management
-  experts/                  # Expert persona definitions (PM, Architect, etc.)
-  hooks/                    # Host tool hook integration
-  skills/                   # Skill definitions for host environments
-  analyzer/                 # Code and project analysis utilities
-  memory/                   # Session memory management
-  metrics/                  # Metrics collection and reporting
-  policy/                   # Policy engine for governance rules
-  session/                  # Session management
-  specs/                    # Spec management and templates
-  rules/                    # Rule definitions
-  data/                     # Static data files
-  utils/                    # Shared utility functions
-    logger.py               # logging utilities
-    structured_logging.py   # structured logging support
-  templates/                # Jinja/data templates
+  web/                           # FastAPI-based web interface
+    api.py                       # main API application
+    helpers.py                   # API helper functions
+    rate_limit.py                # API rate limiting
+    routers/                     # API route modules
+    frontend/                    # web frontend assets
 
-knowledge/                  # Curated domain knowledge base (frontend, backend, security, etc.)
-tests/
-  conftest.py               # shared pytest fixtures
-  benchmark.py              # performance benchmarks
-  unit/                     # unit tests (test_*.py)
-  integration/              # integration tests (CLI, web API)
-  e2e/                      # end-to-end smoke tests
-output/                     # generated pipeline artifacts (PRD, specs, research)
-.super-dev/                 # session state and workflow tracking
+  config/                        # Configuration management
+  experts/                       # Expert persona definitions (PM, Architect, etc.)
+  hooks/                         # Host tool hook integration
+  analyzer/                      # Code and project analysis utilities
+  memory/                        # Session memory management
+  metrics/                       # Metrics collection and reporting
+  policy/                        # Policy engine for governance rules
+  session/                       # Session management
+  specs/                         # Spec management and templates
+  rules/                         # Rule definitions
+  data/                          # Static data files
+  utils/                         # Shared utility functions (logger, structured_logging)
+  templates/                     # Jinja/data templates
+
+knowledge/                       # Curated domain knowledge base (28 categories)
+tests/                           # Test suites (unit, integration, e2e, benchmark)
+scripts/                         # Build/release/utility scripts
+output/                          # Generated pipeline artifacts (PRD, specs, research)
+.super-dev/                      # Session state and workflow tracking
+super-dev-website/               # Project website source
+super-dev-openclaw/              # OpenClaw plugin package
+templates/                       # Project templates for scaffolding
 ```
 
 ## Build, Test, and Development Commands
 
 ```bash
-pip install -e ".[dev]"                # install in development mode (Python 3.10+)
-super-dev                              # run the CLI
+# Install in development mode (requires Python 3.10+)
+pip install -e ".[dev]"
 
-ruff check super_dev/                  # check lint issues
-ruff check --fix super_dev/            # auto-fix lint issues
-black super_dev/ --check               # check formatting
-black super_dev/                       # apply formatting
-mypy super_dev/                        # type checking
+# Run the CLI
+super-dev
 
-pytest                                 # run all tests
-pytest tests/unit/test_workflow.py     # run a single test file
-pytest tests/unit/test_workflow.py::test_func -v  # run a specific test
-pytest --cov=super_dev                 # run with coverage
+# Linting & formatting
+ruff check super_dev/              # check lint issues
+ruff check --fix super_dev/        # auto-fix lint issues
+black super_dev/ --check           # check formatting
+black super_dev/                   # apply formatting
+
+# Type checking
+mypy super_dev/
+
+# Run all tests
+pytest
+
+# Run a single test file
+pytest tests/unit/test_workflow.py
+
+# Run a specific test
+pytest tests/unit/test_workflow.py::test_function_name -v
+
+# Run with coverage
+pytest --cov=super_dev
+
+# Performance benchmarks
+python tests/benchmark.py
+
+# Pre-flight checks before release
+bash scripts/preflight.sh
 ```
 
 ## Coding Style & Naming Conventions
@@ -207,24 +209,37 @@ chore: description              # maintenance
 release: description            # version release
 ```
 
-Common scopes: `orchestrator`, `enforcement`, `website`, `openclaw`. Keep messages concise, focused on "why." PRs should link to relevant issues; squash-merge is used for feature branches.
+Common scopes: `orchestrator`, `enforcement`, `website`, `openclaw`, `design`. Keep messages concise, focused on "why." PRs should link to relevant issues; squash-merge is used for feature branches.
 
 ## Architecture & Pipeline
 
 - **Pipeline phases**: discovery → intelligence → drafting → redteam → qa → delivery → deployment
-- **Flow contract**: research → docs → docs_confirm → spec → frontend → preview_confirm → backend → quality → delivery
+- **Super Dev flow contract**: research → docs → docs_confirm → spec → frontend → preview_confirm → backend → quality → delivery
 - **Plan-Execute mode**: Overseer agent decomposes tasks; Plan-Executor drives step-by-step execution (Claude-Codex hybrid)
 - **Configuration**: `super-dev.yaml` (domain, tech stack, quality gate, phases, experts)
 - **Session continuity**: Read `.super-dev/SESSION_BRIEF.md` before resuming; `.super-dev/workflow-state.json` tracks machine-readable state
-- **Key dependencies**: rich (CLI), pyyaml (config), openai (LLM calls), fastapi/uvicorn (web API), tenacity (retries)
+- **Key dependencies**: rich (CLI), pyyaml (config), openai (LLM calls), fastapi/uvicorn (web API), tenacity (retries), ddgs (search)
 
-### Coding Constraints
+## Coding Constraints
 
 - Check `package.json` / framework versions before writing code
 - Icons from declared library only (Lucide/Heroicons/Tabler), never emoji
 - No purple/pink gradient themes
 - Frontend fetch URLs must match backend route definitions exactly
 - Run `super-dev enforce validate` after UI code, `super-dev quality` after features
+- No emoji as functional icons or placeholders
+- Colors from design tokens only
+
+## Key Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/preflight.sh` | Pre-release validation checks |
+| `scripts/release.sh` | Version bump and release |
+| `scripts/publish.sh` | Publish to PyPI |
+| `scripts/validate-superdev.sh` | Validate Super Dev setup |
+| `scripts/check_delivery_ready.py` | Verify delivery artifacts |
+| `scripts/knowledge_scorer.py` | Score knowledge base entries |
 
 <!-- BEGIN SUPER DEV CODEX -->
 # Super Dev for Codex CLI

@@ -26,7 +26,7 @@ class ArtifactSpec:
 class DeliveryPackager:
     """交付包生成器"""
 
-    def __init__(self, project_dir: Path, name: str, version: str = "2.3.8"):
+    def __init__(self, project_dir: Path, name: str, version: str = "2.4.0"):
         self.project_dir = Path(project_dir).resolve()
         self.name = name
         self.version = version

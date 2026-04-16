@@ -885,3 +885,183 @@ class CliReleaseQualityMixin:
         if size < 1024 * 1024:
             return f"{size / 1024:.1f} KB"
         return f"{size / (1024 * 1024):.1f} MB"
+
+    # ==================== v3.0 Intelligence Commands ====================
+
+    def _cmd_compliance(self, args) -> int:
+        """Run spec compliance checks."""
+        project_dir = Path.cwd()
+        output_dir = project_dir / "output"
+        check_type = getattr(args, "type", "all")
+        as_json = getattr(args, "json", False)
+        save = getattr(args, "save", False)
+
+        results: dict[str, Any] = {}
+
+        if check_type in ("all", "spec"):
+            from ..reviewers.spec_compliance import run_spec_compliance
+
+            report = run_spec_compliance(project_dir, output_dir if save else None)
+            results["spec_compliance"] = report.to_dict()
+            if not as_json:
+                self.console.print("\n[bold]Spec Compliance[/bold]")
+                self.console.print(
+                    f"  Requirements: {report.total_requirements} | "
+                    f"Found: {report.found} | Partial: {report.partial} | Missing: {report.missing}"
+                )
+                self.console.print(f"  Coverage: {report.coverage_percent}% | Score: {report.score}/100")
+
+        if check_type in ("all", "architecture"):
+            from ..reviewers.architecture_drift import run_architecture_drift
+
+            report = run_architecture_drift(project_dir, output_dir if save else None)
+            results["architecture_drift"] = report.to_dict()
+            if not as_json:
+                self.console.print("\n[bold]Architecture Drift[/bold]")
+                self.console.print(
+                    f"  Drifts: {report.total_drifts} | Critical: {report.critical_count} | Score: {report.score}/100"
+                )
+
+        if check_type in ("all", "uiux"):
+            from ..reviewers.uiux_compliance import run_uiux_compliance
+
+            report = run_uiux_compliance(project_dir, output_dir if save else None)
+            results["uiux_compliance"] = report.to_dict()
+            if not as_json:
+                self.console.print("\n[bold]UIUX Compliance[/bold]")
+                self.console.print(
+                    f"  Files scanned: {report.files_scanned} | Violations: {report.total_violations} | "
+                    f"Critical: {report.critical_count} | Score: {report.score}/100"
+                )
+
+        if as_json:
+            self.console.print_json(json.dumps(results, indent=2, ensure_ascii=False))
+        return 0
+
+    def _cmd_parity(self, args) -> int:
+        """Run multi-host parity check."""
+        from ..integrations.parity_verifier import run_parity_check
+
+        project_dir = Path.cwd()
+        reference = getattr(args, "reference", "claude-code")
+        as_json = getattr(args, "json", False)
+        save = getattr(args, "save", False)
+
+        report = run_parity_check(project_dir, reference, project_dir / "output" if save else None)
+
+        if as_json:
+            self.console.print_json(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+        else:
+            self.console.print("\n[bold]Multi-Host Parity Report[/bold]")
+            self.console.print(f"  Hosts scanned: {report.hosts_scanned}")
+            self.console.print(f"  Total items: {report.total_items}")
+            self.console.print(f"  Parity issues: {report.parity_issues}")
+            self.console.print(f"  Score: {report.score}/100")
+
+            issues = [d for d in report.diffs if d.is_parity_issue]
+            if issues:
+                self.console.print("\n[yellow]Parity issues found:[/yellow]")
+                for d in issues[:10]:
+                    missing = ", ".join(d.hosts_missing_it) or "(none)"
+                    self.console.print(f"  - {d.item_name} ({d.item_type}): missing in [{missing}]")
+        return 0
+
+    def _cmd_hooks(self, args) -> int:
+        """Manage host hooks."""
+        hooks_action = getattr(args, "hooks_action", None)
+        if hooks_action != "generate":
+            self.console.print("[yellow]Usage: super-dev hooks generate [--host HOST] [--dry-run][/yellow]")
+            return 1
+
+        from ..hooks.host_hooks_generator import generate_host_hooks
+
+        project_dir = Path.cwd()
+        hosts = getattr(args, "host", None)
+        dry_run = getattr(args, "dry_run", False)
+
+        result = generate_host_hooks(project_dir, hosts, dry_run)
+
+        self.console.print(f"\n[bold]Hooks Generation[/bold] {'(dry-run)' if dry_run else ''}")
+        for config in result.generated:
+            self.console.print(f"  [green]+[/green] {config.host_name}: {config.config_path}")
+        for err in result.errors:
+            self.console.print(f"  [red]x[/red] {err}")
+        return 0
+
+    def _cmd_context(self, args) -> int:
+        """Manage codified context."""
+        context_action = getattr(args, "context_action", None)
+
+        if context_action == "evolve":
+            from ..memory.codified_context import evolve_codified_context
+
+            report = evolve_codified_context(Path.cwd())
+
+            if getattr(args, "json", False):
+                self.console.print_json(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+            else:
+                self.console.print("\n[bold]Codified Context Evolution[/bold]")
+                self.console.print(f"  Entries: {report.total_entries}")
+                self.console.print(f"  Total chars: {report.total_chars}")
+                self.console.print(f"  Output: {report.output_path}")
+
+        elif context_action == "brief":
+            from ..memory.session_auto_brief import generate_auto_brief
+
+            result = generate_auto_brief(Path.cwd())
+
+            if getattr(args, "json", False):
+                self.console.print_json(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+            else:
+                self.console.print("\n[bold]Auto Session Brief[/bold]")
+                self.console.print(f"  Phases: {result.phases_completed}/{result.phases_total}")
+                self.console.print(f"  Current: {result.current_phase or '(none)'}")
+                self.console.print(f"  Next: {result.next_step}")
+                self.console.print(f"  Output: {result.brief_path}")
+        else:
+            self.console.print("[yellow]Usage: super-dev context <evolve|brief>[/yellow]")
+            return 1
+        return 0
+
+    def _cmd_testgen(self, args) -> int:
+        """Generate tests from spec artifacts."""
+        from ..creators.test_generator import run_test_generation
+
+        project_dir = Path.cwd()
+        as_json = getattr(args, "json", False)
+
+        report = run_test_generation(project_dir)
+
+        if as_json:
+            self.console.print_json(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+        else:
+            self.console.print("\n[bold]Test Generation Report[/bold]")
+            self.console.print(f"  Acceptance tests: {report.acceptance_tests}")
+            self.console.print(f"  Contract tests: {report.contract_tests}")
+            self.console.print(f"  Total generated: {report.total_generated}")
+            for t in report.tests:
+                self.console.print(f"  [green]+[/green] {t.test_type}: {t.path}")
+        return 0
+
+    def _cmd_feedback_collect(self, args) -> int:
+        """Collect feedback from git history."""
+        from ..reviewers.feedback_collector import run_feedback_collection
+
+        project_dir = Path.cwd()
+        max_commits = getattr(args, "max_commits", 100)
+
+        report = run_feedback_collection(project_dir, max_commits)
+
+        if getattr(args, "json", False):
+            self.console.print_json(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+        else:
+            self.console.print("\n[bold]Feedback Collection Report[/bold]")
+            self.console.print(f"  Commits analyzed: {report.total_commits_analyzed}")
+            self.console.print(f"  Feedback entries: {report.feedback_entries}")
+            if report.domain_distribution:
+                self.console.print("  Domain distribution:")
+                for domain, count in sorted(
+                    report.domain_distribution.items(), key=lambda x: -x[1]
+                ):
+                    self.console.print(f"    - {domain}: {count}")
+        return 0

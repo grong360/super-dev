@@ -91,6 +91,9 @@ class QualityGateResult:
                 "accessibility": "CODE",
                 "ui_quality": "UI",
                 "schema_drift": "CODE",
+                "spec_compliance": "ARCHITECT",
+                "architecture_drift": "ARCHITECT",
+                "uiux_compliance": "UI",
             }
 
             expert_results: dict[str, dict] = {}
@@ -391,6 +394,18 @@ class QualityGateChecker:
         },
         "schema_drift": {
             "weight": 0.8,
+            "required": False,
+        },
+        "spec_compliance": {
+            "weight": 2.0,
+            "required": True,
+        },
+        "architecture_drift": {
+            "weight": 2.5,
+            "required": True,
+        },
+        "uiux_compliance": {
+            "weight": 2.0,
             "required": False,
         },
     }
@@ -734,6 +749,83 @@ class QualityGateChecker:
                             score=70,
                             weight=0.6,
                             details="; ".join(kb_antipatterns[:5]),
+                        )
+                    )
+        except Exception:
+            pass
+
+        # 12. Spec compliance checks (only if compliance reports already exist)
+        try:
+            output_dir = self.project_dir / "output"
+            spec_compliance_path = output_dir / "spec-compliance.json"
+            if spec_compliance_path.exists():
+                compliance_data = json.loads(spec_compliance_path.read_text(encoding="utf-8"))
+                score = compliance_data.get("score", 0)
+                coverage = compliance_data.get("coverage_percent", 0)
+                total_reqs = compliance_data.get("total_requirements", 0)
+                if total_reqs > 0:
+                    status = CheckStatus.PASSED if score >= 80 else (
+                        CheckStatus.WARNING if score >= 50 else CheckStatus.FAILED
+                    )
+                    checks.append(
+                        QualityCheck(
+                            name="Spec Compliance (Requirement Traceability)",
+                            category="spec_compliance",
+                            description=f"Coverage: {coverage}% ({total_reqs} requirements)",
+                            status=status,
+                            score=score,
+                            weight=2.0,
+                        )
+                    )
+        except Exception:
+            pass
+
+        try:
+            output_dir = self.project_dir / "output"
+            drift_path = output_dir / "architecture-drift.json"
+            if drift_path.exists():
+                drift_data = json.loads(drift_path.read_text(encoding="utf-8"))
+                score = drift_data.get("score", 0)
+                total_drifts = drift_data.get("total_drifts", 0)
+                critical_count = sum(
+                    1 for d in drift_data.get("drifts", []) if d.get("severity") == "critical"
+                )
+                status = CheckStatus.PASSED if score >= 80 else (
+                    CheckStatus.WARNING if score >= 50 else CheckStatus.FAILED
+                )
+                checks.append(
+                    QualityCheck(
+                        name="Architecture Drift Detection",
+                        category="architecture_drift",
+                        description=f"Drifts: {total_drifts} (Critical: {critical_count})",
+                        status=status,
+                        score=score,
+                        weight=2.5,
+                    )
+                )
+        except Exception:
+            pass
+
+        try:
+            output_dir = self.project_dir / "output"
+            uiux_path = output_dir / "uiux-compliance.json"
+            if uiux_path.exists():
+                uiux_data = json.loads(uiux_path.read_text(encoding="utf-8"))
+                score = uiux_data.get("score", 0)
+                violations = uiux_data.get("total_violations", 0)
+                files_scanned = uiux_data.get("files_scanned", 0)
+                if files_scanned > 0:
+                    status = CheckStatus.PASSED if score >= 80 else (
+                        CheckStatus.WARNING if score >= 50 else CheckStatus.FAILED
+                    )
+                    checks.append(
+                        QualityCheck(
+                            name="UIUX Compliance (Icon/Token/Typography)",
+                            category="uiux_compliance",
+                            description=f"Violations: {violations} across {files_scanned} files",
+                            status=status,
+                            score=score,
+                            weight=2.0,
                         )
                     )
         except Exception:
