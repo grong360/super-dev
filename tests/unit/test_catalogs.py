@@ -87,25 +87,33 @@ def test_host_tool_catalog_ids_unique():
     assert ids == list(HOST_TOOL_IDS)
     assert len(ids) == len(set(ids))
     assert {
+        "claude",
         "claude-code",
         "cline",
         "codebuddy-cli",
         "codebuddy",
+        "codebuddy-cn",
+        "codex",
         "codex-cli",
+        "droid-cli",
         "cursor-cli",
         "windsurf",
         "gemini-cli",
+        "kimi-code",
         "kilo-code",
         "kiro-cli",
         "opencode",
         "qoder-cli",
+        "qwen-code",
         "roo-code",
         "vscode-copilot",
         "cursor",
         "kiro",
         "qoder",
         "trae",
-        "openclaw",
+        "trae-cn",
+        "trae-solo",
+        "trae-solocn",
         "workbuddy",
     }.issubset(set(ids))
 
@@ -119,31 +127,47 @@ def test_host_detection_catalogs_reference_known_hosts():
 def test_host_tool_category_map_is_complete():
     host_set = set(HOST_TOOL_IDS)
     assert set(HOST_TOOL_CATEGORY_MAP) == host_set
-    assert set(HOST_TOOL_CATEGORY_MAP.values()).issubset({"cli", "ide"})
+    assert set(HOST_TOOL_CATEGORY_MAP.values()).issubset({"cli", "ide", "assistant"})
 
 
 def test_primary_product_host_scope_is_locked():
-    assert len(PRIMARY_HOST_TOOL_IDS) == 21
-    assert len(PRODUCT_HOST_TOOL_IDS) == 22
-    assert SPECIAL_INSTALL_HOST_TOOL_IDS == ("openclaw",)
-    assert "openclaw" not in PRIMARY_HOST_TOOL_IDS
-    assert "openclaw" in PRODUCT_HOST_TOOL_IDS
+    assert len(PRIMARY_HOST_TOOL_IDS) == 26
+    assert len(PRODUCT_HOST_TOOL_IDS) == 26
+    assert SPECIAL_INSTALL_HOST_TOOL_IDS == ()
+    assert "claude" in PRIMARY_HOST_TOOL_IDS
+    assert "codex" in PRIMARY_HOST_TOOL_IDS
+    assert "droid-cli" in PRIMARY_HOST_TOOL_IDS
+    assert "droid-cli" in PRODUCT_HOST_TOOL_IDS
     assert "workbuddy" in PRIMARY_HOST_TOOL_IDS
     assert "workbuddy" in PRODUCT_HOST_TOOL_IDS
     assert "antigravity" in PRIMARY_HOST_TOOL_IDS
+    assert "kimi-code" in PRIMARY_HOST_TOOL_IDS
+    assert "qwen-code" in PRIMARY_HOST_TOOL_IDS
+    assert "codebuddy-cn" in PRIMARY_HOST_TOOL_IDS
+    assert "trae-cn" in PRIMARY_HOST_TOOL_IDS
+    assert "trae-solo" in PRIMARY_HOST_TOOL_IDS
+    assert "trae-solocn" in PRIMARY_HOST_TOOL_IDS
 
 
 @pytest.mark.parametrize(
     ("alias", "expected"),
     [
-        ("codex", "codex-cli"),
-        ("claude", "claude-code"),
+        ("codex", "codex"),
+        ("codex cli", "codex-cli"),
+        ("claude", "claude"),
+        ("claude code", "claude-code"),
         ("gemini", "gemini-cli"),
+        ("kimi", "kimi-code"),
         ("copilot", "copilot-cli"),
         ("cursor", "cursor"),
         ("cursor cli", "cursor-cli"),
+        ("codebuddy cn", "codebuddy-cn"),
+        ("qwen", "qwen-code"),
         ("vscode", "vscode-copilot"),
         ("腾讯虾", "workbuddy"),
+        ("trae cn", "trae-cn"),
+        ("trae solo", "trae-solo"),
+        ("trae solo cn", "trae-solocn"),
     ],
 )
 def test_normalize_host_tool_id_supports_product_aliases(alias: str, expected: str):
@@ -164,12 +188,15 @@ def test_alias_entries_do_not_shadow_canonical_host_ids():
 
 
 def test_runtime_validation_overrides_prefer_special_host_adapters():
-    overrides = host_runtime_validation_overrides("openclaw")
+    overrides = host_runtime_validation_overrides("droid-cli")
 
     assert overrides["runtime_checklist"]
     assert overrides["pass_criteria"]
     assert overrides["resume_checklist"]
-    assert any("比赛入口" in item or "super-dev-seeai" in item for item in overrides["runtime_checklist"])
+    assert any(
+        "比赛入口" in item or "super-dev-seeai" in item for item in overrides["runtime_checklist"]
+    )
+    assert any("droid exec --session-id" in item for item in overrides["resume_checklist"])
 
 
 def test_host_usage_guide_tracks_primary_product_hosts():
@@ -177,12 +204,18 @@ def test_host_usage_guide_tracks_primary_product_hosts():
     content = guide_path.read_text(encoding="utf-8")
     lines = content.splitlines()
 
-    assert (
-        "当前版本默认提供 `21` 个统一接入宿主，外加 `OpenClaw` 这类独立手动安装宿主。"
-        in content
-    )
-    assert "OpenClaw" in content
+    assert "当前默认采用统一宿主矩阵。" in content
+    assert "Claude" in content
+    assert "Codex CLI" in content
+    assert "Codex" in content
+    assert "Qwen Code" in content
+    assert "CodeBuddyCN" in content
+    assert "TraeCN" in content
+    assert "Droid CLI" in content
     assert "WorkBuddy" in content
+    assert "Kimi Code" in content
+    assert "Trae SOLO" in content
+    assert "Trae SOLOCN" in content
 
     # 只提取宿主表的行（包含 Slash/非Slash/协议列的行）
     table_rows = [
@@ -196,30 +229,24 @@ def test_host_usage_guide_tracks_primary_product_hosts():
     ]
     assert len(table_rows) >= len(PRIMARY_HOST_TOOL_IDS)
 
-    host_names = [row.split("|")[1].strip() for row in table_rows[:21]]
-    assert host_names == [
+    host_names = {row.split("|")[1].strip() for row in table_rows}
+    assert {
         "Antigravity",
+        "Claude",
         "Claude Code",
-        "Cline",
+        "Droid CLI",
         "CodeBuddy CLI",
-        "CodeBuddy IDE",
+        "CodeBuddy",
+        "CodeBuddyCN",
         "WorkBuddy",
-        "Copilot CLI",
-        "Cursor CLI",
-        "Cursor IDE",
-        "Gemini CLI",
-        "Kiro CLI",
-        "Kiro IDE",
-        "Kilo Code",
-        "OpenCode",
-        "Qoder CLI",
-        "Qoder IDE",
-        "Roo Code",
-        "VS Code Copilot",
-        "Windsurf",
+        "Codex CLI",
         "Codex",
+        "Qwen Code",
+        "TraeCN",
         "Trae",
-    ]
+        "Trae SOLO",
+        "Trae SOLOCN",
+    }.issubset(host_names)
 
 
 def test_host_override_path_candidates_support_explicit_env_override(temp_project_dir, monkeypatch):

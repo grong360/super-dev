@@ -8,11 +8,18 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .framework_harness import FrameworkHarnessBuilder
 from .hook_harness import HookHarnessBuilder
 from .workflow_harness import WorkflowHarnessBuilder
+
+
+class _HarnessBuilder(Protocol):
+    def build(self, *args: Any, **kwargs: Any) -> Any: ...
+
+    def write(self, report: Any) -> dict[str, Path]: ...
+
 
 HARNESS_LABELS: dict[str, str] = {
     "workflow": "Workflow Continuity",
@@ -28,7 +35,7 @@ def build_operational_harness_payload(
     write_reports: bool = True,
 ) -> dict[str, Any]:
     project_path = Path(project_dir).resolve()
-    builders = {
+    builders: dict[str, _HarnessBuilder] = {
         "workflow": WorkflowHarnessBuilder(project_path),
         "framework": FrameworkHarnessBuilder(project_path),
         "hooks": HookHarnessBuilder(project_path),

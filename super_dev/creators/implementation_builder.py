@@ -1,7 +1,7 @@
 """
-实现骨架生成器
+宿主实现参考生成器
 
-根据结构化需求生成前端/后端代码骨架，帮助从文档快速进入实现阶段。
+根据结构化需求生成前端/后端实现参考模板，帮助宿主从文档阶段稳定进入实现阶段。
 """
 
 from __future__ import annotations
@@ -9,11 +9,12 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 from xml.sax.saxutils import escape as xml_escape
 
 
 class ImplementationScaffoldBuilder:
-    """项目实现骨架生成器"""
+    """项目宿主实现参考生成器"""
 
     def __init__(
         self,
@@ -34,11 +35,12 @@ class ImplementationScaffoldBuilder:
         cleaned = re.sub(r"-{2,}", "-", cleaned)
         return cleaned or "super-dev-app"
 
-    def _load_ui_contract(self) -> dict:
+    def _load_ui_contract(self) -> dict[str, Any]:
         contract_path = self.project_dir / "output" / f"{self.name}-ui-contract.json"
         if contract_path.exists():
             try:
-                return json.loads(contract_path.read_text(encoding="utf-8"))
+                payload = json.loads(contract_path.read_text(encoding="utf-8"))
+                return payload if isinstance(payload, dict) else {}
             except (json.JSONDecodeError, OSError):
                 pass
         return {}
@@ -91,7 +93,7 @@ class ImplementationScaffoldBuilder:
         return "\n".join(sections)
 
     def generate(self, requirements: list[dict]) -> dict:
-        """生成前后端实现骨架"""
+        """生成前后端实现参考模板"""
         module_requirements = self._build_module_requirements(requirements)
         result: dict[str, list[str]] = {
             "frontend_files": [],
@@ -1163,8 +1165,8 @@ class ImplementationScaffoldBuilder:
             "export default function App() {\n"
             "  return (\n"
             f"    <main style={{maxWidth: 960, margin: '40px auto', fontFamily: \"{self._font_stack()}\"}}>\n"
-            f"      <h1>{safe_name} 实现骨架</h1>\n"
-            "      <p>该页面由 Super Dev 自动生成，按模块分区承接需求实现。</p>\n"
+            f"      <h1>{safe_name} 实现参考模板</h1>\n"
+            "      <p>该页面由 Super Dev 生成作为宿主实施参考，按模块分区承接需求实现。</p>\n"
             "      <div style={{display: 'flex', gap: 12, margin: '16px 0 24px', flexWrap: 'wrap'}}>\n"
             "        <Button>查看核心文档</Button>\n"
             '        <Button variant="secondary">进入模块实现</Button>\n'
@@ -1217,7 +1219,7 @@ class ImplementationScaffoldBuilder:
             f"export default function {component}() {{\n"
             "  return (\n"
             "    <div>\n"
-            f"      <p>{module_name} 模块初始骨架已创建，可在此实现业务逻辑。</p>\n"
+            f"      <p>{module_name} 模块初始实现参考已创建，可在此实现业务逻辑。</p>\n"
             "      <ul>\n"
             f"{checklist}\n"
             "      </ul>\n"
@@ -1623,7 +1625,7 @@ class ImplementationScaffoldBuilder:
         return (
             "<template>\n"
             '  <main class="shell">\n'
-            f"    <h1>{safe_name} 实现骨架</h1>\n"
+            f"    <h1>{safe_name} 实现参考模板</h1>\n"
             '    <div class="grid">\n' + "\n".join(cards) + "\n"
             "    </div>\n"
             "  </main>\n"
@@ -1641,7 +1643,7 @@ class ImplementationScaffoldBuilder:
         list_items = "\n".join(f"  <li>{req}</li>" for req in req_names) or "  <li>待补充需求</li>"
         return (
             "<template>\n"
-            f"  <p>{module_name} 模块初始骨架已创建，可在此实现业务逻辑。</p>\n"
+            f"  <p>{module_name} 模块初始实现参考已创建，可在此实现业务逻辑。</p>\n"
             "  <ul>\n"
             f"{list_items}\n"
             "  </ul>\n"
@@ -1671,7 +1673,7 @@ class ImplementationScaffoldBuilder:
         return (
             "\n".join(imports) + "\n\n"
             f'<main class="shell">\n'
-            f"  <h1>{safe_name} 实现骨架</h1>\n"
+            f"  <h1>{safe_name} 实现参考模板</h1>\n"
             '  <div class="grid">\n' + "\n".join(cards) + "\n"
             "  </div>\n"
             "</main>\n\n"
@@ -1685,7 +1687,7 @@ class ImplementationScaffoldBuilder:
     def _build_svelte_module(self, module_name: str, req_names: list[str]) -> str:
         items = "\n".join(f"<li>{req}</li>" for req in req_names) or "<li>待补充需求</li>"
         return (
-            f"<p>{module_name} 模块初始骨架已创建，可在此实现业务逻辑。</p>\n"
+            f"<p>{module_name} 模块初始实现参考已创建，可在此实现业务逻辑。</p>\n"
             "<ul>\n"
             f"{items}\n"
             "</ul>\n"
@@ -1709,7 +1711,7 @@ class ImplementationScaffoldBuilder:
             sections.append(
                 '<section style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:8px 0;">\n'
                 f"  <h3>{self._to_component(module_name)}</h3>\n"
-                f"  <p>{module_name} 模块初始骨架已创建，可在此实现业务逻辑。</p>\n"
+                f"  <p>{module_name} 模块初始实现参考已创建，可在此实现业务逻辑。</p>\n"
                 "  <ul>\n"
                 f"{req_items}\n"
                 "  </ul>\n"
@@ -1721,7 +1723,7 @@ class ImplementationScaffoldBuilder:
             "  selector: 'app-root',\n"
             "  template: `\n"
             f'    <main style="max-width:960px;margin:40px auto;font-family:{self._font_stack()};">\n'
-            f"      <h1>{safe_name} 实现骨架</h1>\n"
+            f"      <h1>{safe_name} 实现参考模板</h1>\n"
             f"{' '.join(sections)}\n"
             "    </main>\n"
             "  `,\n"

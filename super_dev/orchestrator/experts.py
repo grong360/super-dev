@@ -515,9 +515,16 @@ class ExpertDispatcher:
 
         调用顺序：PM → ARCHITECT → UI/UX → SECURITY → DBA → QA → DEVOPS
         """
-        from ..creators.document_generator import DocumentGenerator
+        result = ExpertTeamResult()
 
-        gen = DocumentGenerator(
+        pm_profile = EXPERT_PROFILES.get(ExpertRole.PM)
+        arch_profile = EXPERT_PROFILES.get(ExpertRole.ARCHITECT)
+        ui_profile = EXPERT_PROFILES.get(ExpertRole.UI)
+
+        # 1. PM 专家：生成 PRD（带专家视角）
+        prd_content, prd_score = self._generate_document_with_expert(
+            document_type="prd",
+            profile=pm_profile,
             name=name,
             description=description,
             platform=platform,
@@ -525,29 +532,9 @@ class ExpertDispatcher:
             backend=backend,
             domain=domain,
             language_preferences=language_preferences,
+            required_sections=["产品愿景", "功能需求", "验收标准"],
             **kwargs,
         )
-
-        result = ExpertTeamResult()
-
-        # 注入专家视角到文档生成
-        pm_profile = EXPERT_PROFILES.get(ExpertRole.PM)
-        arch_profile = EXPERT_PROFILES.get(ExpertRole.ARCHITECT)
-        ui_profile = EXPERT_PROFILES.get(ExpertRole.UI)
-
-        # 1. PM 专家：生成 PRD（带专家视角）
-        if pm_profile:
-            gen.expert_context = {
-                "role": pm_profile.title,
-                "goal": pm_profile.goal,
-                "thinking": pm_profile.thinking_framework,
-                "quality": pm_profile.quality_criteria,
-            }
-        prd_content = gen.generate_prd()
-        prd_score = self._score_document(prd_content, ["产品愿景", "功能需求", "验收标准"])
-        # 专家自检：用 quality_criteria 验证生成内容
-        if pm_profile:
-            prd_score = self._expert_quality_check(prd_content, pm_profile, prd_score)
         result.outputs.append(
             ExpertOutput(
                 role=ExpertRole.PM,
@@ -559,17 +546,19 @@ class ExpertDispatcher:
         )
 
         # 2. ARCHITECT 专家：生成架构文档（带专家视角）
-        if arch_profile:
-            gen.expert_context = {
-                "role": arch_profile.title,
-                "goal": arch_profile.goal,
-                "thinking": arch_profile.thinking_framework,
-                "quality": arch_profile.quality_criteria,
-            }
-        arch_content = gen.generate_architecture()
-        arch_score = self._score_document(arch_content, ["技术栈", "数据库", "API", "安全"])
-        if arch_profile:
-            arch_score = self._expert_quality_check(arch_content, arch_profile, arch_score)
+        arch_content, arch_score = self._generate_document_with_expert(
+            document_type="architecture",
+            profile=arch_profile,
+            name=name,
+            description=description,
+            platform=platform,
+            frontend=frontend,
+            backend=backend,
+            domain=domain,
+            language_preferences=language_preferences,
+            required_sections=["技术栈", "数据库", "API", "安全"],
+            **kwargs,
+        )
         result.outputs.append(
             ExpertOutput(
                 role=ExpertRole.ARCHITECT,
@@ -581,17 +570,19 @@ class ExpertDispatcher:
         )
 
         # 3. UI/UX 专家：生成 UI/UX 文档（带专家视角）
-        if ui_profile:
-            gen.expert_context = {
-                "role": ui_profile.title,
-                "goal": ui_profile.goal,
-                "thinking": ui_profile.thinking_framework,
-                "quality": ui_profile.quality_criteria,
-            }
-        uiux_content = gen.generate_uiux()
-        uiux_score = self._score_document(uiux_content, ["设计系统", "色彩", "组件"])
-        if ui_profile:
-            uiux_score = self._expert_quality_check(uiux_content, ui_profile, uiux_score)
+        uiux_content, uiux_score = self._generate_document_with_expert(
+            document_type="uiux",
+            profile=ui_profile,
+            name=name,
+            description=description,
+            platform=platform,
+            frontend=frontend,
+            backend=backend,
+            domain=domain,
+            language_preferences=language_preferences,
+            required_sections=["设计系统", "色彩", "组件"],
+            **kwargs,
+        )
         result.outputs.append(
             ExpertOutput(
                 role=ExpertRole.UI,
@@ -631,30 +622,65 @@ class ExpertDispatcher:
         PM / ARCHITECT / UI-UX 三份文档并行生成，最后汇总评分。
         若并行执行失败，自动退回到顺序执行。
         """
-        from ..creators.document_generator import DocumentGenerator
-
         logger = logging.getLogger(__name__)
-
-        gen = DocumentGenerator(
-            name=name,
-            description=description,
-            platform=platform,
-            frontend=frontend,
-            backend=backend,
-            domain=domain,
-            language_preferences=language_preferences,
-            **kwargs,
-        )
+        pm_profile = EXPERT_PROFILES.get(ExpertRole.PM)
+        arch_profile = EXPERT_PROFILES.get(ExpertRole.ARCHITECT)
+        ui_profile = EXPERT_PROFILES.get(ExpertRole.UI)
 
         try:
             loop = asyncio.get_running_loop()
             executor = ThreadPoolExecutor(max_workers=3)
 
-            prd_future = loop.run_in_executor(executor, gen.generate_prd)
-            arch_future = loop.run_in_executor(executor, gen.generate_architecture)
-            uiux_future = loop.run_in_executor(executor, gen.generate_uiux)
+            prd_future = loop.run_in_executor(
+                executor,
+                lambda: self._generate_document_with_expert(
+                    document_type="prd",
+                    profile=pm_profile,
+                    name=name,
+                    description=description,
+                    platform=platform,
+                    frontend=frontend,
+                    backend=backend,
+                    domain=domain,
+                    language_preferences=language_preferences,
+                    required_sections=["产品愿景", "功能需求", "验收标准"],
+                    **kwargs,
+                ),
+            )
+            arch_future = loop.run_in_executor(
+                executor,
+                lambda: self._generate_document_with_expert(
+                    document_type="architecture",
+                    profile=arch_profile,
+                    name=name,
+                    description=description,
+                    platform=platform,
+                    frontend=frontend,
+                    backend=backend,
+                    domain=domain,
+                    language_preferences=language_preferences,
+                    required_sections=["技术栈", "数据库", "API", "安全"],
+                    **kwargs,
+                ),
+            )
+            uiux_future = loop.run_in_executor(
+                executor,
+                lambda: self._generate_document_with_expert(
+                    document_type="uiux",
+                    profile=ui_profile,
+                    name=name,
+                    description=description,
+                    platform=platform,
+                    frontend=frontend,
+                    backend=backend,
+                    domain=domain,
+                    language_preferences=language_preferences,
+                    required_sections=["设计系统", "色彩", "组件"],
+                    **kwargs,
+                ),
+            )
 
-            prd_content, arch_content, uiux_content = await asyncio.gather(
+            (prd_content, prd_score), (arch_content, arch_score), (uiux_content, uiux_score) = await asyncio.gather(
                 prd_future,
                 arch_future,
                 uiux_future,
@@ -681,10 +707,8 @@ class ExpertDispatcher:
                 role=ExpertRole.PM,
                 document_type="prd",
                 content=prd_content,
-                quality_score=self._score_document(
-                    prd_content, ["产品愿景", "功能需求", "验收标准"]
-                ),
-                metadata={"name": name, "platform": platform},
+                quality_score=prd_score,
+                metadata={"name": name, "platform": platform, "expert_active": True},
             )
         )
 
@@ -693,10 +717,8 @@ class ExpertDispatcher:
                 role=ExpertRole.ARCHITECT,
                 document_type="architecture",
                 content=arch_content,
-                quality_score=self._score_document(
-                    arch_content, ["技术栈", "数据库", "API", "安全"]
-                ),
-                metadata={"frontend": frontend, "backend": backend},
+                quality_score=arch_score,
+                metadata={"frontend": frontend, "backend": backend, "expert_active": True},
             )
         )
 
@@ -705,19 +727,64 @@ class ExpertDispatcher:
                 role=ExpertRole.UI,
                 document_type="uiux",
                 content=uiux_content,
-                quality_score=self._score_document(uiux_content, ["设计系统", "色彩", "组件"]),
-                metadata={"platform": platform},
+                quality_score=uiux_score,
+                metadata={"platform": platform, "expert_active": True},
             )
         )
 
         scores = [o.quality_score for o in result.outputs]
         result.total_score = sum(scores) / len(scores) if scores else 0.0
         result.summary = (
-            f"专家团队协作完成（并行模式）：生成 {len(result.outputs)} 份文档，"
+            f"专家团队协作完成（并行模式）：{len(result.outputs)} 位专家在线生成 {len(result.outputs)} 份文档，"
             f"平均质量分 {result.total_score:.0f}/100"
         )
 
         return result
+
+    def _generate_document_with_expert(
+        self,
+        *,
+        document_type: Literal["prd", "architecture", "uiux"],
+        profile: ExpertProfile | None,
+        name: str,
+        description: str,
+        platform: str,
+        frontend: str,
+        backend: str,
+        domain: str,
+        language_preferences: list[str] | None,
+        required_sections: list[str],
+        **kwargs,
+    ) -> tuple[str, int]:
+        from ..creators.document_generator import DocumentGenerator
+
+        generator = DocumentGenerator(
+            name=name,
+            description=description,
+            platform=platform,
+            frontend=frontend,
+            backend=backend,
+            domain=domain,
+            language_preferences=language_preferences,
+            **kwargs,
+        )
+        if profile:
+            generator.expert_context = {
+                "role": profile.title,
+                "goal": profile.goal,
+                "thinking": profile.thinking_framework,
+                "quality": profile.quality_criteria,
+            }
+        generate_fn = {
+            "prd": generator.generate_prd,
+            "architecture": generator.generate_architecture,
+            "uiux": generator.generate_uiux,
+        }[document_type]
+        content = generate_fn()
+        score = self._score_document(content, required_sections)
+        if profile:
+            score = self._expert_quality_check(content, profile, score)
+        return content, score
 
     def dispatch_redteam_review(
         self,
@@ -780,6 +847,10 @@ class ExpertDispatcher:
         )
         result = checker.check(redteam_report=redteam_report)
         content = result.to_markdown()
+        from ..reviewers.ui_review import UIReviewReport
+
+        ui_review_report = cast(UIReviewReport | None, checker.latest_ui_review_report)
+        ui_review_payload = ui_review_report.to_dict() if ui_review_report is not None else None
 
         return ExpertOutput(
             role=ExpertRole.QA,
@@ -790,11 +861,7 @@ class ExpertDispatcher:
                 "passed": result.passed,
                 "scenario": result.scenario,
                 "weighted_score": result.weighted_score,
-                "ui_review": (
-                    checker.latest_ui_review_report.to_dict()
-                    if checker.latest_ui_review_report is not None
-                    else None
-                ),
+                "ui_review": ui_review_payload,
             },
         )
 

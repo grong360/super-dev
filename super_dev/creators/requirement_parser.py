@@ -409,10 +409,16 @@ _TECH_PREFERENCE_KEYWORDS: dict[str, dict[str, tuple[str, ...]]] = {
         "nuxt": ("Nuxt", "nuxt", "nuxtjs"),
         "angular": ("Angular", "angular"),
         "svelte": ("Svelte", "svelte"),
+        "expo": ("Expo", "expo"),
         "flutter": ("Flutter", "flutter"),
         "react_native": ("React Native", "react-native", "rn"),
         "uni_app": ("uni-app", "uniapp", "uni-app"),
         "taro": ("Taro", "taro"),
+        "tauri": ("Tauri", "tauri"),
+        "electron": ("Electron", "electron"),
+        "wails": ("Wails", "wails"),
+        "ionic": ("Ionic", "ionic"),
+        "capacitor": ("Capacitor", "capacitor"),
     },
     "backend": {
         "node": ("Node.js", "node", "nodejs", "express", "koa", "nest"),
@@ -430,6 +436,27 @@ _TECH_PREFERENCE_KEYWORDS: dict[str, dict[str, tuple[str, ...]]] = {
         "supabase": ("Supabase", "supabase"),
         "firebase": ("Firebase", "firebase"),
     },
+}
+
+_TECH_PREFERENCE_PRIORITY: dict[str, dict[str, int]] = {
+    "frontend": {
+        "expo": 120,
+        "react_native": 110,
+        "next": 105,
+        "nuxt": 105,
+        "tauri": 100,
+        "electron": 100,
+        "wails": 100,
+        "ionic": 95,
+        "capacitor": 95,
+        "uni_app": 95,
+        "taro": 95,
+        "flutter": 90,
+        "angular": 85,
+        "svelte": 85,
+        "vue": 80,
+        "react": 70,
+    }
 }
 
 _BUSINESS_CONSTRAINT_PATTERNS: list[tuple[str, str]] = [
@@ -881,10 +908,22 @@ class RequirementParser:
         lowered = text.lower()
         prefs: dict[str, str] = {}
         for category, techs in _TECH_PREFERENCE_KEYWORDS.items():
+            best_match: tuple[int, int, int, str] | None = None
+            priorities = _TECH_PREFERENCE_PRIORITY.get(category, {})
             for tech_name, keywords in techs.items():
-                if any(kw.lower() in lowered for kw in keywords):
-                    prefs[category] = tech_name
-                    break
+                matched = [kw for kw in keywords if kw.lower() in lowered]
+                if not matched:
+                    continue
+                score = (
+                    len(matched),
+                    priorities.get(tech_name, 0),
+                    max(len(kw) for kw in matched),
+                    tech_name,
+                )
+                if best_match is None or score[:2] > best_match[:2]:
+                    best_match = score
+            if best_match is not None:
+                prefs[category] = best_match[3]
         return prefs
 
     def _extract_non_functional_requirements(self, text: str) -> dict[str, str]:
@@ -1070,99 +1109,187 @@ class RequirementParser:
         if len(req_titles) > 4:
             focus += " ..."
 
+        def phase(
+            *,
+            phase_id: str,
+            title: str,
+            objective: str,
+            deliverables: list[str],
+            host_playbook: list[str],
+            hard_gates: list[str],
+        ) -> dict:
+            return {
+                "id": phase_id,
+                "title": title,
+                "objective": objective,
+                "deliverables": deliverables,
+                "host_playbook": host_playbook,
+                "hard_gates": hard_gates,
+            }
+
         if request_mode == "bugfix":
             return [
-                {
-                    "id": "phase-1",
-                    "title": "问题复现与影响分析",
-                    "objective": "先锁定错误现象、复现步骤、影响范围与回归风险。",
-                    "deliverables": ["问题摘要", "复现步骤", "影响范围清单", "回归风险说明"],
-                },
-                {
-                    "id": "phase-2",
-                    "title": "轻量文档冻结",
-                    "objective": "以补丁方式更新 PRD / Architecture / UIUX，记录根因与修复边界。",
-                    "deliverables": ["补丁 PRD", "补丁架构说明", "补丁 UIUX", "确认门状态"],
-                },
-                {
-                    "id": "phase-3",
-                    "title": "定点修复与回归验证",
-                    "objective": "完成最小必要修复，并覆盖主路径与回归风险。",
-                    "deliverables": ["修复实现", "前端运行验证", "回归测试结果"],
-                },
-                {
-                    "id": "phase-4",
-                    "title": "质量门禁与交付",
-                    "objective": "重新通过 quality gate、proof pack 与发布检查。",
-                    "deliverables": ["质量门禁报告", "Proof Pack", "交付说明"],
-                },
+                phase(
+                    phase_id="phase-1",
+                    title="问题复现与影响分析",
+                    objective="先锁定错误现象、复现步骤、影响范围与回归风险。",
+                    deliverables=["问题摘要", "复现步骤", "影响范围清单", "回归风险说明"],
+                    host_playbook=[
+                        "先复现、再定位、后修复；不要先动代码。",
+                        "明确真实用户影响链路和回归面，再决定修复边界。",
+                    ],
+                    hard_gates=["必须写清复现步骤和影响范围后才能进入补丁文档。"],
+                ),
+                phase(
+                    phase_id="phase-2",
+                    title="轻量文档冻结",
+                    objective="以补丁方式更新 PRD / Architecture / UIUX，记录根因与修复边界。",
+                    deliverables=["补丁 PRD", "补丁架构说明", "补丁 UIUX", "确认门状态"],
+                    host_playbook=[
+                        "先把补丁边界写进文档，再让宿主改代码。",
+                        "如果修复影响 UI 或架构，必须同步更新对应文档真源。",
+                    ],
+                    hard_gates=["docs_confirm 未通过前，不允许进入补丁实现。"],
+                ),
+                phase(
+                    phase_id="phase-3",
+                    title="定点修复与回归验证",
+                    objective="完成最小必要修复，并覆盖主路径与回归风险。",
+                    deliverables=["修复实现", "前端运行验证", "回归测试结果"],
+                    host_playbook=[
+                        "只做最小必要修复，避免顺手改出第二个问题。",
+                        "所有修复必须带主路径回归和异常路径验证。",
+                    ],
+                    hard_gates=["质量回归未完成前，不允许进入交付。"],
+                ),
+                phase(
+                    phase_id="phase-4",
+                    title="质量门禁与交付",
+                    objective="重新通过 quality gate、proof pack 与发布检查。",
+                    deliverables=["质量门禁报告", "Proof Pack", "交付说明"],
+                    host_playbook=[
+                        "把这次修复的根因、验证和风险留进交付证据。",
+                        "没有质量门和 proof-pack，就不算修复闭环。",
+                    ],
+                    hard_gates=["quality gate 未恢复通过前，不允许宣告修复完成。"],
+                ),
             ]
 
         if scenario == "0-1":
             return [
-                {
-                    "id": "phase-1",
-                    "title": "需求对齐与文档冻结",
-                    "objective": "冻结 PRD/架构/UIUX 文档并建立执行边界。",
-                    "deliverables": ["PRD v1", "Architecture v1", "UIUX v1", "风险清单"],
-                },
-                {
-                    "id": "phase-2",
-                    "title": "前端先行交付",
-                    "objective": "先交付可演示前端，以便快速验证业务流程。",
-                    "deliverables": ["前端信息架构", "页面骨架", "设计令牌", "交互演示"],
-                },
-                {
-                    "id": "phase-3",
-                    "title": "后端与数据能力",
-                    "objective": "围绕核心流程构建 API、数据模型和权限控制。",
-                    "deliverables": ["API 契约", "数据库迁移", "服务模块", "鉴权策略"],
-                },
-                {
-                    "id": "phase-4",
-                    "title": "联调与质量门禁",
-                    "objective": "完成端到端联调并通过质量门禁。",
-                    "deliverables": ["红队审查报告", "质量门禁报告", "回归测试清单"],
-                },
-                {
-                    "id": "phase-5",
-                    "title": "上线与迭代计划",
-                    "objective": "准备上线交付并规划 1-N+1 迭代路线。",
-                    "deliverables": ["发布清单", "运维手册", "迭代 Backlog"],
-                },
+                phase(
+                    phase_id="phase-1",
+                    title="需求对齐与文档冻结",
+                    objective="冻结 PRD/架构/UIUX 文档并建立执行边界。",
+                    deliverables=["PRD v1", "Architecture v1", "UIUX v1", "风险清单"],
+                    host_playbook=[
+                        "先 research，再冻结三份核心文档；不要边聊边写代码。",
+                        "UIUX 里必须先锁图标、字体、token、组件生态和页面骨架。",
+                    ],
+                    hard_gates=["docs_confirm 未通过前，不允许创建 Spec 或开始实现。"],
+                ),
+                phase(
+                    phase_id="phase-2",
+                    title="前端先行交付",
+                    objective="先交付可演示前端，以便快速验证业务流程。",
+                    deliverables=["前端信息架构", "页面骨架", "设计令牌", "交互演示"],
+                    host_playbook=[
+                        "先做可演示主路径，再补次级页面；宿主必须围绕 UI 契约实现。",
+                        "必须先落实视觉方向、品牌信号、证明构图、组件工艺和框架 playbook。",
+                    ],
+                    hard_gates=["preview_confirm 未通过前，不允许进入 backend / quality / delivery。"],
+                ),
+                phase(
+                    phase_id="phase-3",
+                    title="后端与数据能力",
+                    objective="围绕核心流程构建 API、数据模型和权限控制。",
+                    deliverables=["API 契约", "数据库迁移", "服务模块", "鉴权策略"],
+                    host_playbook=[
+                        "后端围绕已确认的前端主路径补齐，不做文档之外的自由发挥。",
+                        "接口、权限、错误态和回退策略必须与前端场景逐一对应。",
+                    ],
+                    hard_gates=["没有已确认预览，就不允许把宿主推进后端实现。"],
+                ),
+                phase(
+                    phase_id="phase-4",
+                    title="联调与质量门禁",
+                    objective="完成端到端联调并通过质量门禁。",
+                    deliverables=["红队审查报告", "质量门禁报告", "回归测试清单"],
+                    host_playbook=[
+                        "把 UI、运行时、接口、权限、空态、异常态一起联调，不只测 happy path。",
+                        "质量门失败时先修问题，再刷新证据，不能跳去交付。",
+                    ],
+                    hard_gates=["quality gate 未通过前，不允许进入发布准备。"],
+                ),
+                phase(
+                    phase_id="phase-5",
+                    title="上线与迭代计划",
+                    objective="准备上线交付并规划 1-N+1 迭代路线。",
+                    deliverables=["发布清单", "运维手册", "迭代 Backlog"],
+                    host_playbook=[
+                        "交付要沉淀 proof-pack、release-readiness 和关键演示证据。",
+                        "把下一轮迭代明确成 backlog，而不是发布后再靠聊天回忆。",
+                    ],
+                    hard_gates=["交付证据不齐，不允许宣告商业级交付完成。"],
+                ),
             ]
 
         return [
-            {
-                "id": "phase-1",
-                "title": "增量需求与影响分析",
-                "objective": "确认变更边界、兼容性和风险。",
-                "deliverables": ["变更影响矩阵", "兼容性策略", "回滚方案"],
-            },
-            {
-                "id": "phase-2",
-                "title": "前端模块扩展",
-                "objective": "优先扩展用户可感知模块并保持设计一致性。",
-                "deliverables": ["新增页面/组件", "交互更新", "文案与埋点更新"],
-            },
-            {
-                "id": "phase-3",
-                "title": "后端能力扩展",
-                "objective": "按规范增加接口与数据能力，避免破坏存量系统。",
-                "deliverables": ["增量 API", "迁移脚本", "灰度开关"],
-            },
-            {
-                "id": "phase-4",
-                "title": "回归验证与发布",
-                "objective": "覆盖关键链路并完成灰度/正式发布。",
-                "deliverables": ["回归测试结果", "发布报告", "监控告警确认"],
-            },
-            {
-                "id": "phase-5",
-                "title": "持续优化",
-                "objective": f"围绕 {focus or '核心需求'} 持续迭代优化。",
-                "deliverables": ["性能优化清单", "体验优化清单", "后续版本计划"],
-            },
+            phase(
+                phase_id="phase-1",
+                title="增量需求与影响分析",
+                objective="确认变更边界、兼容性和风险。",
+                deliverables=["变更影响矩阵", "兼容性策略", "回滚方案"],
+                host_playbook=[
+                    "先建立 baseline，再判断增量需求会影响哪些文档、页面和接口。",
+                    "不要把已有项目当 0-1 重做；先尊重现状，再设计变化。",
+                ],
+                hard_gates=["baseline 未确认前，不允许宿主直接冲实现。"],
+            ),
+            phase(
+                phase_id="phase-2",
+                title="前端模块扩展",
+                objective="优先扩展用户可感知模块并保持设计一致性。",
+                deliverables=["新增页面/组件", "交互更新", "文案与埋点更新"],
+                host_playbook=[
+                    "先改用户感知最强的页面和流程，再扩散到技术细节。",
+                    "新增模块必须继承既有 token、组件生态和新的 UI 契约，不允许另起一套视觉语言。",
+                ],
+                hard_gates=["preview_confirm 未通过前，不允许进入增量后端和发布。"],
+            ),
+            phase(
+                phase_id="phase-3",
+                title="后端能力扩展",
+                objective="按规范增加接口与数据能力，避免破坏存量系统。",
+                deliverables=["增量 API", "迁移脚本", "灰度开关"],
+                host_playbook=[
+                    "先对齐前端/产品路径再扩接口，保证改动有真实调用链。",
+                    "兼容性、回滚、灰度策略要与新增接口一起设计。",
+                ],
+                hard_gates=["没有已确认预览，不允许宿主推进后端能力扩展。"],
+            ),
+            phase(
+                phase_id="phase-4",
+                title="回归验证与发布",
+                objective="覆盖关键链路并完成灰度/正式发布。",
+                deliverables=["回归测试结果", "发布报告", "监控告警确认"],
+                host_playbook=[
+                    "把旧功能、增量功能、权限链路和异常态一起回归，不只验新增 happy path。",
+                    "先过 quality gate，再整理 proof-pack 和 release-readiness。",
+                ],
+                hard_gates=["quality gate 未通过前，不允许进入发布动作。"],
+            ),
+            phase(
+                phase_id="phase-5",
+                title="持续优化",
+                objective=f"围绕 {focus or '核心需求'} 持续迭代优化。",
+                deliverables=["性能优化清单", "体验优化清单", "后续版本计划"],
+                host_playbook=[
+                    "把性能、体验、稳定性和商业转化继续列成下一轮明确任务。",
+                    "继续沿同一套流程推进，而不是回到自由聊天式开发。",
+                ],
+                hard_gates=["没有明确 backlog 和证据，不算增量闭环完成。"],
+            ),
         ]
 
     def build_frontend_modules(self, requirements: list[dict]) -> list[dict]:

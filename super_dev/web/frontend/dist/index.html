@@ -1774,7 +1774,7 @@
             <div v-if="activeTab === 'hosts'" class="card">
                 <h2>宿主工具生态</h2>
                 <div class="form-hint" style="margin-bottom: 12px;">
-                    安装后优先按宿主真实入口触发。支持 slash 的宿主使用 `/super-dev`；不支持 slash 的宿主统一使用 `super-dev: 你的需求`。例如 Codex CLI 走 `AGENTS.md + Skill`，Trae 走项目级 `.trae/rules.md`。
+                    安装后优先按宿主真实入口触发。支持 slash 的宿主使用 `/super-dev`，恢复优先 `/super-dev-run resume`；不支持 slash 的宿主统一使用 `super-dev: 你的需求`，恢复时直接说 `super-dev: 继续当前流程`。已有项目做增量迭代、派生版本或缺陷修复时，必须先 baseline 再进入三文档与实现。
                 </div>
 
                 <div class="host-overview">
@@ -2099,192 +2099,35 @@
                         </div>
                     </div>
                     <div class="expert-panel" v-if="selectedExpert">
-                        <h3>{{ selectedExpert.name }} 建议生成</h3>
-                        <div class="form-group">
-                            <label>问题描述</label>
-                            <textarea v-model="expertPrompt" rows="6" placeholder="描述你的问题或上下文..."></textarea>
+                        <h3>{{ selectedExpert.name }}</h3>
+                        <p style="color:#666;">专家在正式流水线阶段自动参与，不再单独生成脱离流程的建议文本。</p>
+                        <div class="meta" v-if="selectedExpert.certification_label" style="margin-top: 10px;">
+                            认证级别：{{ selectedExpert.certification_label }}
                         </div>
-                        <div class="workflow-actions">
-                            <button class="btn btn-primary" :disabled="loading" @click="generateExpertAdvice">
-                                {{ loading ? '生成中...' : '生成建议' }}
-                            </button>
-                            <button class="btn btn-secondary" :disabled="!expertAdvice" @click="copyExpertAdvice">
-                                复制建议
-                            </button>
-                            <button class="btn btn-secondary" :disabled="loading" @click="loadExpertAdviceHistory">
-                                刷新历史
-                            </button>
+                        <div class="meta" v-if="selectedExpert.primary_entry" style="margin-top: 10px;">
+                            主入口：{{ selectedExpert.primary_entry }}
                         </div>
-                        <div v-if="expertAdviceFile" style="margin-top: 10px; color:#666; font-size:12px;">
-                            已保存: {{ expertAdviceFile }}
+                        <div class="meta" v-if="selectedExpert.trigger_context" style="margin-top: 10px;">
+                            触发方式：{{ selectedExpert.trigger_context }}
                         </div>
-                        <div v-if="expertAdvice" class="markdown-output" style="margin-top: 12px;" v-html="renderMarkdown(expertAdvice)">
-                        </div>
-                        <div class="advice-history">
-                            <h3 style="font-size: 14px; margin-bottom: 8px;">建议历史</h3>
-                            <div v-if="expertAdviceHistory.length">
-                                <div
-                                    class="history-item"
-                                    v-for="item in expertAdviceHistory"
-                                    :key="item.file_name"
-                                    @click="openExpertAdvice(item)"
-                                >
-                                    <div class="history-title">{{ item.file_name }}</div>
-                                    <div class="history-meta">{{ item.expert_id }} · {{ formatTime(item.updated_at) }}</div>
-                                </div>
-                            </div>
-                            <div v-else style="color:#666; font-size:12px;">暂无专家建议历史</div>
+                        <div class="meta" v-if="selectedExpert.notes" style="margin-top: 10px;">
+                            {{ selectedExpert.notes }}
                         </div>
                     </div>
                     <div class="expert-panel" v-else>
-                        <h3>专家建议</h3>
-                        <p style="color:#666;">点击左侧专家卡片后可输入问题并生成建议。</p>
+                        <h3>专家在线</h3>
+                        <p style="color:#666;">点击左侧专家卡片查看职责。真正的专家工作发生在需求拆解、研究、文档、前后端、质量和红队各阶段。</p>
                     </div>
                 </div>
             </div>
 
             <!-- 交付部署 -->
             <div v-if="activeTab === 'deploy'" class="card">
-                <h2>交付与部署配置生成</h2>
-                <div v-if="message" :class="['alert', message.type]">
-                    {{ message.text }}
-                </div>
-                <div class="form-group">
-                    <label>项目目录</label>
-                    <input v-model="projectDir" type="text" placeholder="." />
-                </div>
-                <div class="grid">
-                    <div class="form-group">
-                        <label>项目名称 (可选覆盖)</label>
-                        <input v-model="deployForm.name" type="text" placeholder="留空则使用配置中的 name" />
-                    </div>
-                    <div class="form-group">
-                        <label>CI/CD 平台</label>
-                        <select v-model="deployForm.cicd_platform">
-                            <option v-for="item in deployPlatforms" :key="item.id" :value="item.id">
-                                {{ item.name }}
-                            </option>
-                        </select>
-                    </div>
-                </div>
-                <div class="workflow-actions">
-                    <label style="display:flex; align-items:center; gap:8px; color:#555;">
-                        <input type="checkbox" v-model="deployForm.include_runtime" />
-                        包含 Docker / K8s 运行时配置
-                    </label>
-                    <label style="display:flex; align-items:center; gap:8px; color:#555;">
-                        <input type="checkbox" v-model="deployForm.overwrite" />
-                        覆盖已存在文件
-                    </label>
-                    <label style="display:flex; align-items:center; gap:8px; color:#555;">
-                        <input
-                            type="checkbox"
-                            v-model="deployForm.split_by_platform"
-                            :disabled="deployForm.cicd_platform !== 'all'"
-                        />
-                        all 模式拆分平台模板
-                    </label>
-                </div>
-                <div class="workflow-actions">
-                    <button class="btn btn-secondary" :disabled="loading" @click="runDeployPrecheck">
-                        预检环境
-                    </button>
-                    <button class="btn btn-secondary" :disabled="loading" @click="loadDeployRemediation">
-                        生成修复建议
-                    </button>
-                    <button class="btn btn-secondary" :disabled="loading" @click="exportDeployRemediation">
-                        导出修复模板
-                    </button>
-                    <button class="btn btn-secondary" :disabled="loading" @click="downloadDeployRemediationBundle">
-                        下载修复包
-                    </button>
-                    <button class="btn btn-primary" :disabled="loading" @click="generateDeployConfigs">
-                        {{ loading ? '生成中...' : '生成部署配置' }}
-                    </button>
-                </div>
-
-                <div v-if="deployPrecheck" class="precheck-panel">
-                    <h3>部署预检</h3>
-                    <div class="meta" style="margin-bottom:8px;">
-                        目标文件: {{ deployPrecheck.target_count }}，已存在: {{ deployPrecheck.existing_count }}，待生成: {{ deployPrecheck.missing_count }}
-                    </div>
-                    <ul v-if="deployPrecheck.env_checks && deployPrecheck.env_checks.length" class="precheck-list">
-                        <li v-for="item in deployPrecheck.env_checks" :key="item.name">
-                            <span>{{ item.name }} · {{ item.description }}</span>
-                            <span :class="item.present ? 'check-ok' : 'check-missing'">
-                                {{ item.present ? '已配置' : '缺失' }}
-                            </span>
-                        </li>
-                    </ul>
-                    <div v-if="deployPrecheck.manual_requirements && deployPrecheck.manual_requirements.length" class="meta" style="margin-top:10px;">
-                        手动检查项: {{ deployPrecheck.manual_requirements.join('；') }}
-                    </div>
-                    <div class="meta" style="margin-top:10px;">
-                        自动预检结论:
-                        <strong :class="deployPrecheck.ready_for_generate ? 'check-ok' : 'check-missing'">
-                            {{ deployPrecheck.ready_for_generate ? '可生成' : '建议先补齐变量再生成' }}
-                        </strong>
-                    </div>
-                </div>
-
-                <div v-if="deployRemediation" class="remediation-panel">
-                    <h3>修复建议</h3>
-                    <div v-if="deployRemediation.items && deployRemediation.items.length">
-                        <div class="remediation-item" v-for="item in deployRemediation.items" :key="item.name">
-                            <div class="title">
-                                {{ item.name }}
-                                <span :class="item.present ? 'check-ok' : 'check-missing'">
-                                    {{ item.present ? '已配置' : '缺失' }}
-                                </span>
-                            </div>
-                            <div class="desc">{{ item.description }}</div>
-                            <code>{{ item.local_export_template }}</code>
-                        </div>
-                    </div>
-                    <div v-else class="meta">当前未发现缺失变量。</div>
-                    <div v-if="deployRemediation.platform_guidance && deployRemediation.platform_guidance.length" style="margin-top:10px;">
-                        <div class="meta"><strong>平台操作指引</strong></div>
-                        <ul style="margin:6px 0 0 18px; font-size:13px; color:#444;">
-                            <li v-for="(tip, idx) in deployRemediation.platform_guidance" :key="'tip-' + idx">{{ tip }}</li>
-                        </ul>
-                    </div>
-                    <div v-if="deployRemediation.manual_requirements && deployRemediation.manual_requirements.length" class="meta" style="margin-top:10px;">
-                        手动检查项: {{ deployRemediation.manual_requirements.join('；') }}
-                    </div>
-                    <div v-if="deployRemediationExport" class="export-panel">
-                        <div><strong>已导出模板</strong></div>
-                        <div class="meta">环境模板: {{ deployRemediationExport.env_file.path }}</div>
-                        <div class="meta">检查清单: {{ deployRemediationExport.checklist_file.path }}</div>
-                        <div class="meta" v-if="deployRemediationExport.per_platform_files && deployRemediationExport.per_platform_files.length">
-                            平台拆分: {{ deployRemediationExport.per_platform_files.length }} 组
-                        </div>
-                        <div v-if="deployRemediationExport.generated_files && deployRemediationExport.generated_files.length" style="margin-top:8px;">
-                            <div class="meta"><strong>导出文件列表</strong></div>
-                            <ul style="margin:6px 0 0 18px; font-size:12px; color:#444;">
-                                <li v-for="file in deployRemediationExport.generated_files" :key="'exp-' + file">{{ file }}</li>
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-
-                <div v-if="deployResult.generated_files.length || deployResult.skipped_files.length" class="deploy-results">
-                    <div><strong>生成结果</strong></div>
-                    <div class="meta">
-                        生成 {{ deployResult.generated_count }} 个，跳过 {{ deployResult.skipped_count }} 个
-                    </div>
-                    <div v-if="deployResult.generated_files.length" style="margin-top:8px;">
-                        <div><strong>已生成</strong></div>
-                        <ul>
-                            <li v-for="file in deployResult.generated_files" :key="'gen-' + file">{{ file }}</li>
-                        </ul>
-                    </div>
-                    <div v-if="deployResult.skipped_files.length" style="margin-top:8px;">
-                        <div><strong>已跳过 (文件已存在)</strong></div>
-                        <ul>
-                            <li v-for="file in deployResult.skipped_files" :key="'skip-' + file">{{ file }}</li>
-                        </ul>
-                    </div>
-                </div>
+                <h2>交付</h2>
+                <p style="color:#666;">
+                    交付阶段只保留与主流程直接相关的证据与状态。
+                    部署模板生成、修复包导出、平台预检这类独立控制台能力已从当前产品边界移除。
+                </p>
             </div>
             </div>
         </div>
@@ -2299,8 +2142,9 @@
                     setup: `super-dev setup --host ${hostId} --force --yes`,
                     onboard: `super-dev onboard --host ${hostId} --force --yes`,
                     doctor: `super-dev doctor --host ${hostId} --repair --force`,
-                    run: 'super-dev "你的需求"',
-                    slash: '/super-dev "你的需求"',
+                    run: 'super-dev',
+                    slash: '/super-dev 你的需求',
+                    resume: '/super-dev-run resume',
                 });
 
                 return {
@@ -2431,35 +2275,7 @@
                     selectedRunRedteam: null,
                     selectedRunUIReview: null,
                     selectedRunProofPack: null,
-                    deployPlatforms: [
-                        { id: 'all', name: '全部平台' },
-                        { id: 'github', name: 'GitHub Actions' },
-                        { id: 'gitlab', name: 'GitLab CI' },
-                        { id: 'jenkins', name: 'Jenkins' },
-                        { id: 'azure', name: 'Azure DevOps' },
-                        { id: 'bitbucket', name: 'Bitbucket Pipelines' }
-                    ],
-                    deployForm: {
-                        cicd_platform: 'all',
-                        include_runtime: true,
-                        overwrite: true,
-                        split_by_platform: true,
-                        name: ''
-                    },
-                    deployResult: {
-                        generated_files: [],
-                        skipped_files: [],
-                        generated_count: 0,
-                        skipped_count: 0
-                    },
-                    deployPrecheck: null,
-                    deployRemediation: null,
-                    deployRemediationExport: null,
-                    selectedExpert: null,
-                    expertPrompt: '',
-                    expertAdvice: '',
-                    expertAdviceFile: '',
-                    expertAdviceHistory: []
+                    selectedExpert: null
                 }
             },
             async mounted() {
@@ -2467,7 +2283,6 @@
                 await this.loadPhases();
                 await this.loadExperts();
                 await this.loadRunsHistory();
-                await this.loadExpertAdviceHistory();
                 await this.loadProjectConfig();
             },
             beforeUnmount() {
@@ -2503,7 +2318,7 @@
                         { key: 'setup', label: '一步接入', description: '执行 onboard + doctor，适合首次安装', command: this.selectedHostTool.commands.setup || '' },
                         { key: 'onboard', label: '安装集成', description: '写入宿主规则、Skill 与可用触发入口', command: this.selectedHostTool.commands.onboard || '' },
                         { key: 'doctor', label: '修复诊断', description: '检查接入状态并自动修复常见问题', command: this.selectedHostTool.commands.doctor || '' },
-                        { key: 'audit', label: 'Surface 审计', description: '检查 rules / commands / AGENTS / skills 等接入面是否完整', command: this.selectedHostTool.commands.audit || '' },
+                        { key: 'resume', label: '恢复主入口', description: '窗口关闭、关机或第二天回来后继续当前流程', command: this.selectedHostTool.commands.resume || '' },
                         { key: 'smoke', label: 'Smoke 验收', description: '输出该宿主的标准验收语句与通过标准', command: this.selectedHostTool.commands.smoke || '' },
                         { key: 'bugfix', label: 'Bugfix 模式', description: '显式进入轻量缺陷修复路径，而不是走完整功能开发流程', command: this.selectedHostTool.commands.bugfix || '' },
                         { key: 'trigger', label: '宿主主入口', description: host.trigger_context || '在宿主当前上下文触发', command: host.commands.trigger || '' },
@@ -2519,7 +2334,7 @@
                             description: '适用于需要 AGENTS/Skill 协同的非 slash 宿主',
                             command: ['skill-only', 'agents-and-skill', 'rules-and-skill'].includes(host.usage_mode) ? (host.commands.skill || '') : ''
                         },
-                        { key: 'run', label: '终端兜底', description: '仅触发本地编排，不替代宿主模型会话', command: this.selectedHostTool.commands.run || '' },
+                        { key: 'run', label: '终端安装入口', description: '终端公开面只保留安装、更新、卸载；开发主路径仍在宿主内', command: this.selectedHostTool.commands.run || '' },
                     ].filter((item) => typeof item.command === 'string' && item.command.trim());
                 },
                 selectedHostContractAudit() {
@@ -2598,11 +2413,11 @@
                             setup: `super-dev setup --host ${hostId} --force --yes`,
                             onboard: `super-dev onboard --host ${hostId} --force --yes`,
                             doctor: `super-dev doctor --host ${hostId} --repair --force`,
-                            audit: `super-dev integrate audit --target ${hostId}`,
-                            run: 'super-dev "你的需求"',
-                            slash: supportsSlash ? '/super-dev "你的需求"' : '',
-                            trigger: triggerCommand || (supportsSlash ? '/super-dev "你的需求"' : 'super-dev: 你的需求'),
-                            skill: 'super-dev-core',
+                            resume: supportsSlash ? '/super-dev-run resume' : 'super-dev: 继续当前流程',
+                            run: 'super-dev',
+                            slash: supportsSlash ? '/super-dev 你的需求' : '',
+                            trigger: triggerCommand || (supportsSlash ? '/super-dev 你的需求' : 'super-dev: 你的需求'),
+                            skill: 'super-dev',
                         });
                         const normalizeCatalog = (items) => (
                             items
@@ -2660,7 +2475,7 @@
                                             setup: typeof commands.setup === 'string' && commands.setup.trim() ? commands.setup : fallbackCommands.setup,
                                             onboard: typeof commands.onboard === 'string' && commands.onboard.trim() ? commands.onboard : fallbackCommands.onboard,
                                             doctor: typeof commands.doctor === 'string' && commands.doctor.trim() ? commands.doctor : fallbackCommands.doctor,
-                                            audit: typeof commands.audit === 'string' && commands.audit.trim() ? commands.audit : fallbackCommands.audit,
+                                            resume: typeof commands.resume === 'string' && commands.resume.trim() ? commands.resume : fallbackCommands.resume,
                                             run: typeof commands.run === 'string' && commands.run.trim() ? commands.run : fallbackCommands.run,
                                             slash: typeof commands.slash === 'string' && commands.slash.trim() ? commands.slash : fallbackCommands.slash,
                                             trigger: typeof commands.trigger === 'string' && commands.trigger.trim() ? commands.trigger : fallbackCommands.trigger,
@@ -2690,9 +2505,6 @@
                             this.languageCatalog = normalizeCatalog(payload.languages);
                         }
 
-                        if (Array.isArray(payload.cicd_platforms) && payload.cicd_platforms.length > 0) {
-                            this.deployPlatforms = normalizeCatalog(payload.cicd_platforms);
-                        }
                         if (Array.isArray(payload.host_tools) && payload.host_tools.length > 0) {
                             this.hostTools = normalizeHostCatalog(payload.host_tools);
                         }
@@ -2790,167 +2602,6 @@
                         this.experts = response.data.experts;
                     } catch (error) {
                         console.error('Failed to load experts:', error);
-                    }
-                },
-
-                async loadDeployPlatforms() {
-                    try {
-                        const response = await axios.get('/api/deploy/platforms');
-                        this.deployPlatforms = response.data.platforms || this.deployPlatforms;
-                    } catch (error) {
-                        console.error('Failed to load deploy platforms:', error);
-                    }
-                },
-
-                async generateDeployConfigs() {
-                    this.loading = true;
-                    try {
-                        const response = await axios.post('/api/deploy/generate', this.deployForm, {
-                            params: { project_dir: this.projectDir || '.' }
-                        });
-                        this.deployResult = {
-                            generated_files: response.data.generated_files || [],
-                            skipped_files: response.data.skipped_files || [],
-                            generated_count: response.data.generated_count || 0,
-                            skipped_count: response.data.skipped_count || 0
-                        };
-                        this.message = { type: 'success', text: '部署配置生成完成' };
-                    } catch (error) {
-                        this.message = { type: 'error', text: error.response?.data?.detail || '部署配置生成失败' };
-                    } finally {
-                        this.loading = false;
-                    }
-                },
-
-                async runDeployPrecheck() {
-                    this.loading = true;
-                    try {
-                        const response = await axios.get('/api/deploy/precheck', {
-                            params: {
-                                project_dir: this.projectDir || '.',
-                                cicd_platform: this.deployForm.cicd_platform,
-                                include_runtime: this.deployForm.include_runtime
-                            }
-                        });
-                        this.deployPrecheck = response.data;
-                        this.message = {
-                            type: response.data.ready_for_generate ? 'success' : 'info',
-                            text: response.data.ready_for_generate ? '预检通过，可直接生成' : '预检发现缺失项，建议先补齐'
-                        };
-                    } catch (error) {
-                        this.message = { type: 'error', text: error.response?.data?.detail || '部署预检失败' };
-                    } finally {
-                        this.loading = false;
-                    }
-                },
-
-                async loadDeployRemediation() {
-                    this.loading = true;
-                    try {
-                        const response = await axios.get('/api/deploy/remediation', {
-                            params: {
-                                cicd_platform: this.deployForm.cicd_platform,
-                                only_missing: true
-                            }
-                        });
-                        this.deployRemediation = response.data;
-                        this.message = { type: 'info', text: '已生成部署修复建议' };
-                    } catch (error) {
-                        this.message = { type: 'error', text: error.response?.data?.detail || '生成修复建议失败' };
-                    } finally {
-                        this.loading = false;
-                    }
-                },
-
-                async exportDeployRemediation() {
-                    this.loading = true;
-                    try {
-                        const response = await axios.post('/api/deploy/remediation/export', {
-                            cicd_platform: this.deployForm.cicd_platform,
-                            only_missing: true,
-                            split_by_platform: this.deployForm.split_by_platform
-                        }, {
-                            params: {
-                                project_dir: this.projectDir || '.'
-                            }
-                        });
-                        this.deployRemediationExport = response.data;
-                        this.message = { type: 'success', text: '修复模板已导出' };
-                    } catch (error) {
-                        this.message = { type: 'error', text: error.response?.data?.detail || '导出修复模板失败' };
-                    } finally {
-                        this.loading = false;
-                    }
-                },
-
-                downloadDeployRemediationBundle() {
-                    const params = new URLSearchParams({
-                        project_dir: this.projectDir || '.',
-                        cicd_platform: this.deployForm.cicd_platform,
-                        only_missing: 'true',
-                        split_by_platform: String(this.deployForm.split_by_platform)
-                    });
-                    window.open(`/api/deploy/remediation/archive?${params.toString()}`, '_blank');
-                },
-
-                async generateExpertAdvice() {
-                    if (!this.selectedExpert) return;
-                    this.loading = true;
-                    try {
-                        const response = await axios.post(
-                            `/api/experts/${this.selectedExpert.id}/advice`,
-                            { prompt: this.expertPrompt || '' },
-                            { params: { project_dir: this.projectDir || '.' } }
-                        );
-                        this.expertAdvice = response.data.content || '';
-                        this.expertAdviceFile = response.data.file_name || response.data.file_path || '';
-                        this.message = { type: 'success', text: `${this.selectedExpert.name} 建议已生成` };
-                        await this.loadExpertAdviceHistory();
-                    } catch (error) {
-                        this.message = { type: 'error', text: error.response?.data?.detail || '生成专家建议失败' };
-                    } finally {
-                        this.loading = false;
-                    }
-                },
-
-                async copyExpertAdvice() {
-                    if (!this.expertAdvice) return;
-                    try {
-                        await navigator.clipboard.writeText(this.expertAdvice);
-                        this.message = { type: 'success', text: '专家建议已复制到剪贴板' };
-                    } catch (error) {
-                        this.message = { type: 'error', text: '复制失败，请手动复制' };
-                    }
-                },
-
-                async loadExpertAdviceHistory() {
-                    try {
-                        const response = await axios.get('/api/experts/advice/history', {
-                            params: {
-                                project_dir: this.projectDir || '.',
-                                limit: 20
-                            }
-                        });
-                        this.expertAdviceHistory = response.data.items || [];
-                    } catch (error) {
-                        this.expertAdviceHistory = [];
-                    }
-                },
-
-                async openExpertAdvice(item) {
-                    try {
-                        const response = await axios.get('/api/experts/advice/content', {
-                            params: {
-                                project_dir: this.projectDir || '.',
-                                file_name: item.file_name
-                            }
-                        });
-                        this.expertAdvice = response.data.content || '';
-                        this.expertAdviceFile = response.data.file_name || item.file_name;
-                        const expert = this.experts.find((x) => x.id === item.expert_id);
-                        if (expert) this.selectedExpert = expert;
-                    } catch (error) {
-                        this.message = { type: 'error', text: error.response?.data?.detail || '读取专家建议失败' };
                     }
                 },
 
@@ -3847,9 +3498,6 @@
 
                 selectExpert(expert) {
                     this.selectedExpert = expert;
-                    this.expertPrompt = '';
-                    this.expertAdvice = '';
-                    this.expertAdviceFile = '';
                 }
             }
         }).mount('#app');

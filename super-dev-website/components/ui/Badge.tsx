@@ -18,7 +18,7 @@ interface BadgeProps {
 const variantStyles: Record<BadgeVariant, string> = {
   default: 'bg-bg-tertiary text-text-secondary border-border-default',
   certified: 'bg-status-green/10 text-status-green border-status-green/30',
-  compatible: 'bg-accent-blue/10 text-accent-blue border-accent-blue/30',
+  compatible: 'bg-status-yellow/10 text-status-yellow border-status-yellow/30',
   experimental: 'bg-status-yellow/10 text-status-yellow border-status-yellow/30',
   version: 'bg-bg-secondary text-text-secondary border-border-default',
 };
@@ -27,7 +27,7 @@ export function Badge({ children, variant = 'default', className }: BadgeProps) 
   return (
     <span
       className={cn(
-        'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border',
+        'inline-flex shrink-0 whitespace-nowrap items-center px-2.5 py-0.5 rounded-full text-xs font-medium border',
         variantStyles[variant],
         className
       )}

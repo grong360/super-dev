@@ -38,7 +38,7 @@ def test_runtime_evidence_serialization_keeps_integration_and_runtime_separate()
     )
     evidence = HostRuntimeEvidence(
         host_id="codebuddy",
-        host_display_name="CodeBuddy IDE",
+        host_display_name="CodeBuddy",
         summary="integration and runtime are independently tracked",
         evidence=("evidence pack v1",),
         competition_evidence={
@@ -56,7 +56,7 @@ def test_runtime_evidence_serialization_keeps_integration_and_runtime_separate()
     payload = serialize_host_runtime_evidence(evidence)
 
     assert payload["host_id"] == "codebuddy"
-    assert payload["host_display_name"] == "CodeBuddy IDE"
+    assert payload["host_display_name"] == "CodeBuddy"
     assert payload["summary"] == "integration and runtime are independently tracked"
     assert payload["integration_status"]["status"] == "project_and_global_installed"
     assert payload["runtime_status"]["status"] == "passed"

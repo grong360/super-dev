@@ -6,6 +6,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..baseline_governance import inspect_baseline_governance
+from ..compliance_governance import collect_compliance_governance_signal
+from ..host_runtime_governance import collect_layered_runtime_governance_gap
+from ..review_state import (
+    load_host_runtime_validation,
+)
+
 
 def _severity_weight(level: str) -> int:
     return {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(level, 2)
@@ -107,21 +114,21 @@ class ProductAuditReport:
             "",
         ]
         if self.strengths:
-            for item in self.strengths:
-                lines.append(f"- {item}")
+            for strength in self.strengths:
+                lines.append(f"- {strength}")
         else:
             lines.append("- 暂无可归纳的明显优势。")
         lines.extend(["", "## Findings", ""])
         if self.findings:
-            for idx, item in enumerate(self.findings, start=1):
-                lines.append(f"### {idx}. [{item.severity.upper()}] {item.title}")
+            for idx, finding in enumerate(self.findings, start=1):
+                lines.append(f"### {idx}. [{finding.severity.upper()}] {finding.title}")
                 lines.append("")
-                lines.append(f"- Owner: `{item.owner}`")
-                lines.append(f"- Category: `{item.category}`")
-                lines.append(f"- Summary: {item.summary}")
-                lines.append(f"- Recommendation: {item.recommendation}")
-                if item.file_refs:
-                    lines.append(f"- Files: {', '.join(item.file_refs)}")
+                lines.append(f"- Owner: `{finding.owner}`")
+                lines.append(f"- Category: `{finding.category}`")
+                lines.append(f"- Summary: {finding.summary}")
+                lines.append(f"- Recommendation: {finding.recommendation}")
+                if finding.file_refs:
+                    lines.append(f"- Files: {', '.join(finding.file_refs)}")
                 lines.append("")
         else:
             lines.append("- None")
@@ -135,12 +142,12 @@ class ProductAuditReport:
 
 class ProductAuditBuilder:
     DOC_MARKERS = {
-        "docs/QUICKSTART.md": ["super-dev start --idea", "当前阶段是 `research`"],
-        "docs/HOST_USAGE_GUIDE.md": ["super-dev start --idea", "当前阶段是 `research`"],
+        "docs/QUICKSTART.md": ["super-dev update", "/super-dev 你的需求", "继续当前流程"],
+        "docs/HOST_USAGE_GUIDE.md": ["/super-dev 你的需求", "继续当前流程", "现在下一步是什么"],
         "docs/WORKFLOW_GUIDE.md": [
-            "super-dev review docs",
-            "super-dev run --resume",
-            "super-dev review quality",
+            "super-dev update",
+            "/super-dev 做一个企业级项目管理系统",
+            "evolve / variant / patch",
         ],
         "docs/PRODUCT_AUDIT.md": ["super-dev product-audit", "proof-pack", "release readiness"],
     }
@@ -249,6 +256,10 @@ class ProductAuditBuilder:
 
     def _check_closure_artifacts(self) -> list[ProductAuditFinding]:
         findings: list[ProductAuditFinding] = []
+        baseline = inspect_baseline_governance(self.project_dir, output_dir=self.output_dir)
+        runtime_payload = load_host_runtime_validation(self.project_dir) or {}
+        runtime_hosts = runtime_payload.get("hosts", {}) if isinstance(runtime_payload, dict) else {}
+        has_runtime_state = isinstance(runtime_hosts, dict) and bool(runtime_hosts)
         expected = {
             "feature coverage": any(self.output_dir.glob("*-feature-checklist.json")),
             "quality gate": any(self.output_dir.glob("*-quality-gate.md")),
@@ -268,7 +279,73 @@ class ProductAuditBuilder:
                     file_refs=["output/"],
                 )
             )
-        if not any(self.output_dir.glob("*-host-runtime-validation.json")):
+        if baseline.get("status") == "missing_audit":
+            findings.append(
+                ProductAuditFinding(
+                    owner="PRODUCT",
+                    category="baseline-governance",
+                    severity="high",
+                    title="已有项目模式缺少 baseline audit",
+                    summary="当前仓库处于已有项目迭代/派生/修复模式，但没有看到 baseline audit，后续差量规划容易脱离现状。",
+                    recommendation="先扫描当前项目的功能、架构、UI 和约束，生成 baseline audit 后再继续三文档与实现。",
+                    file_refs=["output/"],
+                )
+            )
+        elif baseline.get("required") and baseline.get("status") != "confirmed":
+            findings.append(
+                ProductAuditFinding(
+                    owner="PRODUCT",
+                    category="baseline-governance",
+                    severity="high",
+                    title="已有项目 baseline 尚未确认",
+                    summary=(
+                        "已有项目模式已经完成 baseline 扫描，但 baseline confirmation 仍未闭环："
+                        + str(baseline.get("confirmation_status") or baseline.get("status"))
+                        + "。"
+                    ),
+                    recommendation="先执行 `super-dev review baseline --status confirmed`，确认当前项目边界、复用面与差量计划后再继续后续阶段。",
+                    file_refs=[
+                        "output/",
+                        ".super-dev/review-state/baseline-confirmation.json",
+                    ],
+                )
+            )
+        compliance_signal = collect_compliance_governance_signal(self.project_dir, output_dir=self.output_dir)
+        source_issues = compliance_signal.get("source_issues", [])
+        if isinstance(source_issues, list) and source_issues:
+            findings.append(
+                ProductAuditFinding(
+                    owner="DELIVERY",
+                    category="compliance-governance",
+                    severity="high",
+                    title="合规链证据状态未闭环",
+                    summary=str(compliance_signal.get("summary", "")).strip()
+                    or "合规链 artifact 仍有缺失或 identity 失配。",
+                    recommendation=(
+                        "先补齐或刷新 spec / architecture / uiux compliance artifacts，"
+                        "确保 JSON 证据存在、可读且与当前仓库输入一致，再重新执行 product audit。"
+                    ),
+                    file_refs=["output/"],
+                )
+            )
+        content_issues = compliance_signal.get("content_issues", [])
+        if isinstance(content_issues, list) and content_issues:
+            findings.append(
+                ProductAuditFinding(
+                    owner="PRODUCT",
+                    category="compliance-governance",
+                    severity="medium",
+                    title="合规链内容仍未达标",
+                    summary=str(compliance_signal.get("summary", "")).strip()
+                    or "合规链证据已齐，但内容仍未达标。",
+                    recommendation=(
+                        "优先修复 PRD traceability、architecture drift 或 UIUX 违例，"
+                        "再重新执行 quality gate / proof-pack / release readiness。"
+                    ),
+                    file_refs=["output/"],
+                )
+            )
+        if not any(self.output_dir.glob("*-host-runtime-validation.json")) and not has_runtime_state:
             findings.append(
                 ProductAuditFinding(
                     owner="QA",
@@ -278,6 +355,36 @@ class ProductAuditBuilder:
                     summary="当前仓库没有看到 host runtime validation 证据，说明接入效果可能只停留在静态配置层。",
                     recommendation="补充真人验收记录，确保宿主真的会先进入 research 并遵守确认门。",
                     file_refs=["output/"],
+                )
+            )
+            return findings
+
+        if not isinstance(runtime_hosts, dict):
+            return findings
+
+        governance_gap = collect_layered_runtime_governance_gap(self.project_dir)
+        layered_gap_hosts = governance_gap.get("impacted_hosts", []) if governance_gap else []
+        if layered_gap_hosts:
+            findings.append(
+                ProductAuditFinding(
+                    owner="QA",
+                    category="runtime-validation",
+                    severity="high",
+                    title="宿主 runtime 与交付闭环证据脱节",
+                    summary=(
+                        "以下宿主已人工通过 runtime validation，但仓库级 continuity / harness / runtime 证据仍未闭环："
+                        + "、".join(layered_gap_hosts[:3])
+                        + "。"
+                    ),
+                    recommendation=(
+                        "优先补齐 workflow continuity、framework/operational harness 与 frontend runtime 证据，"
+                        "再重新执行宿主 runtime validation 与 product audit。"
+                    ),
+                    file_refs=[
+                        ".super-dev/review-state/host-runtime-validation.json",
+                        ".super-dev/workflow-state.json",
+                        "output/",
+                    ],
                 )
             )
         return findings

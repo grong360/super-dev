@@ -276,7 +276,7 @@ class DocumentGenerator(DocumentGeneratorContentMixin):
         doc = f"""# {self.name} - 产品需求文档 (PRD)
 
 > **生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-> **版本**: v2.3.8
+> **版本**: v2.4.0
 > **状态**: 草稿
 {expert_header}
 
@@ -521,7 +521,7 @@ class DocumentGenerator(DocumentGeneratorContentMixin):
 
 | 版本 | 日期 | 变更内容 | 作者 |
 |:---|:---|:---|:---|
-| v2.3.8 | {datetime.now().strftime('%Y-%m-%d')} | 初始版本 | Super Dev |
+| v2.4.0 | {datetime.now().strftime('%Y-%m-%d')} | 初始版本 | Super Dev |
 """
 
         # 追加 Prompt 模板版本标记
@@ -539,7 +539,7 @@ class DocumentGenerator(DocumentGeneratorContentMixin):
         doc = f"""# {self.name} - 架构设计文档
 
 > **生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-> **版本**: v2.3.8
+> **版本**: v2.4.0
 > **架构师**: Super Dev ARCHITECT 专家
 
 ---
@@ -1002,7 +1002,7 @@ jobs:
             f"""# {self.name} - UI/UX 设计文档
 
 > **生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-> **版本**: v2.3.8
+> **版本**: v2.4.0
 > **设计师**: Super Dev UI/UX 专家
 
 ---
@@ -1092,6 +1092,10 @@ AI 基于项目特征，从设计数据库中为您推荐：
 {self._render_ui_intelligence_summary(ui_intelligence)}
 
 {self._render_ui_decision_manifest(ui_intelligence, design_system_bundle)}
+
+{self._render_screen_recipe_manifest(analysis, ui_intelligence)}
+
+{self._render_design_execution_protocol(analysis, ui_intelligence)}
 
 ---
 

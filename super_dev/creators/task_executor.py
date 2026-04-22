@@ -14,6 +14,7 @@ from pathlib import Path
 
 from ..specs import ChangeManager
 from ..specs.models import ChangeStatus, Task, TaskStatus
+from ..workflow_guard import require_docs_confirmation, require_preview_confirmation
 
 
 @dataclass
@@ -42,6 +43,12 @@ class SpecTaskExecutor:
         tech_stack: dict[str, str],
         max_retries: int = 1,
     ) -> TaskExecutionSummary:
+        require_docs_confirmation(
+            self.project_dir,
+            action="spec_task_execute",
+            require_context=True,
+        )
+
         change = self.change_manager.load_change(change_id)
         if not change:
             raise FileNotFoundError(f"change not found: {change_id}")
@@ -99,6 +106,7 @@ class SpecTaskExecutor:
             completed_tasks=completed_tasks,
             failed_tasks=failed_tasks,
             repaired_actions=repaired_actions,
+            tech_stack=tech_stack,
         )
 
         return TaskExecutionSummary(
@@ -119,6 +127,14 @@ class SpecTaskExecutor:
         repaired_actions: list[str],
     ) -> bool:
         title = task.title.lower()
+        requested_phases = self._requested_phases_for_task(title)
+        if requested_phases:
+            require_preview_confirmation(
+                self.project_dir,
+                action=f"spec_task_execute:{task.id}",
+                requested_phases=requested_phases,
+                require_context=True,
+            )
         if "前端" in title or "frontend" in title:
             self._ensure_frontend_modules(modules, tech_stack.get("frontend", "react"))
             return True
@@ -130,6 +146,18 @@ class SpecTaskExecutor:
         if "测试" in title or "test" in title or "质量" in title:
             return self._validation_with_repair(tech_stack, max_retries, repaired_actions)
         return True
+
+    def _requested_phases_for_task(self, title: str) -> list[str]:
+        lowered = str(title).strip().lower()
+        if any(token in lowered for token in ("后端", "backend")):
+            return ["backend"]
+        if any(token in lowered for token in ("联调", "integration", "qa", "质量", "test", "发布", "delivery", "上线")):
+            if any(token in lowered for token in ("发布", "delivery", "上线")):
+                return ["delivery"]
+            if any(token in lowered for token in ("质量", "test", "qa")):
+                return ["quality"]
+            return ["backend"]
+        return []
 
     def _extract_modules(self, tasks: list[Task]) -> list[str]:
         modules: list[str] = []
@@ -476,10 +504,14 @@ class SpecTaskExecutor:
         completed_tasks: int,
         failed_tasks: list[str],
         repaired_actions: list[str],
+        tech_stack: dict[str, str],
     ) -> Path:
         output_dir = self.project_dir / "output"
         output_dir.mkdir(parents=True, exist_ok=True)
         report_path = output_dir / f"{self.project_name}-task-execution.md"
+        framework_focus = self._read_framework_focus()
+        frontend_target = str(tech_stack.get("frontend") or "web")
+        backend_target = str(tech_stack.get("backend") or "service")
 
         lines = [
             "# Spec 任务执行报告",
@@ -511,6 +543,15 @@ class SpecTaskExecutor:
                 f"- 任务闭环: {'通过' if not failed_tasks else '未完成'}",
                 f"- 自动修复记录: {'有' if repaired_actions else '无'}",
                 "",
+                "## 阶段执行图纸",
+                "",
+                f"- 当前前端目标: {frontend_target}",
+                f"- 当前后端目标: {backend_target}",
+                f"- Framework Coaching Focus: {framework_focus}",
+                "- 严格顺序: 先 research/docs/spec，再前端预览，再后端/联调/质量/交付。",
+                "- 硬门禁: docs_confirm 未通过不能继续 Spec；preview_confirm 未通过不能继续 backend / quality / delivery。",
+                "- UI 不是最后补皮；宿主必须先落实 UI 契约里的视觉方向、证明结构、组件工艺与 token 系统。",
+                "",
                 "## 宿主补充自检（交付前必做）",
                 "",
                 "- [ ] 运行项目原生 build / compile / type-check / test / runtime smoke，并确认没有编译错误",
@@ -522,6 +563,28 @@ class SpecTaskExecutor:
         )
         report_path.write_text("\n".join(lines), encoding="utf-8")
         return report_path
+
+    def _read_framework_focus(self) -> str:
+        contract_path = self.project_dir / "output" / f"{self.project_name}-ui-contract.json"
+        if not contract_path.exists():
+            return "先锁定当前项目的框架专项 playbook，再让宿主进入实现。"
+        try:
+            import json
+
+            payload = json.loads(contract_path.read_text(encoding="utf-8"))
+        except Exception:
+            return "先锁定当前项目的框架专项 playbook，再让宿主进入实现。"
+        if not isinstance(payload, dict):
+            return "先锁定当前项目的框架专项 playbook，再让宿主进入实现。"
+        framework_playbook = (
+            payload.get("framework_playbook")
+            if isinstance(payload.get("framework_playbook"), dict)
+            else {}
+        )
+        focus = str(framework_playbook.get("focus") or "").strip()
+        if focus:
+            return focus
+        return "先锁定当前项目的框架专项 playbook，再让宿主进入实现。"
 
     def _task_sort_key(self, task: Task) -> tuple[int, int]:
         raw = task.id.strip()

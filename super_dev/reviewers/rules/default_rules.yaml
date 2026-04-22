@@ -63,6 +63,8 @@ rules:
     check_type: content_not_contains
     check_config:
       file_pattern: "**/*.py"
+      exclude_patterns:
+        - "tests/**/*.py"
       patterns:
         - "password\\s*=\\s*['\"]"
         - "api_key\\s*=\\s*['\"]"
@@ -80,6 +82,8 @@ rules:
     check_type: content_not_contains
     check_config:
       file_pattern: "**/*.py"
+      exclude_patterns:
+        - "tests/**/*.py"
       patterns:
         - "f['\"].*SELECT.*{"
         - "format.*SELECT"
@@ -97,6 +101,8 @@ rules:
     check_type: content_not_contains
     check_config:
       file_pattern: "**/*.py"
+      exclude_patterns:
+        - "tests/**/*.py"
       patterns:
         - "\\beval\\s*\\("
         - "\\bexec\\s*\\("

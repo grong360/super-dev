@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Super Dev is a Python CLI tool (v2.3.8) that orchestrates AI-driven development pipelines inside host environments (e.g., Claude Code). It provides governance, quality gates, and audit artifacts for commercial-grade software delivery. It is NOT an independent AI agent — it's a governance layer that runs inside a host's coding environment.
+Super Dev is a Python CLI tool (v2.4.0) that orchestrates AI-driven development pipelines inside host environments (e.g., Claude Code). It provides governance, quality gates, and audit artifacts for commercial-grade software delivery. It is NOT an independent AI agent — it's a governance layer that runs inside a host's coding environment.
 
 ## Build & Development Commands
 
@@ -68,8 +68,8 @@ The CLI entry point is `super_dev/cli.py` (~6k lines), built as a large class co
 ### Document & Artifact Generation (`super_dev/creators/`)
 - `document_generator.py` — PRD, architecture, UIUX document generation
 - `prompt_generator.py` / `prompt_templates.py` — LLM prompt construction
-- `frontend_builder.py` — frontend scaffolding
-- `implementation_builder.py` — backend implementation scaffolding
+- `frontend_builder.py` — frontend implementation playbooks
+- `implementation_builder.py` — backend implementation references
 - `spec_builder.py` — spec generation from documents
 - `adr_generator.py` — Architecture Decision Record generation
 
@@ -248,7 +248,7 @@ Super Dev governance operates at four layers:
 Project-root `CLAUDE.md` is the canonical persistent memory surface. `.claude/CLAUDE.md` is kept as a compatibility mirror for builds that still read nested memory files.
 
 **Layer 2 — Skills (Primary Execution Contract)**
-Project-level `.claude/skills/super-dev/` and user-level `~/.claude/skills/super-dev/` carry the primary Super Dev execution contract. Claude Code only uses `super-dev` as the single skill name — no `super-dev-core` alias.
+Project-level `.claude/skills/super-dev/` and user-level `~/.claude/skills/super-dev/` carry the primary Super Dev execution contract. Claude Code only uses `super-dev` as the single skill name — no legacy core alias remains.
 
 **Layer 3 — Hooks (Runtime Enforcement)**
 PreToolUse hooks validate every file write. PostToolUse hooks audit results.
@@ -266,8 +266,6 @@ If Claude Code surfaces repo plugins, `.claude-plugin/marketplace.json` + `plugi
 - PREVIEW_CONFIRM_GATE: required
 - HOST_PARITY: required
 <!-- END SUPER DEV CLAUDE -->
-
-
 
 
 

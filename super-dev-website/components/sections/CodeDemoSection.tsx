@@ -12,31 +12,48 @@ const TAB_ICONS: LucideIcon[] = [Download, Play, FileText];
 const TABS = {
   zh: [
     {
-      id: 'install',
-      label: '安装与引导',
+      id: 'five-minute',
+      label: '5 分钟上手',
       filename: 'Terminal',
-      code: `pip install -U super-dev
-# 或
-uv tool install super-dev
+      code: `uv tool install super-dev
 
 # 进入宿主安装引导
-super-dev`,
+super-dev
+
+# 安装器会直接打印：
+# - 推荐宿主
+# - 标准流第一句
+# - 比赛流第一句
+# - 接入后先验
+# - 官方工作流检查
+
+# 终端到这里就结束
+# 接下来离开终端，回宿主里开工`,
     },
     {
-      id: 'trigger',
-      label: '触发宿主工作',
+      id: 'host-first',
+      label: '回宿主开工',
       filename: 'Host trigger',
       code: `# Slash 宿主
 /super-dev 开发一个可交付的项目
 
-# 非 slash 宿主
+# Codex CLI
+$super-dev
+
+# Codex App/Desktop
+# 从 / 列表选择 super-dev
+
+# 文本宿主
 super-dev: 开发一个可交付的项目
 
-# 宿主会先做 research，生成三文档，并等待确认。`,
+# 第一轮不是直接写码
+# 1. 先 research
+# 2. 再写 research / PRD / Architecture / UIUX
+# 3. 三文档完成后暂停，等你确认`,
     },
     {
       id: 'artifacts',
-      label: '关键产物',
+      label: '关键落盘',
       filename: 'output/',
       code: `output/<project>-research.md
 output/<project>-prd.md
@@ -45,37 +62,53 @@ output/<project>-uiux.md
 .super-dev/changes/<change>/proposal.md
 .super-dev/changes/<change>/tasks.md
 output/<project>-frontend-runtime.json
-output/<project>-quality-gate.md
 output/delivery/manifest.json`,
     },
   ],
   en: [
     {
-      id: 'install',
-      label: 'Install and onboard',
+      id: 'five-minute',
+      label: 'Five-minute path',
       filename: 'Terminal',
-      code: `pip install -U super-dev
-# or
-uv tool install super-dev
+      code: `uv tool install super-dev
 
 # open the host installer
-super-dev`,
+super-dev
+
+# the installer prints:
+# - the recommended host
+# - the standard-flow first prompt
+# - the competition-flow first prompt
+# - the post-onboard self-check
+# - the official workflow checks
+
+# the terminal stops here
+# real work moves back into the host`,
     },
     {
-      id: 'trigger',
-      label: 'Trigger the host',
+      id: 'host-first',
+      label: 'Back into the host',
       filename: 'Host trigger',
       code: `# Slash hosts
 /super-dev Build a shippable product
 
-# Non-slash hosts
+# Codex CLI
+$super-dev
+
+# Codex App/Desktop
+# choose super-dev from the / list
+
+# Text-first hosts
 super-dev: Build a shippable product
 
-# Research starts first, followed by the three core docs and approval.`,
+# The first pass is not coding
+# 1. research
+# 2. research / PRD / Architecture / UIUX
+# 3. stop and wait for approval before Spec or implementation`,
     },
     {
       id: 'artifacts',
-      label: 'Key artifacts',
+      label: 'What gets written',
       filename: 'output/',
       code: `output/<project>-research.md
 output/<project>-prd.md
@@ -84,7 +117,6 @@ output/<project>-uiux.md
 .super-dev/changes/<change>/proposal.md
 .super-dev/changes/<change>/tasks.md
 output/<project>-frontend-runtime.json
-output/<project>-quality-gate.md
 output/delivery/manifest.json`,
     },
   ],
@@ -93,14 +125,14 @@ output/delivery/manifest.json`,
 const COPY = {
   zh: {
     eyebrow: 'How it works',
-    title: '从安装到交付，入口始终很短。',
-    body: '先安装并进入宿主引导，再在宿主里触发流程。后续的文档、门禁、运行验证和交付产物会沿着这条路径持续生成。',
+    title: '官网先讲最短路径，不再把你困在终端命令堆里。',
+    body: '安装器负责告诉你“该进哪个宿主、第一句怎么说、现在能不能直接开工”。之后 research、三文档、确认门、前端预览、质量门和交付证据都在宿主里继续，而不是让你在官网背一堆底层命令。',
     docs: '查看完整文档',
   },
   en: {
     eyebrow: 'How it works',
-    title: 'From install to delivery, the entry path stays short.',
-    body: 'Install and onboard first, then trigger the flow inside the host. The workflow keeps producing documents, gates, runtime validation, and delivery artifacts after that.',
+    title: 'The homepage now teaches the shortest path instead of a pile of terminal commands.',
+    body: 'The installer tells you which host to use, what the first prompt is, and whether that host is ready to start. After that, research, the three core docs, approval gates, preview validation, quality, and delivery evidence continue inside the host rather than through a pile of low-level commands.',
     docs: 'Read full docs',
   },
 } as const;

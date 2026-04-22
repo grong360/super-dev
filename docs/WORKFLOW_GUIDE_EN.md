@@ -1,4 +1,11 @@
-# Super Dev Workflow Guide (2.1.1)
+# Super Dev Workflow Guide (2.4.0)
+
+> End users should start with:
+> - [README.md](/Users/weiyou/Documents/kaifa/super-dev/README.md)
+> - [docs/QUICKSTART.md](/Users/weiyou/Documents/kaifa/super-dev/docs/QUICKSTART.md)
+> - [docs/HOST_USAGE_GUIDE.md](/Users/weiyou/Documents/kaifa/super-dev/docs/HOST_USAGE_GUIDE.md)
+>
+> This guide also contains maintainer workflow controls, Spec/Task loops, and release boundaries. It is not the first document most end users should read.
 
 This is the practical handbook for running Super Dev in real projects. It covers:
 
@@ -13,6 +20,14 @@ This is the practical handbook for running Super Dev in real projects. It covers
 
 ### Recommended entrypoint
 
+End users should only remember 3 terminal commands:
+
+```bash
+super-dev
+super-dev update
+super-dev uninstall
+```
+
 The preferred path is to trigger Super Dev inside the host session:
 
 ```text
@@ -22,24 +37,50 @@ Codex CLI: $super-dev
 Natural-language fallback: super-dev: Build an enterprise project management platform with auth, RBAC, projects, tasks, and analytics
 ```
 
+Regular users should primarily remember these host-side prompts:
+
+```text
+/super-dev <goal>
+/super-dev-seeai <goal>
+continue the current flow
+what is the next step
+```
+
+Work modes are fixed as:
+
+- `new`: greenfield 0-to-1 delivery
+- `evolve`: additive work on an existing project
+- `variant`: 1-N+1 derivative built from the current project
+- `patch`: bugfix / remediation on the current project
+- `resume`: continue the interrupted workflow
+
+Hard rules:
+
+- `new` can move directly into `research -> docs`
+- `evolve / variant / patch` must start with `baseline`
+- `resume` is the default scenario; reopening the host or returning the next day should restore the current workflow instead of restarting from scratch
+
 If you are unsure which host to use on the current machine, run:
 
 ```bash
-super-dev start --idea "Build an enterprise project management platform with auth, RBAC, projects, tasks, and analytics"
+super-dev
 ```
-
-The terminal form `super-dev "<requirement>"` should be treated as a local governance-orchestration entry, not as Super Dev replacing host-side coding.
 
 Host hard gate is enabled by default. If no `ready` host is available, pipeline execution is blocked until onboarding is complete.
 
-That single command triggers the full pipeline end to end:
+Typical host-side examples:
 
-1. Similar-product research using the host's native web/search capability
-2. Three core documents: PRD, architecture, UI/UX
-3. Confirmation gate: stop and wait for the user to confirm or revise the three documents
-4. Spec/tasks creation
-5. Frontend-first implementation and runtime validation
-6. Backend integration, testing, gates, and delivery
+```text
+/super-dev Build an enterprise project management platform with auth, RBAC, projects, tasks, and analytics
+/super-dev Add a billing center to the current CRM
+/super-dev continue the current flow
+/super-dev docs confirmed, continue the current flow
+```
+
+That host-side entry triggers the governed pipeline:
+
+1. `new`: research -> docs -> docs_confirm -> spec -> frontend -> preview_confirm -> backend -> quality -> delivery
+2. `evolve / variant / patch`: baseline -> delta research -> docs -> docs_confirm -> spec -> frontend -> preview_confirm -> backend -> quality -> delivery
 
 Additional rules:
 
@@ -51,39 +92,41 @@ Additional rules:
 
 If the project is already in a later stage, you do not need to restart from zero.
 
-You can move the workflow back to a phase or jump directly to a phase:
+End users should first rely on host-side recovery phrases:
+
+```text
+/super-dev continue the current workflow
+/super-dev what is the next step
+/super-dev resume frontend implementation and runtime validation
+```
+
+Resume truth sources:
+
+- `.super-dev/SESSION_BRIEF.md`
+- `.super-dev/workflow-state.json`
+- `.super-dev/workflow-history/latest.json`
+- `.super-dev/review-state/*`
+- `output/*`
+
+Maintainers should use lower-level CLI controls only when the reports explicitly require them:
 
 ```bash
 super-dev status
-super-dev run research
-super-dev run prd
-super-dev run architecture
-super-dev run uiux
-super-dev run frontend
-super-dev run backend
-super-dev run quality
-super-dev jump docs
-super-dev jump frontend
-super-dev jump backend
-super-dev jump quality
-super-dev confirm docs --comment "core docs approved"
-super-dev confirm preview --comment "preview approved"
 super-dev run --resume
+super-dev review docs
+super-dev review preview
 ```
 
 Usage:
 
-- `run <phase>`: rerun the selected phase or related document stage
-- `jump <phase>`: go directly to that phase and print impact hints
-- `confirm <phase>`: manually clear a gate
-- `--resume`: continue the paused workflow
+- `status`: inspect the current governance state
+- `run --resume`: continue the paused workflow
+- `review *`: maintainer-only gate synchronization, not an end-user entrypoint
 
-The document confirmation gate can be handled in the Web console or directly from the terminal:
+Document confirmation should normally happen inside the host. Maintainers should enter the terminal gate flow only when they need to sync state:
 
 ```bash
 super-dev review docs
-super-dev review docs --status revision_requested --comment "Add differentiation and improve hero information architecture"
-super-dev review docs --status confirmed --comment "Core documents approved, proceed to Spec"
 ```
 
 If the frontend visual quality is unsatisfactory, start a formal UI revision loop instead of making ad hoc CSS edits:
@@ -126,22 +169,21 @@ super-dev review quality --status confirmed --comment "Quality revision approved
 The required order for quality revision is:
 
 1. Fix the quality / security issues
-2. Rerun the quality gate and `super-dev release proof-pack`
+2. Rerun the quality gate and refresh delivery evidence if the reports require it
 3. Continue delivery or resume execution only after the revision is approved
 
-### Advanced entrypoint
+### Explicit work modes
 
-Use explicit flags only when you need strict control over stack and platform:
+Only specify the mode manually when auto-detection is not enough:
 
-```bash
-super-dev pipeline "Build an enterprise project management platform with auth, RBAC, projects, tasks, and analytics" \
-  --platform web \
-  --frontend react \
-  --backend python \
-  --domain saas \
-  --cicd all \
-  --quality-threshold 85
+```text
+/super-dev-work new <goal>
+/super-dev-work evolve <goal>
+/super-dev-work patch <bug>
+/super-dev-work variant <goal>
 ```
+
+These explicit modes are advanced maintainer-facing prompts. Regular users should still prefer plain host-side requirements, "continue the current flow", or "what is the next step".
 
 Optional: set enterprise knowledge controls in `super-dev.yaml`:
 
@@ -159,6 +201,7 @@ host_compatibility_min_ready_hosts: 1
 host_profile_targets:
   - codex-cli
   - claude-code
+  - qwen-code
 host_profile_enforce_selected: true
 ```
 
@@ -175,37 +218,21 @@ Codex CLI: $super-dev
 Natural-language fallback: super-dev: <requirement>
 ```
 
-### Explicit bootstrap
-
-```bash
-super-dev bootstrap --name my-project --platform web --frontend next --backend node
+```text
+Slash-native host: /super-dev <requirement>
+Codex App/Desktop: choose super-dev from the / list
+Codex CLI: $super-dev
+Natural-language fallback: super-dev: <requirement>
+Preferred recovery: /super-dev continue the current flow
+Maintainer controls: /super-dev-work / /super-dev-run / /super-dev-review
 ```
 
-This explicitly generates:
+### Maintainer loop: spec and task execution
 
-- `.super-dev/WORKFLOW.md`
-- `output/*-bootstrap.md`
-
-so the initialization contract remains visible before host execution begins.
-
-```bash
-super-dev start --idea "<requirement>"  # recommended machine-side bootstrap
-super-dev "<requirement>"               # local governance entry, not host replacement
-super-dev pipeline "<requirement>"      # advanced explicit mode
-super-dev repo-map                      # generate a codebase map before working on an existing repo
-super-dev feature-checklist             # audit PRD-wide feature coverage and separate pipeline completion from full scope completion
-super-dev dependency-graph              # generate the dependency graph and critical paths before large refactors
-super-dev impact "Change the login flow" --files services/auth.py   # inspect impact before touching critical flows
-super-dev regression-guard "Change the login flow" --files services/auth.py   # turn impact into an executable regression checklist
-super-dev fix "<bug description>"       # explicit bugfix path
-super-dev create "<requirement>"        # docs + spec focused path
-```
-
-### Spec and task execution loop
+The `spec / task` commands below are maintenance-facing workflow controls. Regular users should still stay inside the host and continue through `/super-dev`, `super-dev:`, or plain-language recovery prompts.
 
 ```bash
 super-dev spec init
-super-dev spec list
 super-dev spec show <change_id>
 super-dev spec propose <change_id> --title "<title>" --description "<description>"
 super-dev spec propose <change_id> --title "<title>" --description "<description>" --no-scaffold
@@ -218,8 +245,9 @@ super-dev spec archive <change_id>
 
 super-dev task list
 super-dev task status <change_id>
-super-dev task run <change_id>
 ```
+
+These `spec / task` commands are maintainer-only. Regular users should continue inside the host through `/super-dev`, `/super-dev-work`, and `/super-dev-review`.
 
 #### Spec quality score and remediation plan
 
@@ -245,43 +273,23 @@ PY
 
 ### Quality, risk, and release prep
 
-```bash
-super-dev quality --type all
-super-dev deploy --cicd all
-super-dev deploy --docker
-super-dev deploy --cicd all --rehearsal
-super-dev deploy --cicd all --rehearsal --rehearsal-verify
-super-dev pipeline "<requirement>" --skip-rehearsal-verify
-super-dev policy init
-super-dev policy init --preset enterprise --force
-super-dev policy presets
-super-dev policy show
-super-dev metrics
-super-dev metrics --history --limit 20
-```
+`quality / review / release` remain part of the maintenance surface. End users should keep working inside the host; maintainers only return to these commands when the reports explicitly call for evidence refresh or gate synchronization.
 
-### Expert and design tooling
+### Design tooling
 
 ```bash
-super-dev expert --list
-super-dev expert ARCHITECT "Review service boundaries and API contracts"
-super-dev expert SECURITY "Assess auth, session, and token risk"
-
-super-dev design search "fintech dashboard"
-super-dev design generate --product saas --industry fintech
-super-dev design tokens --primary "#2563EB"
+super-dev design list
+super-dev design recommend
+super-dev design apply <slug>
 ```
+
+Notes:
+- `design` is an advanced UI/UX enhancement capability for curated inspiration, direction recommendation, and writing the chosen design preference back into project config.
+- It improves the quality of `uiux.md`, but it is not the main delivery path. Day-to-day delivery should still continue inside the host through the core pipeline.
 
 ### Integration and skills
 
-```bash
-super-dev integrate list
-super-dev integrate setup --all --force
-super-dev integrate matrix
-super-dev integrate matrix --json
-super-dev skill targets
-super-dev skill install super-dev --target codex-cli --name super-dev-core --force
-```
+`integrate` and `skill` remain maintainer-only. They are for host injection, validation, and repair, not for normal delivery work.
 
 ---
 
@@ -289,11 +297,17 @@ super-dev skill install super-dev --target codex-cli --name super-dev-core --for
 
 Use this path when you have requirements but no production codebase yet.
 
-### Step-by-step flow
+### Maintainer step-by-step flow
 
 ```bash
 mkdir new-product && cd new-product
-super-dev "Build a B2B CRM with leads, accounts, opportunities, role-based access, and audit trail"
+super-dev
+```
+
+Then return to the host and say:
+
+```text
+/super-dev Build a B2B CRM with leads, accounts, opportunities, role-based access, and audit trail
 ```
 
 ### What to inspect after generation
@@ -328,13 +342,11 @@ This includes the common `1-to-1+N` pattern: one established product, multiple s
 
 ```bash
 cd existing-project
-super-dev analyze .
 super-dev spec init
 super-dev spec propose add-billing --title "Introduce Billing Center" --description "Plans, subscriptions, invoices, callbacks"
 super-dev spec add-req add-billing billing subscription "The system SHALL support subscription lifecycle management"
 super-dev spec add-req add-billing billing webhook "The system SHALL process payment callbacks idempotently"
-super-dev task run add-billing
-super-dev quality --type all
+super-dev task status add-billing
 ```
 
 ### Increment strategy that scales
@@ -355,26 +367,13 @@ A change is considered release-ready only if all are true:
 3. Spec execution status is complete or explicitly waived with rationale.
 4. CI/CD assets are generated and mapped to the target platform.
 5. Delivery manifest reports `ready`.
-6. `super-dev release proof-pack` aggregates the delivery evidence set.
+6. Delivery evidence must be aggregated and current before the change is considered release-ready.
 
-`release proof-pack` and `release readiness` also ingest the active change's `spec quality` result so the unified release panel includes proposal/spec/plan/tasks/checklist/validation maturity. They now also ingest `feature-checklist` so pipeline completion is separate from full PRD scope completion.
+`release proof-pack` and `release readiness` also ingest the active change's `spec quality` result so the unified release panel includes proposal/spec/plan/tasks/checklist/validation maturity. They also ingest scope coverage so pipeline completion stays separate from full PRD scope completion.
 
-To confirm that a host really completed research, wrote the three core docs to disk, and stopped at the confirmation gate, run:
+To confirm that a host really completed research, wrote the three core docs to disk, and stopped at the confirmation gate, prefer the host-side resume card plus `doctor / detect`; enter `integrate validate` only when a maintainer needs to record formal runtime acceptance evidence.
 
-```bash
-super-dev integrate validate --auto
-```
-
-If the system says the pipeline is complete but your gap analysis still lists major unimplemented items, run:
-
-```bash
-super-dev feature-checklist
-```
-
-This outputs:
-- `coverage_rate`
-- `high_priority_gap_count`
-- `missing / unknown` feature items
+If the system says the pipeline is complete but your gap analysis still lists major unimplemented items, inspect `product-audit`, `release proof-pack`, and `release readiness` for scope coverage and high-priority gaps.
 
 Use it to distinguish:
 - `Pipeline Completed`
@@ -399,10 +398,13 @@ If you need a local constrained run:
 
 Supported AI coding environments:
 
-- CLI: `claude-code`, `codebuddy-cli`, `codex-cli`, `cursor-cli`, `gemini-cli`, `kiro-cli`, `opencode`, `qoder-cli`
-- IDE: `antigravity`, `codebuddy`, `cursor`, `kiro`, `qoder`, `trae`, `vscode-copilot`, `windsurf`
+- CLI: `claude-code`, `codex-cli`, `opencode`, `droid-cli`, `gemini-cli`, `kiro-cli`, `cursor-cli`, `copilot-cli`, `qoder-cli`, `codebuddy-cli`, `kimi-code`, `qwen-code`
+- IDE: `antigravity`, `cursor`, `windsurf`, `kiro`, `trae`, `trae-cn`, `codebuddy`, `codebuddy-cn`, `qoder`
+- Desktop assistants: `claude`, `codex`, `workbuddy`, `trae-solo`, `trae-solocn`
 
 Recommended auto-detect flow:
+
+This is maintainer-only onboarding/repair flow, not the regular daily development path.
 
 ```bash
 super-dev detect --json
@@ -430,7 +432,6 @@ Each pipeline run emits contract-audit artifacts:
 
 Recommended enterprise flow:
 
-1. Initialize policy with `super-dev policy init --preset enterprise --force`.
 2. Run `super-dev detect --auto --save-profile` before pipeline execution.
 3. Populate `required_hosts` with the hosts your team actually uses.
 4. Enable `enforce_required_hosts_ready=true` only when you want hard host readiness enforcement, then set `min_required_host_score`.
@@ -461,14 +462,13 @@ Read `output/*-redteam.md`, fix critical/high findings first, then rerun.
 Read `output/*-quality-gate.md`, then rerun task closure and quality checks:
 
 ```bash
-super-dev task run <change_id>
+super-dev task status <change_id>
 super-dev quality --type all
 ```
 
 ### Need to inspect current execution state
 
 ```bash
-super-dev spec list
 super-dev task status <change_id>
 super-dev run --resume
 ```
@@ -480,18 +480,23 @@ super-dev run --resume
 ### Greenfield quick playbook
 
 ```bash
-super-dev "<requirement>"
-super-dev task list
-super-dev quality --type all
+super-dev
+```
+
+Then continue inside the host:
+
+```text
+/super-dev <requirement>
+continue current workflow
+what is the next step now
 ```
 
 ### Iteration quick playbook
 
 ```bash
-super-dev analyze .
-super-dev spec propose <change_id> --title "<title>" --description "<description>"
-super-dev task run <change_id>
-super-dev quality --type all
+/super-dev add a new capability to the current project
+/super-dev baseline confirmed, continue current flow
+continue current workflow
 ```
 
 ---
@@ -501,5 +506,5 @@ super-dev quality --type all
 - Chinese workflow guide: `docs/WORKFLOW_GUIDE.md`
 - Integration guide: `docs/INTEGRATION_GUIDE.md`
 - Quickstart: `docs/QUICKSTART.md`
-- Publishing: `docs/PUBLISHING.md`
-- Release runbook: `docs/RELEASE_RUNBOOK.md`
+- Maintainer publishing entry: `docs/PUBLISHING.md`
+- Maintainer release runbook: `docs/RELEASE_RUNBOOK.md`

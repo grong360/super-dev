@@ -1,8 +1,15 @@
 from pathlib import Path
 
+import pytest
+
 from super_dev.creators import ImplementationScaffoldBuilder, SpecBuilder, SpecTaskExecutor
 from super_dev.specs import ChangeManager
 from super_dev.specs.models import ChangeStatus, TaskStatus
+from super_dev.workflow_guard import (
+    WorkflowGateError,
+    save_bound_docs_confirmation,
+    save_bound_preview_confirmation,
+)
 
 
 def test_task_executor_completes_generated_change(temp_project_dir: Path) -> None:
@@ -132,3 +139,186 @@ def test_task_executor_respects_dependencies(temp_project_dir: Path) -> None:
     statuses = {task.id: task.status for task in change.tasks}
     assert statuses["4.1"] == TaskStatus.PENDING
     assert statuses["4.2"] == TaskStatus.IN_PROGRESS
+
+
+def test_spec_builder_requires_docs_confirmation_when_docs_context_exists(
+    temp_project_dir: Path,
+) -> None:
+    output_dir = temp_project_dir / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "demo-prd.md").write_text("# prd", encoding="utf-8")
+    (output_dir / "demo-architecture.md").write_text("# architecture", encoding="utf-8")
+    (output_dir / "demo-uiux.md").write_text("# uiux", encoding="utf-8")
+
+    spec_builder = SpecBuilder(
+        project_dir=temp_project_dir,
+        name="demo-task-exec",
+        description="demo task execution",
+    )
+
+    with pytest.raises(WorkflowGateError):
+        spec_builder.create_change(
+            requirements=[
+                {
+                    "spec_name": "auth",
+                    "req_name": "user-login",
+                    "description": "support user login",
+                    "scenarios": [],
+                }
+            ],
+            tech_stack={
+                "platform": "web",
+                "frontend": "react",
+                "backend": "node",
+                "domain": "auth",
+            },
+            scenario="0-1",
+        )
+
+
+def test_task_executor_requires_docs_confirmation_when_docs_context_exists(
+    temp_project_dir: Path,
+) -> None:
+    output_dir = temp_project_dir / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "demo-prd.md").write_text("# prd", encoding="utf-8")
+    (output_dir / "demo-architecture.md").write_text("# architecture", encoding="utf-8")
+    (output_dir / "demo-uiux.md").write_text("# uiux", encoding="utf-8")
+
+    change_dir = temp_project_dir / ".super-dev" / "changes" / "blocked-change"
+    change_dir.mkdir(parents=True, exist_ok=True)
+    (change_dir / "change.yaml").write_text(
+        (
+            "id: blocked-change\n"
+            "title: Blocked Change\n"
+            "status: proposed\n"
+            "created_at: 2026-03-02T00:00:00\n"
+            "updated_at: 2026-03-02T00:00:00\n"
+        ),
+        encoding="utf-8",
+    )
+    (change_dir / "tasks.md").write_text(
+        "# Tasks\n\n- [ ] **2.1: 实现 auth 前端模块**\n  - Refs: `auth::*`\n",
+        encoding="utf-8",
+    )
+
+    executor = SpecTaskExecutor(project_dir=temp_project_dir, project_name="blocked-change")
+    with pytest.raises(WorkflowGateError):
+        executor.execute(
+            change_id="blocked-change",
+            tech_stack={
+                "platform": "web",
+                "frontend": "react",
+                "backend": "node",
+                "domain": "general",
+            },
+            max_retries=0,
+        )
+
+    save_bound_docs_confirmation(
+        temp_project_dir,
+        {"status": "confirmed", "comment": "ok", "actor": "pytest", "run_id": "docs-ok"},
+    )
+
+    summary = executor.execute(
+        change_id="blocked-change",
+        tech_stack={
+            "platform": "web",
+            "frontend": "react",
+            "backend": "node",
+            "domain": "general",
+        },
+        max_retries=0,
+    )
+    assert summary.completed_tasks == 1
+
+    (output_dir / "demo-uiux.md").write_text("# uiux v2", encoding="utf-8")
+    with pytest.raises(WorkflowGateError):
+        executor.execute(
+            change_id="blocked-change",
+            tech_stack={
+                "platform": "web",
+                "frontend": "react",
+                "backend": "node",
+                "domain": "general",
+            },
+            max_retries=0,
+        )
+
+
+def test_task_executor_requires_preview_confirmation_for_backend_and_quality_tasks(
+    temp_project_dir: Path,
+) -> None:
+    output_dir = temp_project_dir / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "demo-prd.md").write_text("# prd", encoding="utf-8")
+    (output_dir / "demo-architecture.md").write_text("# architecture", encoding="utf-8")
+    (output_dir / "demo-uiux.md").write_text("# uiux", encoding="utf-8")
+    (output_dir / "preview.html").write_text("<main>preview</main>", encoding="utf-8")
+    (output_dir / "preview-blocked-change-ui-contract.json").write_text(
+        '{"style_direction":{"direction":"可信商业产品"}}',
+        encoding="utf-8",
+    )
+
+    change_dir = temp_project_dir / ".super-dev" / "changes" / "preview-blocked-change"
+    change_dir.mkdir(parents=True, exist_ok=True)
+    (change_dir / "change.yaml").write_text(
+        (
+            "id: preview-blocked-change\n"
+            "title: Preview Blocked Change\n"
+            "status: proposed\n"
+            "created_at: 2026-03-02T00:00:00\n"
+            "updated_at: 2026-03-02T00:00:00\n"
+        ),
+        encoding="utf-8",
+    )
+    (change_dir / "tasks.md").write_text(
+        (
+            "# Tasks\n\n"
+            "- [ ] **2.1: 实现 auth 前端模块**\n"
+            "  - Refs: `auth::*`\n\n"
+            "- [ ] **3.1: 实现 auth 后端模块**\n"
+            "  - Refs: `auth::*`\n\n"
+            "- [ ] **4.1: 执行质量验证**\n"
+        ),
+        encoding="utf-8",
+    )
+
+    save_bound_docs_confirmation(
+        temp_project_dir,
+        {"status": "confirmed", "comment": "ok", "actor": "pytest", "run_id": "docs-ok"},
+    )
+
+    executor = SpecTaskExecutor(
+        project_dir=temp_project_dir,
+        project_name="preview-blocked-change",
+    )
+    with pytest.raises(WorkflowGateError) as exc_info:
+        executor.execute(
+            change_id="preview-blocked-change",
+            tech_stack={
+                "platform": "web",
+                "frontend": "react",
+                "backend": "node",
+                "domain": "general",
+            },
+            max_retries=0,
+        )
+    assert exc_info.value.gate == "preview_confirmation"
+
+    save_bound_preview_confirmation(
+        temp_project_dir,
+        {"status": "confirmed", "comment": "ok", "actor": "pytest", "run_id": "preview-ok"},
+    )
+
+    summary = executor.execute(
+        change_id="preview-blocked-change",
+        tech_stack={
+            "platform": "web",
+            "frontend": "react",
+            "backend": "node",
+            "domain": "general",
+        },
+        max_retries=0,
+    )
+    assert summary.completed_tasks == summary.total_tasks

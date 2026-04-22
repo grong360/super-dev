@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ..specs import ChangeManager, SpecGenerator, SpecManager
 from ..specs.models import DeltaType, Task, TaskStatus
+from ..workflow_guard import require_docs_confirmation
 from .requirement_parser import RequirementParser
 
 
@@ -35,6 +36,12 @@ class SpecBuilder:
         scenario: str | None = None,
     ) -> str:
         """创建 Spec 变更提案"""
+        require_docs_confirmation(
+            self.project_dir,
+            action="spec_builder_create_change",
+            require_context=True,
+        )
+
         # 初始化 SDD 目录
         self.spec_generator.init_sdd()
 

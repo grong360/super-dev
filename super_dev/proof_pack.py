@@ -16,21 +16,33 @@ from pathlib import Path
 from typing import Any
 
 from .analyzer import FeatureChecklistBuilder
+from .artifact_utils import is_artifact_stale, latest_artifact, resolve_project_artifact_prefix
+from .baseline_governance import inspect_baseline_governance
+from .evidence_identity import (
+    build_evidence_identity,
+    evidence_identity_matches,
+    load_json_payload,
+)
 from .framework_harness import FrameworkHarnessBuilder
 from .frameworks import framework_playbook_complete, is_cross_platform_frontend
 from .harness_registry import derive_operational_focus
 from .hook_harness import HookHarnessBuilder
+from .host_runtime_governance import collect_layered_runtime_governance_gap
+from .host_workflow_context import build_host_workflow_context
 from .operational_harness import OperationalHarnessBuilder
 from .release_readiness import ReleaseReadinessEvaluator
 from .review_state import (
     load_architecture_revision,
     load_docs_confirmation,
+    load_host_runtime_validation,
     load_quality_revision,
     load_ui_revision,
 )
 from .reviewers.redteam import load_redteam_evidence
 from .specs import SpecValidator
+from .ui_contract_governance import missing_claude_design_runtime_checks
 from .workflow_harness import WorkflowHarnessBuilder
+from .workflow_state import detect_pipeline_summary
 
 _logger = logging.getLogger("super_dev.proof_pack")
 
@@ -58,6 +70,9 @@ class ProofPackReport:
     project_name: str
     generated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     artifacts: list[ProofPackArtifact] = field(default_factory=list)
+    evidence_identity: dict[str, Any] = field(default_factory=dict)
+    workflow_context: dict[str, Any] = field(default_factory=dict)
+    baseline_governance: dict[str, Any] = field(default_factory=dict)
 
     @property
     def ready_count(self) -> int:
@@ -88,15 +103,21 @@ class ProofPackReport:
     @property
     def key_artifacts(self) -> list[ProofPackArtifact]:
         preferred = {
+            "Baseline Confirmation",
             "Docs Confirmation",
             "Spec Quality",
+            "Spec Compliance",
+            "Architecture Drift",
+            "UIUX Compliance",
             "Scope Coverage",
             "Product Audit",
             "Redteam",
             "Task Execution",
+            "Expert Stage Governance",
             "UI Contract",
             "UI Contract Alignment",
             "Operational Harness",
+            "Host Runtime Validation",
             "Framework Harness",
             "Hook Audit Trail",
             "Workflow Continuity",
@@ -114,19 +135,35 @@ class ProofPackReport:
         artifact_names = {artifact.name: artifact for artifact in self.artifacts}
         docs = artifact_names.get("Docs Confirmation")
         if docs and docs.status != "ready":
-            actions.append(
-                '先执行 `super-dev review docs --status confirmed --comment "三文档已确认"`。'
-            )
+            actions.append("先在宿主里确认三文档；如果通过，直接说“文档确认，可以继续”。")
+        baseline = artifact_names.get("Baseline Confirmation")
+        if baseline and baseline.status != "ready":
+            actions.append("先在宿主里确认 baseline；如果通过，直接说“baseline 确认，可以继续当前流程”。")
         spec_quality = artifact_names.get("Spec Quality")
         if spec_quality and spec_quality.status != "ready":
             change_id = str(spec_quality.details.get("change_id", "<change_id>"))
             actions.append(
-                f"先执行 `super-dev spec quality {change_id}` 并补齐 proposal/spec/tasks/validation 的缺口。"
+                f"先检查当前 change `{change_id}` 的 Spec 质量报告，并补齐 proposal/spec/tasks/validation 的缺口。"
+            )
+        spec_compliance = artifact_names.get("Spec Compliance")
+        if spec_compliance and spec_compliance.status != "ready":
+            actions.append(
+                "重新执行 spec compliance，补齐 PRD 需求到实现代码的可追踪映射，再更新 quality gate 与 proof-pack。"
+            )
+        architecture_drift = artifact_names.get("Architecture Drift")
+        if architecture_drift and architecture_drift.status != "ready":
+            actions.append(
+                "先消除 architecture drift：让实现目录、依赖与技术栈重新对齐 architecture 文档，再重跑质量与发布检查。"
+            )
+        uiux_compliance = artifact_names.get("UIUX Compliance")
+        if uiux_compliance and uiux_compliance.status != "ready":
+            actions.append(
+                "先修复 UIUX compliance：统一图标库、design tokens、字体和禁用样式，再重新执行 UI 审查与前端运行验证。"
             )
         scope_coverage = artifact_names.get("Scope Coverage")
         if scope_coverage and scope_coverage.status != "ready":
             actions.append(
-                "先执行 `super-dev feature-checklist`，补齐高优先级未实现项，或把未落地能力明确降级到后续版本。"
+                "先通过 `super-dev product-audit` 或交付审查确认高优先级未实现项，补齐缺口，或把未落地能力明确降级到后续版本。"
             )
         product_audit = artifact_names.get("Product Audit")
         if product_audit and product_audit.status != "ready":
@@ -191,6 +228,11 @@ class ProofPackReport:
                 actions.append(
                     "补齐 operational harness：确认 workflow / framework / hook 三类 harness 都已生成并通过，再重新生成 proof-pack。"
                 )
+        host_runtime = artifact_names.get("Host Runtime Validation")
+        if host_runtime and host_runtime.status != "ready":
+            actions.append(
+                "重新执行宿主 runtime validation，并先修复 repo probe 中暴露的 workflow continuity / frontend runtime / harness 阻塞项。"
+            )
         hook_audit = artifact_names.get("Hook Audit Trail")
         if hook_audit and hook_audit.status != "ready":
             actions.append(
@@ -210,6 +252,9 @@ class ProofPackReport:
         task_execution = artifact_names.get("Task Execution")
         if task_execution and task_execution.status != "ready":
             actions.append("先补齐 Spec 任务执行报告与交付前自检摘要，确认实现链路已经真实闭环。")
+        expert_governance = artifact_names.get("Expert Stage Governance")
+        if expert_governance and expert_governance.status != "ready":
+            actions.append("先把已进入的主流程阶段写成显式专家证据，避免专家只在提示词里存在而没有阶段级落盘记录。")
         frontend = artifact_names.get("Frontend Runtime")
         if frontend and frontend.status != "ready":
             actions.append("重新执行前端运行验证，确认前端可真实运行而不是只生成页面文件。")
@@ -254,6 +299,7 @@ class ProofPackReport:
 
     @property
     def executive_summary(self) -> str:
+        artifact_names = {artifact.name: artifact for artifact in self.artifacts}
         gov = self.governance_artifacts
         gov_text = ""
         if gov:
@@ -276,16 +322,197 @@ class ProofPackReport:
                 focus_summary = str(focus.get("summary", "")).strip()
                 if focus_summary:
                     operational_focus_text = f"当前治理焦点：{focus_summary}。"
+        host_runtime_gap_text = ""
+        host_runtime = artifact_names.get("Host Runtime Validation")
+        if host_runtime and isinstance(host_runtime.details, dict):
+            hosts = host_runtime.details.get("hosts", {})
+            repo_probes = host_runtime.details.get("repo_probes", {})
+            if isinstance(hosts, dict) and isinstance(repo_probes, dict):
+                layered_gap_hosts: list[str] = []
+                for host_id, host_payload in hosts.items():
+                    if not isinstance(host_payload, dict):
+                        continue
+                    manual_status = str(host_payload.get("status", "")).strip() or "pending"
+                    probe_payload = repo_probes.get(host_id, {})
+                    probe_status = (
+                        str(probe_payload.get("status", "")).strip()
+                        if isinstance(probe_payload, dict)
+                        else ""
+                    )
+                    if manual_status == "passed" and probe_status == "failed":
+                        layered_gap_hosts.append(str(host_id))
+                if layered_gap_hosts:
+                    host_runtime_gap_text = (
+                        "宿主验收已出现分层差异："
+                        + "、".join(layered_gap_hosts[:3])
+                        + " 已人工通过，但仓库级 continuity / harness / runtime 证据仍未闭环。"
+                    )
+        compliance_text = self._compliance_signal_summary()
+        frontend_governance_text = self._frontend_governance_signal_summary()
+        framework_text = self._framework_signal_summary()
+        workflow_text = self._workflow_signal_summary()
+        baseline_text = self._baseline_signal_summary()
         if self.status == "ready":
             return (
                 f"当前交付证据包已完成，{self.ready_count}/{self.total_count} 项关键证据就绪，"
-                f"可以作为当前 run 的正式交付证明。{gov_text}{harness_text}{operational_focus_text}"
+                "可以作为当前 run 的正式交付证明。"
+                " 从管理视角看，当前 run 已具备演示、验收和交付归档所需的基础可信度。"
+                f"{gov_text}{harness_text}{operational_focus_text}"
+                f"{workflow_text}{baseline_text}{host_runtime_gap_text}{compliance_text}"
+                f"{frontend_governance_text}{framework_text}"
             )
         missing = [artifact.name for artifact in self.blockers[:3]]
         missing_text = "、".join(missing) if missing else "关键交付证据"
         return (
             f"当前交付证据包尚未完成，已就绪 {self.ready_count}/{self.total_count} 项。"
+            " 从交付视角看，现在还不适合做最终客户演示、正式验收或对外交付。"
             f"优先补齐：{missing_text}。{gov_text}{harness_text}{operational_focus_text}"
+            f"{workflow_text}{baseline_text}{host_runtime_gap_text}{compliance_text}"
+            f"{frontend_governance_text}{framework_text}"
+        )
+
+    def _workflow_signal_summary(self) -> str:
+        context = self.workflow_context if isinstance(self.workflow_context, dict) else {}
+        status = str(context.get("workflow_status", "")).strip()
+        gate = str(context.get("blocking_gate", "")).strip()
+        next_action = str(context.get("recommended_host_action", "")).strip()
+        if not status:
+            return ""
+        if gate:
+            action_text = f" 下一步：{next_action}。" if next_action else ""
+            return (
+                f" 当前流程状态为 {status}，入口 gate={gate}。"
+                " 这说明当前 run 还停在正式确认门之前，不能把“已经生成了一批文件”直接当成交付完成。"
+                + action_text
+            )
+        return f" 当前流程状态为 {status}，主入口 gate 已闭环。"
+
+    def _baseline_signal_summary(self) -> str:
+        baseline = self.baseline_governance if isinstance(self.baseline_governance, dict) else {}
+        if not baseline:
+            return ""
+        status = str(baseline.get("status", "")).strip()
+        entry_gate = str(baseline.get("entry_gate", "")).strip()
+        next_action = str(baseline.get("next_host_action", "")).strip()
+        if status == "missing_audit":
+            return " 当前是已有项目模式，但 baseline audit 还没生成。"
+        if entry_gate == "waiting_baseline_confirmation":
+            action_text = f" 下一步：{next_action}。" if next_action else ""
+            return " 当前是已有项目模式，但 baseline 还没确认。" + action_text
+        if entry_gate == "waiting_resume_gate":
+            action_text = f" 下一步：{next_action}。" if next_action else ""
+            return " 当前先处理 resume gate，再继续已有项目差量链路。" + action_text
+        return ""
+
+    def _compliance_signal_summary(self) -> str:
+        compliance_artifacts = [
+            artifact
+            for artifact in self.artifacts
+            if artifact.name in {"Spec Compliance", "Architecture Drift", "UIUX Compliance"}
+        ]
+        if not compliance_artifacts:
+            return ""
+        source_issues: list[str] = []
+        content_issues: list[str] = []
+        for artifact in compliance_artifacts:
+            if "artifact " in artifact.summary:
+                source_state = artifact.summary.split("artifact ", 1)[1].strip()
+                source_issues.append(f"{artifact.name}={source_state}")
+                continue
+            if artifact.status != "ready":
+                content_issues.append(artifact.name)
+        if source_issues:
+            return (
+                " 合规链当前优先卡在证据状态："
+                + "、".join(source_issues[:3])
+                + "。这意味着需求、架构或 UI 约束还不能被稳定追溯到当前实现，管理侧现在还不该做最终验收签字。"
+            )
+        if content_issues:
+            return (
+                " 合规链证据已齐，但内容仍未达标："
+                + "、".join(content_issues[:3])
+                + "。当前还不能证明“做出来的东西就是承诺过要交付的东西”。"
+            )
+        return " 合规链证据与内容检查当前均已闭环。"
+
+    def _frontend_governance_signal_summary(self) -> str:
+        artifact_names = {artifact.name: artifact for artifact in self.artifacts}
+        ui_contract = artifact_names.get("UI Contract")
+        frontend_runtime = artifact_names.get("Frontend Runtime")
+        if ui_contract and ui_contract.status != "ready":
+            summary = str(ui_contract.summary).strip()
+            if "missing" in summary or "incomplete" in summary:
+                return (
+                    " UI 阶段当前优先卡在契约冻结，Claude-Design 风格执行协议尚未完全冻结。"
+                    " 这会让设计、开发和验收对“什么叫完成”理解不一致。"
+                )
+        if frontend_runtime and frontend_runtime.status != "ready":
+            summary = str(frontend_runtime.summary).strip()
+            if "missing Claude-Design execution protocol evidence:" in summary:
+                missing = summary.split("missing Claude-Design execution protocol evidence:", 1)[1].strip()
+                return (
+                    " UI 阶段当前优先卡在 runtime 证明，缺少 "
+                    + missing
+                    + " 的运行证据。当前还无法向业务或管理者证明页面不只是写出来，而是真的跑起来并符合框架约束。"
+                )
+            if "source/runtime evidence drift:" in summary:
+                drift = summary.split("source/runtime evidence drift:", 1)[1].strip()
+                return (
+                    " UI 阶段当前存在 source/runtime 证据漂移，"
+                    + drift
+                    + "。这意味着代码、预览和审查结论还没对齐，演示时容易出现“文档说可以、现场却不稳定”。"
+                )
+            if "source execution missing:" in summary:
+                missing = summary.split("source execution missing:", 1)[1].strip()
+                return (
+                    " UI 阶段当前卡在源码/预览落地，缺少 "
+                    + missing
+                    + " 的实际执行信号。现在还不能说明页面已经按照冻结 UI 方案真实落地。"
+                )
+            if "screenshot visual gate failed:" in summary:
+                observed = summary.split("screenshot visual gate failed:", 1)[1].strip()
+                observed_text = f" 当前观测：{observed}。" if observed else ""
+                return (
+                    " UI 阶段当前截图级视觉验收未通过，页面仍然过平、过空或过于单一。"
+                    " 用户会直接感知为商业质感不足或像半成品。"
+                    + observed_text
+                )
+        return ""
+
+    def _framework_signal_summary(self) -> str:
+        artifact_names = {artifact.name: artifact for artifact in self.artifacts}
+        framework_harness = artifact_names.get("Framework Harness")
+        if framework_harness is None:
+            return ""
+        framework = ""
+        if isinstance(framework_harness.details, dict):
+            framework = str(framework_harness.details.get("framework", "")).strip()
+        summary = str(framework_harness.summary).strip()
+        if framework_harness.status == "ready":
+            if framework:
+                return (
+                    " 跨平台框架专项当前已闭环，"
+                    + framework
+                    + " 的 implementation modules、native capabilities、validation surfaces 与 delivery evidence 均已纳入交付证据。"
+                    " 这意味着框架专项不再只是技术检查项，而是可被验收团队直接复核的交付打法。"
+                )
+            return " 跨平台框架专项当前已闭环，framework playbook、runtime 执行与交付证据均已纳入交付证明。"
+        if framework:
+            return (
+                " 跨平台框架专项当前卡在 "
+                + framework
+                + " playbook/执行闭环。"
+                " 这会直接影响跨端体验稳定性、专项验收效率和上线节奏。"
+                " 当前摘要："
+                + summary
+                + "。"
+            )
+        return (
+            " 跨平台框架专项当前仍有缺口。"
+            " 这会直接影响跨端体验稳定性、专项验收效率和上线节奏。"
+            " 当前摘要："
+            + summary
+            + "。"
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -305,6 +532,9 @@ class ProofPackReport:
             "blocking_artifacts": [artifact.to_dict() for artifact in self.blockers],
             "key_artifacts": [artifact.to_dict() for artifact in self.key_artifacts],
             "artifacts": [artifact.to_dict() for artifact in self.artifacts],
+            "evidence_identity": dict(self.evidence_identity),
+            "workflow_context": dict(self.workflow_context),
+            "baseline_governance": dict(self.baseline_governance),
         }
 
     def to_markdown(self) -> str:
@@ -324,6 +554,29 @@ class ProofPackReport:
             "## Blockers",
             "",
         ]
+        if self.workflow_context:
+            lines.extend(
+                [
+                    "## Workflow Context",
+                    "",
+                    f"- Workflow Status: {self.workflow_context.get('workflow_status', '-')}",
+                    f"- Blocking Gate: {self.workflow_context.get('blocking_gate', '') or 'clear'}",
+                    f"- Recommended Host Action: {self.workflow_context.get('recommended_host_action', '-')}",
+                    "",
+                ]
+            )
+        if self.baseline_governance:
+            lines.extend(
+                [
+                    "## Baseline Governance",
+                    "",
+                    f"- Status: {self.baseline_governance.get('status', '-')}",
+                    f"- Entry Gate: {self.baseline_governance.get('entry_gate', '') or 'clear'}",
+                    f"- Ready: {'yes' if bool(self.baseline_governance.get('ready', False)) else 'no'}",
+                    f"- Next Host Action: {self.baseline_governance.get('next_host_action', '-')}",
+                    "",
+                ]
+            )
         if self.blockers:
             for artifact in self.blockers:
                 lines.append(f"- **{artifact.name}**: {artifact.summary}")
@@ -471,17 +724,34 @@ class ProofPackBuilder:
         self.project_dir = Path(project_dir).resolve()
         self.output_dir = self.project_dir / "output"
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.project_name = self.project_dir.name
+        self.project_name = resolve_project_artifact_prefix(
+            self.project_dir,
+            fallback_name=self.project_dir.name,
+        )
 
     def build(self, verify_tests: bool = False) -> ProofPackReport:
         report = ProofPackReport(project_name=self.project_name)
+        pipeline_summary = detect_pipeline_summary(self.project_dir)
+        report.baseline_governance = inspect_baseline_governance(
+            self.project_dir,
+            workflow_payload=pipeline_summary,
+            output_dir=self.output_dir,
+        )
+        report.workflow_context = build_host_workflow_context(
+            self.project_dir,
+            summary=pipeline_summary,
+        )
         report.artifacts.extend(
             [
+                self._baseline_confirmation_artifact(),
                 self._docs_confirmation_artifact(),
                 self._architecture_revision_artifact(),
                 self._ui_revision_artifact(),
                 self._quality_revision_artifact(),
                 self._spec_quality_artifact(),
+                self._spec_compliance_artifact(),
+                self._architecture_drift_artifact(),
+                self._uiux_compliance_artifact(),
                 self._scope_coverage_artifact(),
                 self._product_audit_artifact(),
                 self._repo_map_artifact(),
@@ -496,7 +766,9 @@ class ProofPackBuilder:
                 self._ui_contract_alignment_artifact(),
                 self._redteam_artifact(),
                 self._task_execution_artifact(),
+                self._expert_stage_governance_artifact(),
                 self._operational_harness_artifact(),
+                self._host_runtime_validation_artifact(),
                 self._workflow_continuity_artifact(),
                 self._frontend_runtime_artifact(),
                 self._ui_review_artifact(),
@@ -523,6 +795,7 @@ class ProofPackBuilder:
         md_path = base.with_suffix(".md")
         json_path = base.with_suffix(".json")
         summary_path = self.output_dir / f"{self.project_name}-proof-pack-summary.md"
+        report.evidence_identity = self._build_report_evidence_identity()
         md_path.write_text(report.to_markdown(), encoding="utf-8")
         json_path.write_text(
             json.dumps(report.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
@@ -530,12 +803,47 @@ class ProofPackBuilder:
         summary_path.write_text(report.to_executive_markdown(), encoding="utf-8")
         return {"markdown": md_path, "json": json_path, "summary": summary_path}
 
+    def _build_report_evidence_identity(self) -> dict[str, Any]:
+        return build_evidence_identity(
+            self.project_dir,
+            artifact_name="proof-pack",
+            dependencies=[
+                latest_artifact(
+                    self.output_dir, "*-quality-gate.json", preferred_prefix=self.project_name
+                )
+                or latest_artifact(
+                    self.output_dir, "*-quality-gate.md", preferred_prefix=self.project_name
+                ),
+                latest_artifact(
+                    self.output_dir, "*-release-readiness.json", preferred_prefix=self.project_name
+                ),
+                latest_artifact(
+                    self.output_dir, "*-frontend-runtime.json", preferred_prefix=self.project_name
+                ),
+                latest_artifact(
+                    self.output_dir, "*-ui-review.json", preferred_prefix=self.project_name
+                ),
+                latest_artifact(
+                    self.output_dir,
+                    "*-ui-contract-alignment.json",
+                    preferred_prefix=self.project_name,
+                ),
+                latest_artifact(
+                    self.output_dir, "*-host-runtime-validation.json", preferred_prefix=self.project_name
+                ),
+                latest_artifact(
+                    self.output_dir, "*-baseline-audit.json", preferred_prefix=self.project_name
+                )
+                or latest_artifact(
+                    self.output_dir, "*-baseline-audit.md", preferred_prefix=self.project_name
+                ),
+                self.project_dir / ".super-dev" / "review-state" / "stage-ledger.json",
+            ],
+        )
+
     def _latest(self, pattern: str, base_dir: Path | None = None) -> Path | None:
         directory = base_dir or self.output_dir
-        candidates = [path for path in directory.glob(pattern) if path.is_file()]
-        if not candidates:
-            return None
-        return max(candidates, key=lambda item: item.stat().st_mtime)
+        return latest_artifact(directory, pattern, preferred_prefix=self.project_name)
 
     def _document_artifact(self, name: str, pattern: str) -> ProofPackArtifact:
         file_path = self._latest(pattern)
@@ -567,6 +875,44 @@ class ProofPackBuilder:
             summary=summary,
             path=str(file_path),
             details=payload,
+        )
+
+    def _baseline_confirmation_artifact(self) -> ProofPackArtifact:
+        baseline = inspect_baseline_governance(self.project_dir, output_dir=self.output_dir)
+        file_path = str(baseline.get("confirmation_path", "")).strip()
+        if baseline.get("status") == "not_required":
+            return ProofPackArtifact(
+                name="Baseline Confirmation",
+                status="ready",
+                summary="baseline confirmation not required for current work mode",
+                path="",
+            )
+        if baseline.get("status") == "missing_audit":
+            return ProofPackArtifact(
+                name="Baseline Confirmation",
+                status="missing",
+                summary="baseline audit missing",
+                path=file_path,
+                details=baseline,
+            )
+        if baseline.get("status") == "missing_confirmation":
+            return ProofPackArtifact(
+                name="Baseline Confirmation",
+                status="pending",
+                summary="baseline confirmation state not recorded",
+                path=file_path,
+                details=baseline,
+            )
+        return ProofPackArtifact(
+            name="Baseline Confirmation",
+            status="ready" if baseline.get("ready") else "pending",
+            summary=(
+                "baseline confirmed"
+                if baseline.get("status") == "confirmed"
+                else f"status={baseline.get('confirmation_status') or baseline.get('status')}"
+            ),
+            path=file_path,
+            details=baseline,
         )
 
     def _ui_revision_artifact(self) -> ProofPackArtifact:
@@ -751,13 +1097,89 @@ class ProofPackBuilder:
             return ProofPackArtifact(
                 name="Frontend Runtime", status="missing", summary="frontend runtime report missing"
             )
+        ui_contract_path = self._latest("*-ui-contract.json")
+        ui_alignment_path = self._latest("*-ui-contract-alignment.json")
+        expected_identity = build_evidence_identity(
+            self.project_dir,
+            artifact_name="frontend-runtime",
+            dependencies=[ui_contract_path, ui_alignment_path],
+        )
         try:
             payload = json.loads(file_path.read_text(encoding="utf-8"))
         except Exception as e:
             _logger.debug(f"Failed to parse frontend runtime JSON: {e}")
             payload = {}
+        ui_contract_payload: dict[str, Any] = {}
+        if ui_contract_path is not None:
+            try:
+                loaded_contract = json.loads(ui_contract_path.read_text(encoding="utf-8"))
+                if isinstance(loaded_contract, dict):
+                    ui_contract_payload = loaded_contract
+            except Exception:
+                ui_contract_payload = {}
+        identity_ok, identity_reason = evidence_identity_matches(
+            payload if isinstance(payload, dict) else {},
+            expected=expected_identity,
+        )
+        if not identity_ok:
+            summary = (
+                "frontend runtime evidence identity mismatches current UI contract/alignment"
+                if identity_reason == "digest_mismatch"
+                else "frontend runtime report is missing evidence identity"
+            )
+            return ProofPackArtifact(
+                name="Frontend Runtime",
+                status="pending",
+                summary=summary,
+                path=str(file_path),
+                details=payload if isinstance(payload, dict) else {},
+            )
+        if is_artifact_stale(file_path, dependencies=[ui_contract_path, ui_alignment_path]):
+            return ProofPackArtifact(
+                name="Frontend Runtime",
+                status="pending",
+                summary="frontend runtime report is stale relative to current UI contract/alignment",
+                path=str(file_path),
+                details=payload if isinstance(payload, dict) else {},
+            )
         checks = payload.get("checks", {}) if isinstance(payload, dict) else {}
+        missing_protocol_checks = missing_claude_design_runtime_checks(
+            checks if isinstance(checks, dict) else {},
+            ui_contract_payload,
+        )
+        ui_review_path = self._latest("*-ui-review.json")
+        ui_review_payload = load_json_payload(ui_review_path) if ui_review_path is not None else {}
+        alignment_summary = (
+            ui_review_payload.get("alignment_summary", {})
+            if isinstance(ui_review_payload, dict)
+            and isinstance(ui_review_payload.get("alignment_summary"), dict)
+            else {}
+        )
+        runtime_protocol_alignment = (
+            alignment_summary.get("runtime_claude_design_protocol", {})
+            if isinstance(alignment_summary.get("runtime_claude_design_protocol"), dict)
+            else {}
+        )
+        source_protocol_alignment = (
+            alignment_summary.get("source_claude_design_protocol", {})
+            if isinstance(alignment_summary.get("source_claude_design_protocol"), dict)
+            else {}
+        )
+        screenshot_visual_judge = (
+            alignment_summary.get("screenshot_visual_judge", {})
+            if isinstance(alignment_summary.get("screenshot_visual_judge"), dict)
+            else {}
+        )
         passed = bool(payload.get("passed", False)) if isinstance(payload, dict) else False
+        runtime_protocol_ok = not runtime_protocol_alignment or bool(
+            runtime_protocol_alignment.get("passed", False)
+        )
+        source_protocol_ok = not source_protocol_alignment or bool(
+            source_protocol_alignment.get("passed", False)
+        )
+        screenshot_visual_ok = not screenshot_visual_judge or bool(
+            screenshot_visual_judge.get("passed", False)
+        )
         contract_aligned = not isinstance(checks, dict) or (
             bool(checks.get("ui_contract_json", False))
             and bool(checks.get("output_frontend_design_tokens", False))
@@ -768,6 +1190,10 @@ class ProofPackBuilder:
             and bool(checks.get("ui_banned_patterns", False))
             and bool(checks.get("ui_framework_playbook", True))
             and bool(checks.get("ui_framework_execution", True))
+            and not missing_protocol_checks
+            and runtime_protocol_ok
+            and source_protocol_ok
+            and screenshot_visual_ok
         )
         return ProofPackArtifact(
             name="Frontend Runtime",
@@ -775,7 +1201,30 @@ class ProofPackBuilder:
             summary=(
                 "frontend runtime passed and UI contract / framework playbook are wired"
                 if passed and contract_aligned
-                else "frontend runtime not passed or UI contract / framework evidence is incomplete"
+                else (
+                    "frontend runtime source/runtime evidence drift: "
+                    + str(runtime_protocol_alignment.get("observed", "")).strip()
+                    if runtime_protocol_alignment
+                    and not bool(runtime_protocol_alignment.get("passed", False))
+                    else (
+                        "frontend runtime source execution missing: "
+                        + str(source_protocol_alignment.get("observed", "")).strip()
+                        if source_protocol_alignment
+                        and not bool(source_protocol_alignment.get("passed", False))
+                        else (
+                            "frontend runtime screenshot visual gate failed: "
+                            + str(screenshot_visual_judge.get("observed", "")).strip()
+                            if screenshot_visual_judge
+                            and not bool(screenshot_visual_judge.get("passed", False))
+                            else (
+                                "frontend runtime missing Claude-Design execution protocol evidence: "
+                                + ", ".join(missing_protocol_checks)
+                                if missing_protocol_checks
+                                else "frontend runtime not passed or UI contract / framework evidence is incomplete"
+                            )
+                        )
+                    )
+                )
             ),
             path=str(file_path),
             details=payload if isinstance(payload, dict) else {},
@@ -786,6 +1235,14 @@ class ProofPackBuilder:
         if file_path is None:
             return ProofPackArtifact(
                 name="UI Contract", status="missing", summary="UI contract missing"
+            )
+        uiux_path = self._latest("*-uiux.md")
+        if is_artifact_stale(file_path, dependencies=[uiux_path]):
+            return ProofPackArtifact(
+                name="UI Contract",
+                status="pending",
+                summary="UI contract is stale relative to latest UI/UX document",
+                path=str(file_path),
             )
         try:
             payload = json.loads(file_path.read_text(encoding="utf-8"))
@@ -879,6 +1336,13 @@ class ProofPackBuilder:
                 status="missing",
                 summary="UI contract alignment report missing",
             )
+        ui_contract_path = self._latest("*-ui-contract.json")
+        uiux_path = self._latest("*-uiux.md")
+        expected_identity = build_evidence_identity(
+            self.project_dir,
+            artifact_name="ui-contract-alignment",
+            dependencies=[ui_contract_path, uiux_path],
+        )
         try:
             payload = json.loads(file_path.read_text(encoding="utf-8"))
         except Exception as e:
@@ -896,12 +1360,41 @@ class ProofPackBuilder:
                 summary="UI contract alignment report must be a JSON object",
                 path=str(file_path),
             )
-        checks = [value for value in payload.values() if isinstance(value, dict)]
+        identity_ok, identity_reason = evidence_identity_matches(payload, expected=expected_identity)
+        if not identity_ok:
+            summary = (
+                "UI contract alignment evidence identity mismatches current UI contract/UIUX"
+                if identity_reason == "digest_mismatch"
+                else "UI contract alignment report is missing evidence identity"
+            )
+            return ProofPackArtifact(
+                name="UI Contract Alignment",
+                status="pending",
+                summary=summary,
+                path=str(file_path),
+                details=payload,
+            )
+        if is_artifact_stale(file_path, dependencies=[ui_contract_path, uiux_path]):
+            return ProofPackArtifact(
+                name="UI Contract Alignment",
+                status="pending",
+                summary="UI contract alignment report is stale relative to current UI contract/UIUX",
+                path=str(file_path),
+                details=payload,
+            )
+        checks = [
+            value
+            for key, value in payload.items()
+            if isinstance(value, dict) and key != "evidence_identity" and "passed" in value
+        ]
         passed = bool(checks) and all(bool(item.get("passed", False)) for item in checks)
         failed_labels = [
             str(item.get("label") or key)
             for key, item in payload.items()
-            if isinstance(item, dict) and not item.get("passed", False)
+            if isinstance(item, dict)
+            and key != "evidence_identity"
+            and "passed" in item
+            and not item.get("passed", False)
         ]
         summary = (
             "UI contract alignment verified across icons, typography, ecosystem and design tokens"
@@ -986,6 +1479,62 @@ class ProofPackBuilder:
             },
         )
 
+    def _host_runtime_validation_artifact(self) -> ProofPackArtifact:
+        payload = load_host_runtime_validation(self.project_dir) or {}
+        hosts = payload.get("hosts", {}) if isinstance(payload, dict) else {}
+        if not isinstance(hosts, dict) or not hosts:
+            return ProofPackArtifact(
+                name="Host Runtime Validation",
+                status="ready",
+                summary="no host runtime validation state recorded",
+                details={},
+            )
+
+        pending_hosts: list[str] = []
+        failed_hosts: list[str] = []
+        governance_gap = collect_layered_runtime_governance_gap(self.project_dir)
+        probe_failed_hosts = (
+            list(governance_gap.get("impacted_hosts", [])) if isinstance(governance_gap, dict) else []
+        )
+        probe_payloads = (
+            dict(governance_gap.get("repo_probes", {})) if isinstance(governance_gap, dict) else {}
+        )
+
+        for host_id, item in hosts.items():
+            if not isinstance(item, dict):
+                continue
+            manual_status = str(item.get("status", "")).strip() or "pending"
+            if manual_status == "failed":
+                failed_hosts.append(str(host_id))
+            elif manual_status != "passed":
+                pending_hosts.append(str(host_id))
+
+        status = (
+            "ready" if not pending_hosts and not failed_hosts and not probe_failed_hosts else "pending"
+        )
+        if status == "ready":
+            summary = f"validated hosts ready: {len(probe_payloads)}/{len(hosts)}"
+        else:
+            parts: list[str] = []
+            if pending_hosts:
+                parts.append(f"pending={', '.join(pending_hosts[:3])}")
+            if failed_hosts:
+                parts.append(f"failed={', '.join(failed_hosts[:3])}")
+            if probe_failed_hosts:
+                parts.append(f"repo_probe_failed={', '.join(probe_failed_hosts[:3])}")
+            summary = "host runtime validation gaps: " + "; ".join(parts)
+
+        return ProofPackArtifact(
+            name="Host Runtime Validation",
+            status=status,
+            summary=summary,
+            path=str(self.project_dir / ".super-dev" / "review-state" / "host-runtime-validation.json"),
+            details={
+                "hosts": hosts,
+                "repo_probes": probe_payloads,
+            },
+        )
+
     def _redteam_artifact(self) -> ProofPackArtifact:
         evidence = load_redteam_evidence(self.project_dir, self.project_name)
         if evidence is None:
@@ -1033,6 +1582,41 @@ class ProofPackBuilder:
             },
         )
 
+    def _expert_stage_governance_artifact(self) -> ProofPackArtifact:
+        summary = detect_pipeline_summary(self.project_dir)
+        governance = (
+            summary.get("expert_governance", {})
+            if isinstance(summary.get("expert_governance", {}), dict)
+            else {}
+        )
+        missing_stages = (
+            list(governance.get("missing_stages", []))
+            if isinstance(governance.get("missing_stages", []), list)
+            else []
+        )
+        visible_stage_count = int(governance.get("visible_stage_count", 0) or 0)
+        covered_count = int(governance.get("covered_count", 0) or 0)
+        if visible_stage_count <= 0:
+            return ProofPackArtifact(
+                name="Expert Stage Governance",
+                status="ready",
+                summary="no active stage expert evidence required yet",
+                details=governance,
+            )
+        if missing_stages:
+            return ProofPackArtifact(
+                name="Expert Stage Governance",
+                status="pending",
+                summary="expert stage evidence missing: " + "、".join(missing_stages[:4]),
+                details=governance,
+            )
+        return ProofPackArtifact(
+            name="Expert Stage Governance",
+            status="ready",
+            summary=f"expert participation recorded for {covered_count}/{visible_stage_count} visible stages",
+            details=governance,
+        )
+
     def _workflow_continuity_artifact(self) -> ProofPackArtifact:
         builder = WorkflowHarnessBuilder(self.project_dir)
         report = builder.build()
@@ -1066,11 +1650,43 @@ class ProofPackBuilder:
             return ProofPackArtifact(
                 name="UI Review", status="missing", summary="UI review report missing"
             )
+        ui_contract_path = self._latest("*-ui-contract.json")
+        uiux_path = self._latest("*-uiux.md")
+        expected_identity = build_evidence_identity(
+            self.project_dir,
+            artifact_name="ui-review",
+            dependencies=[ui_contract_path, uiux_path],
+        )
         try:
             payload = json.loads(file_path.read_text(encoding="utf-8"))
         except Exception as e:
             _logger.debug(f"Failed to parse UI review JSON: {e}")
             payload = {}
+        identity_ok, identity_reason = evidence_identity_matches(
+            payload if isinstance(payload, dict) else {},
+            expected=expected_identity,
+        )
+        if not identity_ok:
+            summary = (
+                "UI review evidence identity mismatches current UI contract/UIUX"
+                if identity_reason == "digest_mismatch"
+                else "UI review report is missing evidence identity"
+            )
+            return ProofPackArtifact(
+                name="UI Review",
+                status="pending",
+                summary=summary,
+                path=str(file_path),
+                details=payload if isinstance(payload, dict) else {},
+            )
+        if is_artifact_stale(file_path, dependencies=[ui_contract_path, uiux_path]):
+            return ProofPackArtifact(
+                name="UI Review",
+                status="pending",
+                summary="UI review report is stale relative to current UI contract/UIUX",
+                path=str(file_path),
+                details=payload if isinstance(payload, dict) else {},
+            )
         score = payload.get("score") if isinstance(payload, dict) else None
         critical = int(payload.get("critical_count", 0)) if isinstance(payload, dict) else 0
         ready = critical == 0
@@ -1086,10 +1702,45 @@ class ProofPackBuilder:
         )
 
     def _quality_gate_artifact(self) -> ProofPackArtifact:
-        file_path = self._latest("*-quality-gate.md")
+        json_path = self._latest("*-quality-gate.json")
+        file_path = json_path or self._latest("*-quality-gate.md")
         if file_path is None:
             return ProofPackArtifact(
                 name="Quality Gate", status="missing", summary="quality gate report missing"
+            )
+        ui_review_path = self._latest("*-ui-review.json")
+        ui_alignment_path = self._latest("*-ui-contract-alignment.json")
+        uiux_path = self._latest("*-uiux.md")
+        expected_identity = build_evidence_identity(
+            self.project_dir,
+            artifact_name="quality-gate",
+            dependencies=[ui_review_path, ui_alignment_path, uiux_path],
+        )
+        if json_path is not None:
+            payload = load_json_payload(json_path)
+            identity_ok, identity_reason = evidence_identity_matches(
+                payload,
+                expected=expected_identity,
+            )
+            if not identity_ok:
+                summary = (
+                    "quality gate report evidence identity mismatches current UI evidence"
+                    if identity_reason == "digest_mismatch"
+                    else "quality gate report is missing evidence identity"
+                )
+                return ProofPackArtifact(
+                    name="Quality Gate",
+                    status="pending",
+                    summary=summary,
+                    path=str(file_path),
+                    details=payload if isinstance(payload, dict) else {},
+                )
+        if is_artifact_stale(file_path, dependencies=[ui_review_path, ui_alignment_path, uiux_path]):
+            return ProofPackArtifact(
+                name="Quality Gate",
+                status="pending",
+                summary="quality gate report is stale relative to current UI evidence",
+                path=str(file_path),
             )
         text = file_path.read_text(encoding="utf-8", errors="ignore").lower()
         if "fail" in text or "未通过" in text:
@@ -1098,8 +1749,13 @@ class ProofPackBuilder:
         else:
             status = "ready"
             summary = "quality gate report generated"
+        payload = load_json_payload(json_path) if json_path is not None else {}
         return ProofPackArtifact(
-            name="Quality Gate", status=status, summary=summary, path=str(file_path)
+            name="Quality Gate",
+            status=status,
+            summary=summary,
+            path=str(file_path),
+            details=payload if isinstance(payload, dict) else {},
         )
 
     def _delivery_manifest_artifact(self) -> ProofPackArtifact:
@@ -1181,6 +1837,114 @@ class ProofPackBuilder:
                 f"high_priority_gaps={report.high_priority_gap_count}"
             ),
             path=str(paths["json"]),
+            details=report.to_dict(),
+        )
+
+    def _spec_compliance_artifact(self) -> ProofPackArtifact:
+        from .reviewers.spec_compliance import (
+            inspect_spec_compliance_artifact,
+            run_spec_compliance,
+        )
+
+        inspection = inspect_spec_compliance_artifact(self.project_dir, self.output_dir)
+        report = run_spec_compliance(self.project_dir, self.output_dir)
+        if inspection["status"] != "ready":
+            return ProofPackArtifact(
+                name="Spec Compliance",
+                status="pending",
+                summary=f"spec compliance artifact {inspection['status']}",
+                path=str(inspection["path"]),
+                details=report.to_dict(),
+            )
+        if report.total_requirements <= 0:
+            return ProofPackArtifact(
+                name="Spec Compliance",
+                status="ready",
+                summary="no traceable requirements detected",
+                path=str(self.output_dir / f"{report.project_name}-spec-compliance.json"),
+                details=report.to_dict(),
+            )
+        status = "ready" if report.score >= 80 else "pending"
+        return ProofPackArtifact(
+            name="Spec Compliance",
+            status=status,
+            summary=(
+                f"coverage={report.coverage_percent}%, requirements={report.total_requirements}, "
+                f"score={report.score}/100"
+            ),
+            path=str(self.output_dir / f"{report.project_name}-spec-compliance.json"),
+            details=report.to_dict(),
+        )
+
+    def _architecture_drift_artifact(self) -> ProofPackArtifact:
+        from .reviewers.architecture_drift import (
+            inspect_architecture_drift_artifact,
+            run_architecture_drift,
+        )
+
+        inspection = inspect_architecture_drift_artifact(self.project_dir, self.output_dir)
+        report = run_architecture_drift(self.project_dir, self.output_dir)
+        if inspection["status"] != "ready":
+            return ProofPackArtifact(
+                name="Architecture Drift",
+                status="pending",
+                summary=f"architecture drift artifact {inspection['status']}",
+                path=str(inspection["path"]),
+                details=report.to_dict(),
+            )
+        if not report.declared_tech_stack and report.total_drifts == 0:
+            return ProofPackArtifact(
+                name="Architecture Drift",
+                status="ready",
+                summary="no architecture baseline detected",
+                path=str(self.output_dir / f"{report.project_name}-architecture-drift.json"),
+                details=report.to_dict(),
+            )
+        status = "ready" if report.score >= 80 else "pending"
+        return ProofPackArtifact(
+            name="Architecture Drift",
+            status=status,
+            summary=(
+                f"drifts={report.total_drifts}, critical={report.critical_count}, "
+                f"score={report.score}/100"
+            ),
+            path=str(self.output_dir / f"{report.project_name}-architecture-drift.json"),
+            details=report.to_dict(),
+        )
+
+    def _uiux_compliance_artifact(self) -> ProofPackArtifact:
+        from .reviewers.uiux_compliance import (
+            inspect_uiux_compliance_artifact,
+            run_uiux_compliance,
+        )
+
+        inspection = inspect_uiux_compliance_artifact(self.project_dir, self.output_dir)
+        report = run_uiux_compliance(self.project_dir, self.output_dir)
+        if inspection["status"] != "ready":
+            return ProofPackArtifact(
+                name="UIUX Compliance",
+                status="pending",
+                summary=f"uiux compliance artifact {inspection['status']}",
+                path=str(inspection["path"]),
+                details=report.to_dict(),
+            )
+        if report.files_scanned <= 0:
+            return ProofPackArtifact(
+                name="UIUX Compliance",
+                status="ready",
+                summary="no frontend files scanned",
+                path=str(self.output_dir / f"{report.project_name}-uiux-compliance.json"),
+                details=report.to_dict(),
+            )
+        status = "ready" if report.score >= 80 else "pending"
+        return ProofPackArtifact(
+            name="UIUX Compliance",
+            status=status,
+            summary=(
+                f"violations={report.total_violations}, files={report.files_scanned}, "
+                f"score={report.score}/100"
+            ),
+            path=str(self.output_dir / f"{report.project_name}-uiux-compliance.json"),
             details=report.to_dict(),
         )
 

@@ -128,7 +128,7 @@ def test_public_host_targets_prioritize_primary_product_scope() -> None:
     integration_manager = SimpleNamespace(
         list_targets=lambda: [SimpleNamespace(name=host_id) for host_id in (
             *PRIMARY_HOST_TOOL_IDS,
-            "openclaw",
+            "legacy-host",
         )]
     )
 
@@ -140,12 +140,12 @@ def test_public_host_targets_prioritize_primary_product_scope() -> None:
 def test_public_host_targets_fallback_to_available_targets_when_primary_absent() -> None:
     cli = SuperDevCLI()
     integration_manager = SimpleNamespace(
-        list_targets=lambda: [SimpleNamespace(name=host_id) for host_id in ("openclaw",)]
+        list_targets=lambda: [SimpleNamespace(name=host_id) for host_id in ("droid-cli",)]
     )
 
     targets = cli._public_host_targets(integration_manager=integration_manager)
 
-    assert targets == ["openclaw"]
+    assert targets == ["droid-cli"]
 
 
 def test_resolve_pipeline_stage_selector_supports_aliases() -> None:
@@ -172,7 +172,7 @@ def test_stage_jump_impact_includes_core_messages() -> None:
     quality_impact = cli._stage_jump_impact(6)
 
     assert any("PRD" in item for item in docs_impact)
-    assert any("前端骨架" in item for item in frontend_impact)
+    assert any("前端实施蓝图" in item for item in frontend_impact)
     assert any("质量" in item or "交付" in item for item in quality_impact)
 
 

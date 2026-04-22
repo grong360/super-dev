@@ -270,6 +270,22 @@ const theme: ThemeConfig = {
             or primary.get("icon_system")
             or ""
         )
+        screen_recipes = self._build_screen_recipes(analysis=analysis, profile=profile)
+        design_context_protocol = self._build_design_context_protocol(
+            analysis=analysis,
+            profile=profile,
+            screen_recipes=screen_recipes,
+        )
+        tweak_strategy = self._build_tweak_strategy(
+            analysis=analysis,
+            profile=profile,
+            screen_recipes=screen_recipes,
+        )
+        verification_handoff = self._build_verification_handoff(
+            analysis=analysis,
+            profile=profile,
+            screen_recipes=screen_recipes,
+        )
         payload = {
             "analysis": {
                 "product_type": analysis.get("product_type", "general"),
@@ -288,6 +304,17 @@ const theme: ThemeConfig = {
             "component_stack": stack,
             "component_priorities": list(profile.get("component_priorities", [])),
             "design_system_priorities": list(profile.get("design_system_priorities", [])),
+            "art_direction_candidates": list(profile.get("art_direction_candidates", [])),
+            "design_direction_manifest": dict(profile.get("design_direction_manifest", {})),
+            "brand_signal_manifest": dict(profile.get("brand_signal_manifest", {})),
+            "proof_composition_rules": dict(profile.get("proof_composition_rules", {})),
+            "component_craft_requirements": list(
+                profile.get("component_craft_requirements", [])
+            ),
+            "layout_tension_rules": list(profile.get("layout_tension_rules", [])),
+            "anti_ai_slop_guardrails": dict(profile.get("anti_ai_slop_guardrails", {})),
+            "critique_rubric": list(profile.get("critique_rubric", [])),
+            "tweak_categories": list(profile.get("tweak_categories", [])),
             "state_requirements": list(profile.get("state_requirements", [])),
             "quality_checklist": list(profile.get("quality_checklist", [])),
             "banned_patterns": list(profile.get("banned_patterns", [])),
@@ -329,6 +356,10 @@ const theme: ThemeConfig = {
                 "css_variables": design_bundle.get("css_variables_preview", ""),
                 "tailwind_theme": design_bundle.get("tailwind_preview", ""),
             },
+            "screen_recipes": screen_recipes,
+            "design_context_protocol": design_context_protocol,
+            "tweak_strategy": tweak_strategy,
+            "verification_handoff": verification_handoff,
         }
         if design_system is not None:
             payload["generated_design_system"] = {
@@ -354,6 +385,336 @@ const theme: ThemeConfig = {
                     },
                 }
         return payload
+
+    def _build_screen_recipes(self, analysis: dict, profile: dict) -> list[dict]:
+        product_type = str(analysis.get("product_type") or "general").lower()
+        surface = str(profile.get("surface") or "商业级界面")
+        density = str(profile.get("information_density") or "medium")
+        trust_modules = list(profile.get("trust_modules", []))
+        state_requirements = list(profile.get("state_requirements", []))
+        component_priorities = list(profile.get("component_priorities", []))
+        direction_manifest = (
+            profile.get("design_direction_manifest")
+            if isinstance(profile.get("design_direction_manifest"), dict)
+            else {}
+        )
+        anti_guardrails = (
+            profile.get("anti_ai_slop_guardrails")
+            if isinstance(profile.get("anti_ai_slop_guardrails"), dict)
+            else {}
+        )
+        tweak_categories = (
+            profile.get("tweak_categories")
+            if isinstance(profile.get("tweak_categories"), list)
+            else []
+        )
+        selected_reference = (
+            profile.get("selected_design_reference")
+            if isinstance(profile.get("selected_design_reference"), dict)
+            else {}
+        )
+        reference_name = selected_reference.get("name") or "设计参考锚点"
+        selected_direction = direction_manifest.get("selected_direction") or "Modern Commercial"
+        narrative_mode = direction_manifest.get("narrative_mode") or "先价值、再证明、后功能展开"
+        visual_tension = direction_manifest.get("visual_tension") or "通过层级、留白和重点色建立张力"
+        density_tempo = direction_manifest.get("density_tempo") or density
+        anti_cliches = list(anti_guardrails.get("forbidden_motifs", []))[:3]
+        proof_rules = (
+            profile.get("proof_composition_rules")
+            if isinstance(profile.get("proof_composition_rules"), dict)
+            else {}
+        )
+        layout_tension_rules = (
+            profile.get("layout_tension_rules")
+            if isinstance(profile.get("layout_tension_rules"), list)
+            else []
+        )
+
+        def recipe(
+            recipe_id: str,
+            label: str,
+            objective: str,
+            section_order: list[str],
+            components: list[str],
+            trust_slice: list[str],
+            states: list[str],
+            variation_axes: list[str],
+            starter: list[str],
+        ) -> dict:
+            return {
+                "id": recipe_id,
+                "label": label,
+                "surface": surface,
+                "information_density": density,
+                "objective": objective,
+                "section_order": section_order,
+                "component_focus": components,
+                "trust_modules": trust_slice,
+                "required_states": states,
+                "variation_axes": variation_axes,
+                "starter_components": starter,
+                "design_reference": reference_name,
+                "art_direction": selected_direction,
+                "narrative_mode": narrative_mode,
+                "visual_tension": visual_tension,
+                "density_tempo": density_tempo,
+                "proof_composition": proof_rules.get("hero_proof_stack", [])[:4],
+                "layout_tension_rules": layout_tension_rules[:3],
+                "anti_cliche_bans": anti_cliches,
+            }
+
+        common_variations = [
+            "信息密度（compact / balanced / spacious）",
+            "强调方式（editorial headline / product proof / conversion CTA）",
+            "品牌质感（neutral / premium / technical accent）",
+        ]
+        for category in tweak_categories[:2]:
+            if not isinstance(category, dict):
+                continue
+            label = str(category.get("label") or category.get("name") or "").strip()
+            if label and label not in common_variations:
+                common_variations.append(label)
+        common_states = state_requirements[:4] or ["loading", "empty", "error", "success"]
+        trust_slice = trust_modules[:4] or ["案例", "安全", "FAQ", "指标"]
+
+        if product_type in {"landing", "saas"}:
+            return [
+                recipe(
+                    "north-star",
+                    "North Star Hero",
+                    "首屏必须同时讲清价值主张、可信证据与下一步动作，而不是只放大标题。",
+                    ["hero", "proof bar", "product visual", "primary CTA"],
+                    component_priorities[:4] or ["hero", "cta", "metrics", "feature card"],
+                    trust_slice,
+                    common_states,
+                    common_variations,
+                    ["browser-window", "trust-band", "metric-strip"],
+                ),
+                recipe(
+                    "workflow-proof",
+                    "Workflow Proof",
+                    "用真实流程、模块编排和结果反馈证明产品不是概念图，而是可工作的系统。",
+                    ["workflow map", "capability clusters", "before/after", "evidence rail"],
+                    component_priorities[1:5]
+                    or ["timeline", "panel", "table", "command area"],
+                    trust_slice,
+                    common_states,
+                    ["布局节奏（stacked / split / rail）", "证明方式（截图 / metrics / checklist）"],
+                    ["design-canvas", "browser-window"],
+                ),
+                recipe(
+                    "conversion-closure",
+                    "Conversion Closure",
+                    "结尾区域要完成 FAQ、案例、合规与 CTA 收口，避免只有功能列表没有转化闭环。",
+                    ["case study", "faq", "pricing or offer", "final CTA"],
+                    component_priorities[:3] or ["testimonial", "faq", "cta"],
+                    trust_modules[:6] or trust_slice,
+                    common_states[:2],
+                    ["转化风格（soft / assertive）", "信任权重（metrics / testimonial / compliance）"],
+                    ["trust-band", "faq-stack"],
+                ),
+            ]
+
+        if product_type in {"dashboard", "content"}:
+            return [
+                recipe(
+                    "workspace-overview",
+                    "Workspace Overview",
+                    "主屏需要先建立导航骨架、关键状态和信息优先级，避免退化成内容堆叠板。",
+                    ["navigation shell", "summary row", "primary work area", "secondary rail"],
+                    component_priorities[:5]
+                    or ["sidebar", "topbar", "table", "chart", "detail panel"],
+                    trust_slice,
+                    common_states,
+                    common_variations,
+                    ["app-shell", "metric-strip"],
+                ),
+                recipe(
+                    "detail-flow",
+                    "Detail & Action Flow",
+                    "详情区要同时支持阅读、编辑和反馈，确保关键任务可以在一个清晰路径里完成。",
+                    ["detail header", "tabs or split", "activity trail", "sticky actions"],
+                    component_priorities[1:6]
+                    or ["detail header", "tabs", "form", "history", "action footer"],
+                    trust_slice[:3],
+                    common_states,
+                    ["详情布局（tabs / split / inspector）", "操作模式（inline / modal / drawer）"],
+                    ["app-shell", "detail-rail"],
+                ),
+                recipe(
+                    "operational-proof",
+                    "Operational Proof",
+                    "用审计、状态矩阵和恢复能力证明系统可靠，而不是只展示好看的卡片。",
+                    ["audit summary", "status matrix", "evidence cards", "recovery cues"],
+                    component_priorities[:4] or ["status card", "timeline", "badge", "log rail"],
+                    trust_modules[:5] or trust_slice,
+                    common_states,
+                    ["证据强度（light / strong）", "审计密度（compact / expanded）"],
+                    ["design-canvas", "audit-rail"],
+                ),
+            ]
+
+        return [
+            recipe(
+                "brand-frame",
+                "Brand Frame",
+                "先建立品牌语气、字体层级与核心页面骨架，避免默认模板化壳层。",
+                ["hero", "capability blocks", "proof", "cta"],
+                component_priorities[:4] or ["hero", "feature card", "proof", "cta"],
+                trust_slice,
+                common_states,
+                common_variations,
+                ["design-canvas", "browser-window"],
+            ),
+            recipe(
+                "core-journey",
+                "Core Journey",
+                "把最关键的用户旅程拆成 3-4 个高保真步骤，而不是泛化展示一堆功能点。",
+                ["entry", "main action", "feedback", "completion"],
+                component_priorities[:4] or ["form", "cta", "state", "summary"],
+                trust_slice[:3],
+                common_states,
+                ["流程深度（fast lane / guided）", "反馈强度（minimal / explicit）"],
+                ["browser-window", "design-canvas"],
+            ),
+        ]
+
+    def _build_design_context_protocol(
+        self,
+        *,
+        analysis: dict,
+        profile: dict,
+        screen_recipes: list[dict],
+    ) -> dict:
+        frontend = str(analysis.get("frontend") or self.frontend or "web")
+        design_references = profile.get("design_references", [])
+        selected_reference = (
+            profile.get("selected_design_reference")
+            if isinstance(profile.get("selected_design_reference"), dict)
+            else {}
+        )
+        reference_signal = (
+            selected_reference.get("name")
+            or (design_references[0].get("name") if design_references else "设计参考锚点")
+        )
+        starter_components = []
+        for recipe in screen_recipes:
+            for item in recipe.get("starter_components", []):
+                if item not in starter_components:
+                    starter_components.append(item)
+
+        return {
+            "goal": "先吸收真实品牌、代码和组件上下文，再进入页面实现；禁止只凭记忆或截图猜 UI。",
+            "required_sources": [
+                "output/*-uiux.md",
+                "output/*-ui-contract.json",
+                "现有代码中的主题 token / 布局骨架 / 组件实现",
+                "必要时补充截图、Figma 或真实产品链接",
+            ],
+            "preferred_import_order": [
+                "主题 token / variables / theme 文件",
+                "关键页面或组件源码",
+                "全局样式与 layout scaffold",
+                "补充截图与品牌物料",
+            ],
+            "github_import_targets": [
+                "theme.ts / colors.ts / tokens.css / variables.scss",
+                "layout / app shell / navigation components",
+                "用户明确点名的页面和模块",
+            ],
+            "fidelity_rules": [
+                f"优先复用 {reference_signal} 的可吸收信号，但必须转化为原创组合，而不是 1:1 复刻。",
+                f"实现时必须围绕已选视觉哲学「{profile.get('design_direction_manifest', {}).get('selected_direction', '主方向')}」统一 hero、证据与内容节奏，禁止混搭多个热门风格。",
+                "实现时先读真实代码与设计 token，再写页面；禁止只看文件名或只凭经验回忆。",
+                "所有页面必须围绕 screen recipes 组织 section order、trust modules 与 state coverage。",
+            ],
+            "starter_components": starter_components[:5],
+            "single_source_rule": "统一以一个主原型 / 主页面承载 Tweaks 和变体，减少多份分叉页面。",
+            "frontend_target": frontend,
+        }
+
+    def _build_tweak_strategy(
+        self,
+        *,
+        analysis: dict,
+        profile: dict,
+        screen_recipes: list[dict],
+    ) -> dict:
+        variation_axes: list[str] = []
+        for recipe in screen_recipes:
+            for axis in recipe.get("variation_axes", []):
+                if axis not in variation_axes:
+                    variation_axes.append(axis)
+        tweak_categories = (
+            profile.get("tweak_categories")
+            if isinstance(profile.get("tweak_categories"), list)
+            else []
+        )
+        return {
+            "mode": "single-source prototype with tweakable variations",
+            "panel_title": "Tweaks",
+            "preferred_placement": "floating panel or inline handles, hidden in final view",
+            "default_controls": variation_axes[:6]
+            or [
+                "信息密度",
+                "标题张力",
+                "品牌强调色",
+                "CTA 风格",
+            ],
+            "persistence_rule": "变体默认值应可序列化并持久化，避免每次刷新丢失。",
+            "selection_rule": "关键页面至少保留主方案 + 备选方案，不建议把所有变化拆成多份静态文件。",
+            "screen_targets": [item.get("label", "") for item in screen_recipes[:3]],
+            "categories": tweak_categories[:3],
+        }
+
+    def _build_verification_handoff(
+        self,
+        *,
+        analysis: dict,
+        profile: dict,
+        screen_recipes: list[dict],
+    ) -> dict:
+        frontend = str(analysis.get("frontend") or self.frontend or "web")
+        critique_rubric = (
+            profile.get("critique_rubric")
+            if isinstance(profile.get("critique_rubric"), list)
+            else []
+        )
+        return {
+            "verification_order": [
+                "preview loads cleanly",
+                "design tokens are wired",
+                "screen recipes are represented in the preview",
+                "375 / 768 / 1440 breakpoint review",
+                "ui review + runtime evidence refresh",
+            ],
+            "required_artifacts": [
+                "output/frontend/index.html",
+                "output/frontend/styles.css",
+                "output/frontend/design-tokens.css",
+                "output/*-ui-contract-alignment.json",
+                "output/*-frontend-runtime.json",
+                "output/*-ui-review.md",
+            ],
+            "acceptance_checks": [
+                "无 emoji 图标与聊天式壳层复刻",
+                "关键页面覆盖 trust modules 与 state requirements",
+                "主页面结构与 screen recipes 一致",
+                "主题入口、导航骨架和组件生态接线清晰",
+                "设计哲学、视觉层级、细节工艺、功能性与原创度五维评分均达标",
+            ],
+            "implementation_handoff": [
+                f"frontend={frontend}",
+                "冻结后的 ui-contract 作为实现真源",
+                "UI review / runtime / quality gate 作为收尾证据链",
+            ],
+            "screen_targets": [item.get("id", "") for item in screen_recipes],
+            "critique_targets": [
+                str(item.get("label") or item.get("dimension") or "").strip()
+                for item in critique_rubric[:5]
+                if isinstance(item, dict)
+            ],
+        }
 
     def _get_state_management(self) -> str:
         """获取状态管理方案"""
@@ -3280,6 +3641,8 @@ spec:
             f"- **信息密度**: {profile.get('information_density', 'N/A')}",
             f"- **行业语气**: {profile.get('industry_tone', 'N/A')}",
             f"- **主视觉气质**: {profile.get('style_direction', {}).get('direction', 'N/A')}",
+            f"- **视觉哲学主方向**: {profile.get('design_direction_manifest', {}).get('selected_direction', 'N/A')}",
+            f"- **品牌信号**: {' / '.join((profile.get('brand_signal_manifest') or {}).get('tone_descriptors', [])[:3]) or 'N/A'}",
             f"- **字体组合**: {typography.get('heading', 'N/A')} / {typography.get('body', 'N/A')}",
             f"- **配色逻辑**: {palette.get('name', 'N/A')}（主色 {palette.get('primary', 'N/A')} / 强调色 {palette.get('accent', 'N/A')}）",
             f"- **图标系统**: {stack.get('icons', 'N/A')}",
@@ -3294,6 +3657,24 @@ spec:
         lines.extend(f"- {item}" for item in profile.get("banned_patterns", [])[:5])
         lines.extend(["", "**设计知识库关键词**:"])
         lines.append("- " + " / ".join(profile.get("knowledge_keywords", [])))
+        candidates = profile.get("art_direction_candidates", [])
+        if candidates:
+            lines.extend(["", "**视觉方向候选**:"])
+            for item in candidates[:3]:
+                if not isinstance(item, dict):
+                    continue
+                lines.append(
+                    f"- **{item.get('name', 'N/A')}**: {item.get('philosophy', 'N/A')}"
+                )
+        proof_rules = profile.get("proof_composition_rules", {})
+        if isinstance(proof_rules, dict) and proof_rules:
+            lines.extend(["", "**证明构图纪律**:"])
+            lines.append(
+                f"- Hero 证明栈: {' / '.join(proof_rules.get('hero_proof_stack', [])[:4]) or 'N/A'}"
+            )
+            lines.append(
+                f"- 信任顺序: {' / '.join(proof_rules.get('trust_sequence', [])[:4]) or 'N/A'}"
+            )
         return "\n".join(lines)
 
     def _render_ui_decision_manifest(self, profile: dict, design_bundle: dict | None = None) -> str:
@@ -3313,6 +3694,9 @@ spec:
             f"- **首选组件生态**: {primary.get('name', 'N/A')}",
             f"- **跨平台框架 Playbook**: {(profile.get('framework_playbook') or {}).get('framework', '通用 Web / 原生约束')}",
             f"- **页面定位与密度**: {profile.get('surface', 'N/A')} / {profile.get('information_density', 'N/A')}",
+            f"- **叙事方式**: {profile.get('design_direction_manifest', {}).get('narrative_mode', 'N/A')}",
+            f"- **视觉张力**: {profile.get('design_direction_manifest', {}).get('visual_tension', 'N/A')}",
+            f"- **证明策略**: {profile.get('design_direction_manifest', {}).get('proof_strategy', 'N/A')}",
             "",
             "**设计 token 优先级**:",
         ]
@@ -3348,6 +3732,88 @@ spec:
                     f"- **{item.get('name', 'N/A')}{selected_tag}**: {item.get('rationale', 'N/A')} 参考信号：{signals or 'N/A'}。避免：{cautions or 'N/A'}"
                 )
 
+        art_direction_candidates = profile.get("art_direction_candidates", [])
+        if art_direction_candidates:
+            lines.extend(["", "**视觉方向候选（主方案 + 备选方案）**:"])
+            for item in art_direction_candidates[:3]:
+                if not isinstance(item, dict):
+                    continue
+                lines.append(
+                    f"- **{item.get('name', 'N/A')}**: {item.get('philosophy', 'N/A')} | Hero: {item.get('hero_treatment', 'N/A')} | 避免：{'；'.join(item.get('anti_cliches', [])[:2]) or 'N/A'}"
+                )
+
+        brand_signal_manifest = (
+            profile.get("brand_signal_manifest")
+            if isinstance(profile.get("brand_signal_manifest"), dict)
+            else {}
+        )
+        if brand_signal_manifest:
+            lines.extend(["", "**品牌信号与权威感**:"])
+            lines.extend(
+                f"- {item}" for item in brand_signal_manifest.get("tone_descriptors", [])[:4]
+            )
+            lines.extend(
+                f"- {item}" for item in brand_signal_manifest.get("credibility_devices", [])[:3]
+            )
+
+        proof_composition_rules = (
+            profile.get("proof_composition_rules")
+            if isinstance(profile.get("proof_composition_rules"), dict)
+            else {}
+        )
+        if proof_composition_rules:
+            lines.extend(["", "**证明构图规则**:"])
+            lines.append(
+                f"- **Hero 证明栈**: {' / '.join(proof_composition_rules.get('hero_proof_stack', [])[:4]) or 'N/A'}"
+            )
+            lines.append(
+                f"- **信任顺序**: {' / '.join(proof_composition_rules.get('trust_sequence', [])[:4]) or 'N/A'}"
+            )
+            lines.extend(
+                f"- {item}" for item in proof_composition_rules.get("evidence_priority", [])[:3]
+            )
+            lines.append(
+                f"- **密度规则**: {proof_composition_rules.get('proof_density_rule', 'N/A')}"
+            )
+
+        component_craft_requirements = profile.get("component_craft_requirements", [])
+        if component_craft_requirements:
+            lines.extend(["", "**组件工艺要求**:"])
+            lines.extend(f"- {item}" for item in component_craft_requirements[:5])
+
+        layout_tension_rules = profile.get("layout_tension_rules", [])
+        if layout_tension_rules:
+            lines.extend(["", "**布局张力纪律**:"])
+            lines.extend(f"- {item}" for item in layout_tension_rules[:4])
+
+        anti_guardrails = (
+            profile.get("anti_ai_slop_guardrails")
+            if isinstance(profile.get("anti_ai_slop_guardrails"), dict)
+            else {}
+        )
+        if anti_guardrails:
+            lines.extend(["", "**反 AI 味护栏**:"])
+            lines.extend(
+                f"- {item}" for item in anti_guardrails.get("forbidden_motifs", [])[:4]
+            )
+            lines.extend(["", "**原创度与工艺检查**:"])
+            lines.extend(
+                f"- {item}" for item in anti_guardrails.get("originality_checks", [])[:3]
+            )
+            lines.extend(
+                f"- {item}" for item in anti_guardrails.get("craft_checks", [])[:3]
+            )
+
+        critique_rubric = profile.get("critique_rubric", [])
+        if critique_rubric:
+            lines.extend(["", "**设计批评标尺**:"])
+            for item in critique_rubric[:5]:
+                if not isinstance(item, dict):
+                    continue
+                lines.append(
+                    f"- **{item.get('label', 'N/A')}**（阈值 {item.get('pass_threshold', 'N/A')}/10）: {item.get('focus', 'N/A')}"
+                )
+
         lines.extend(["", "**明确不默认采用**:"])
         lines.extend(f"- {item}" for item in profile.get("banned_patterns", [])[:6])
         lines.extend(
@@ -3373,6 +3839,137 @@ spec:
                     f"- **Body 字体**: {design_system.aesthetic.typography.body}",
                 ]
             )
+        return "\n".join(lines)
+
+    def _render_screen_recipe_manifest(self, analysis: dict, profile: dict) -> str:
+        recipes = self._build_screen_recipes(analysis=analysis, profile=profile)
+        lines = [
+            "#### Screen Recipes（页面配方冻结）",
+            "",
+            "在进入 UI 实现前，必须先冻结每个关键页面的目标、section order、信任模块和状态覆盖，避免页面退化成泛化模板。",
+            "",
+        ]
+        for index, recipe in enumerate(recipes, 1):
+            lines.extend(
+                [
+                    f"**{index}. {recipe.get('label', 'N/A')}**",
+                    f"- **目标**: {recipe.get('objective', 'N/A')}",
+                    f"- **视觉方向**: {recipe.get('art_direction', 'N/A')}",
+                    f"- **叙事方式**: {recipe.get('narrative_mode', 'N/A')}",
+                    f"- **视觉张力**: {recipe.get('visual_tension', 'N/A')}",
+                    f"- **证明构图**: {' / '.join(recipe.get('proof_composition', [])) or 'N/A'}",
+                    f"- **结构顺序**: {' / '.join(recipe.get('section_order', [])) or 'N/A'}",
+                    f"- **组件重点**: {' / '.join(recipe.get('component_focus', [])) or 'N/A'}",
+                    f"- **信任模块**: {' / '.join(recipe.get('trust_modules', [])) or 'N/A'}",
+                    f"- **状态要求**: {' / '.join(recipe.get('required_states', [])) or 'N/A'}",
+                    f"- **变体轴**: {' / '.join(recipe.get('variation_axes', [])) or 'N/A'}",
+                    f"- **布局张力纪律**: {' / '.join(recipe.get('layout_tension_rules', [])) or 'N/A'}",
+                    f"- **反模板禁区**: {' / '.join(recipe.get('anti_cliche_bans', [])) or 'N/A'}",
+                    "",
+                ]
+            )
+        return "\n".join(lines)
+
+    def _render_design_execution_protocol(self, analysis: dict, profile: dict) -> str:
+        recipes = self._build_screen_recipes(analysis=analysis, profile=profile)
+        context_protocol = self._build_design_context_protocol(
+            analysis=analysis,
+            profile=profile,
+            screen_recipes=recipes,
+        )
+        tweak_strategy = self._build_tweak_strategy(
+            analysis=analysis,
+            profile=profile,
+            screen_recipes=recipes,
+        )
+        verification_handoff = self._build_verification_handoff(
+            analysis=analysis,
+            profile=profile,
+            screen_recipes=recipes,
+        )
+        anti_guardrails = (
+            profile.get("anti_ai_slop_guardrails")
+            if isinstance(profile.get("anti_ai_slop_guardrails"), dict)
+            else {}
+        )
+        proof_rules = (
+            profile.get("proof_composition_rules")
+            if isinstance(profile.get("proof_composition_rules"), dict)
+            else {}
+        )
+        component_craft_requirements = (
+            profile.get("component_craft_requirements")
+            if isinstance(profile.get("component_craft_requirements"), list)
+            else []
+        )
+        layout_tension_rules = (
+            profile.get("layout_tension_rules")
+            if isinstance(profile.get("layout_tension_rules"), list)
+            else []
+        )
+        lines = [
+            "#### Claude-Design 风格执行协议",
+            "",
+            f"- **上下文目标**: {context_protocol.get('goal', 'N/A')}",
+            "- **输入优先级**:",
+        ]
+        lines.extend(
+            f"  - {item}" for item in context_protocol.get("preferred_import_order", [])
+        )
+        lines.extend(
+            [
+                "- **GitHub / 代码导入重点**:",
+            ]
+        )
+        lines.extend(
+            f"  - {item}" for item in context_protocol.get("github_import_targets", [])
+        )
+        lines.extend(
+            [
+                f"- **单一真源规则**: {context_protocol.get('single_source_rule', 'N/A')}",
+                f"- **Tweaks 模式**: {tweak_strategy.get('mode', 'N/A')}",
+                f"- **Tweaks 默认控件**: {' / '.join(tweak_strategy.get('default_controls', [])) or 'N/A'}",
+                f"- **持久化规则**: {tweak_strategy.get('persistence_rule', 'N/A')}",
+                "- **验证顺序**:",
+            ]
+        )
+        lines.extend(
+            f"  - {item}" for item in verification_handoff.get("verification_order", [])
+        )
+        lines.extend(
+            [
+                "- **交付证据**:",
+            ]
+        )
+        lines.extend(
+            f"  - {item}" for item in verification_handoff.get("required_artifacts", [])
+        )
+        if anti_guardrails:
+            lines.extend(
+                [
+                    "- **反 AI 味护栏**:",
+                ]
+            )
+            lines.extend(
+                f"  - {item}" for item in anti_guardrails.get("hierarchy_rules", [])[:3]
+            )
+            lines.extend(
+                f"  - {item}" for item in anti_guardrails.get("forbidden_motifs", [])[:3]
+            )
+        if proof_rules:
+            lines.extend(["- **证明构图纪律**:"])
+            lines.extend(f"  - {item}" for item in proof_rules.get("hero_proof_stack", [])[:4])
+            lines.extend(f"  - {item}" for item in proof_rules.get("evidence_priority", [])[:3])
+        if component_craft_requirements:
+            lines.extend(["- **组件工艺要求**:"])
+            lines.extend(f"  - {item}" for item in component_craft_requirements[:4])
+        if layout_tension_rules:
+            lines.extend(["- **布局张力纪律**:"])
+            lines.extend(f"  - {item}" for item in layout_tension_rules[:4])
+        critique_targets = verification_handoff.get("critique_targets", [])
+        if critique_targets:
+            lines.extend(["- **设计批评维度**:"])
+            lines.extend(f"  - {item}" for item in critique_targets)
         return "\n".join(lines)
 
     def _render_design_token_freeze_output(
@@ -3594,6 +4191,15 @@ spec:
                 "- 首屏可交互时间满足业务基线（Web < 2.5s，H5 < 3s）",
             ]
         )
+        critique_rubric = profile.get("critique_rubric", [])
+        if critique_rubric:
+            lines.extend(["", "**五维设计批评阈值**:"])
+            for item in critique_rubric[:5]:
+                if not isinstance(item, dict):
+                    continue
+                lines.append(
+                    f"- {item.get('label', 'N/A')} ≥ {item.get('pass_threshold', 'N/A')}/10：{item.get('focus', 'N/A')}"
+                )
         return "\n".join(lines)
 
     def _render_ui_execution_workflow(self, profile: dict) -> str:
@@ -3827,6 +4433,16 @@ spec:
             )
             for item in phase["deliverables"]:
                 lines.append(f"- {item}")
+            host_playbook = phase.get("host_playbook", [])
+            if host_playbook:
+                lines.extend(["", "**宿主执行打法**:"])
+                for item in host_playbook:
+                    lines.append(f"- {item}")
+            hard_gates = phase.get("hard_gates", [])
+            if hard_gates:
+                lines.extend(["", "**阶段硬门禁**:"])
+                for item in hard_gates:
+                    lines.append(f"- {item}")
             lines.append("")
 
         lines.extend(

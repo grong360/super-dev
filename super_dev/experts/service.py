@@ -175,7 +175,7 @@ def render_team_advice_markdown(team_id: str, prompt: str = "") -> str:
             "",
             "1. 先生成正式审查报告并写入 `output/`。",
             "2. 按 P0/P1 优先级直接修复闭环漏洞和断链能力。",
-            "3. 修复后重新执行 `super-dev quality --type all`、`super-dev release proof-pack`、`super-dev release readiness`。",
+            "3. 修复后重新执行质量门禁，并刷新 proof-pack / release readiness 等交付证据。",
             "",
         ]
     )

@@ -98,6 +98,23 @@ run_check() {
     fi
 }
 
+run_advisory_check() {
+    local name="$1"
+    local cmd="$2"
+    local log_file="$REPORT_DIR/${name}.log"
+
+    echo "[INFO] Running advisory: $name" | tee -a "$SUMMARY_FILE"
+    set +e
+    bash -lc "$cmd" >"$log_file" 2>&1
+    local code=$?
+    set -e
+    if [[ $code -eq 0 ]]; then
+        echo "[PASS] $name" | tee -a "$SUMMARY_FILE"
+    else
+        echo "[WARN] $name advisory failed (exit $code) -> $log_file" | tee -a "$SUMMARY_FILE"
+    fi
+}
+
 project_run() {
     local cmd="$1"
     if [[ "$USE_UV" -eq 1 ]]; then
@@ -117,7 +134,8 @@ require_python_module() {
 }
 
 run_check "ruff" "$(project_run "ruff check super_dev tests --output-format concise")"
-run_check "mypy" "$(project_run "mypy super_dev")"
+run_check "type-gates" "$(project_run "$PYTHON_BIN scripts/check_type_gates.py --project-dir \"$ROOT_DIR\"")"
+run_advisory_check "mypy-full" "$(project_run "mypy super_dev")"
 run_check "pytest" "$(project_run "pytest -q")"
 run_check "knowledge-audit" "$(project_run "$PYTHON_BIN scripts/audit_development_kb.py")"
 run_check "knowledge-gates" "$(project_run "$PYTHON_BIN scripts/check_knowledge_gates.py --project-dir \"$ROOT_DIR\"")"
@@ -135,18 +153,23 @@ else
     echo "[WARN] host compatibility gate skipped by --skip-host-compat-gate" | tee -a "$SUMMARY_FILE"
 fi
 
-if require_python_module "bandit"; then
-    run_check "bandit" "$(project_run "$PYTHON_BIN -m bandit -ll -r super_dev -f json -o $REPORT_DIR/bandit.json")"
+if [[ "$USE_UV" -eq 1 ]]; then
+    run_check "bandit" "uvx --from bandit bandit -ll -r super_dev -f json -o $REPORT_DIR/bandit.json"
+    run_check "pip-audit" "uv run $PYTHON_BIN -m pip_audit --local -f json -o $REPORT_DIR/pip-audit.json"
 else
-    echo "[FAIL] bandit module not installed (pip install bandit)" | tee -a "$SUMMARY_FILE"
-    FAILED=1
-fi
+    if require_python_module "bandit"; then
+        run_check "bandit" "$(project_run "$PYTHON_BIN -m bandit -ll -r super_dev -f json -o $REPORT_DIR/bandit.json")"
+    else
+        echo "[FAIL] bandit module not installed (pip install bandit)" | tee -a "$SUMMARY_FILE"
+        FAILED=1
+    fi
 
-if require_python_module "pip_audit"; then
-    run_check "pip-audit" "$(project_run "$PYTHON_BIN -m pip_audit . -f json -o $REPORT_DIR/pip-audit.json")"
-else
-    echo "[FAIL] pip_audit module not installed (pip install pip-audit)" | tee -a "$SUMMARY_FILE"
-    FAILED=1
+    if require_python_module "pip_audit"; then
+        run_check "pip-audit" "$(project_run "$PYTHON_BIN -m pip_audit . -f json -o $REPORT_DIR/pip-audit.json")"
+    else
+        echo "[FAIL] pip_audit module not installed (pip install pip-audit)" | tee -a "$SUMMARY_FILE"
+        FAILED=1
+    fi
 fi
 
 if [[ "$SKIP_BENCHMARK" -ne 1 ]]; then

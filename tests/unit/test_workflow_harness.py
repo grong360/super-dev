@@ -25,7 +25,7 @@ def test_workflow_harness_passes_with_state_snapshots_and_events(tmp_path: Path)
             "status": "waiting_docs_confirmation",
             "workflow_mode": "continue",
             "current_step_label": "等待三文档确认",
-            "recommended_command": "super-dev review docs --status confirmed",
+            "recommended_command": "文档确认，可以继续",
         },
     )
 
@@ -58,7 +58,7 @@ def test_workflow_harness_blocks_when_event_log_missing(tmp_path: Path) -> None:
             "status": "waiting_docs_confirmation",
             "workflow_mode": "continue",
             "current_step_label": "等待三文档确认",
-            "recommended_command": "super-dev review docs --status confirmed",
+            "recommended_command": "文档确认，可以继续",
         },
     )
     workflow_event_log_file(project_dir).unlink()
@@ -81,7 +81,7 @@ def test_derive_operational_focus_prefers_first_failing_harness(tmp_path: Path) 
             "status": "waiting_docs_confirmation",
             "workflow_mode": "continue",
             "current_step_label": "等待三文档确认",
-            "recommended_command": "super-dev review docs --status confirmed",
+            "recommended_command": "文档确认，可以继续",
         },
     )
     workflow_event_log_file(project_dir).unlink()

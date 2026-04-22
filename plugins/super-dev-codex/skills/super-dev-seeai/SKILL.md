@@ -2,7 +2,7 @@
 name: super-dev-seeai
 description: Super Dev SEEAI Codex App/Desktop competition entry.
 when_to_use: Use when the user wants the fast competition flow inside Codex App/Desktop.
-version: 2.3.8
+version: 2.4.0
 ---
 
 # Super Dev SEEAI for Codex Plugin

@@ -24,8 +24,8 @@ Use Super Dev generated artifacts as source of truth.
 - Treat matched local knowledge, checklists, anti-patterns, and scenario packs as project constraints that must flow into docs, spec, and implementation.
 
 ## Trigger
-- Preferred: say `super-dev: <需求描述>` in the host chat so AGENTS.md + super-dev-core Skill can govern the workflow.
-- Local orchestration fallback: `super-dev "<需求描述>"`
+- Preferred: say `super-dev: <需求描述>` in the host chat so AGENTS.md + the `super-dev` skill can govern the workflow.
+- Local terminal only handles `super-dev`, `super-dev update`, and `super-dev uninstall`; normal development should continue inside the host chat.
 - Do not rely on `/super-dev` in this host.
 
 ## Required Context

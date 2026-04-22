@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 import yaml  # type: ignore[import-untyped]
 
@@ -340,7 +341,7 @@ class SpecConsistencyChecker:
         # 检查 database 配置
         db_cfg = config.get("database", {})
         if isinstance(db_cfg, dict):
-            db_type = db_cfg.get("type", "")
+            db_type = str(db_cfg.get("type", "")).strip()
             if db_type:
                 # 检查是否有对应的 docker-compose 或环境配置
                 compose_files = [
@@ -360,7 +361,7 @@ class SpecConsistencyChecker:
                                 "redis": ["redis"],
                                 "sqlite": [],  # SQLite 不需要容器
                             }
-                            images = db_images.get(db_type.lower(), [db_type.lower()])
+                            images = cast(list[str], db_images.get(db_type.lower(), [db_type.lower()]))
                             if not images or any(img in content for img in images):
                                 found_db = True
                                 break
@@ -416,7 +417,7 @@ class SpecConsistencyChecker:
 
         # 检查架构文档中提到但实际未安装的技术
         for tech, context in tech_mentions:
-            tech_lower = tech.lower()
+            tech_lower = str(tech).lower()
             # 模糊匹配: 允许别名
             aliases = {
                 "postgresql": {"pg", "postgres", "postgresql", "psycopg2"},
@@ -438,7 +439,7 @@ class SpecConsistencyChecker:
             if tech_lower in infra_tools:
                 continue
 
-            check_names = aliases.get(tech_lower, {tech_lower})
+            check_names = cast(set[str], aliases.get(tech_lower, {tech_lower}))
             if not check_names:
                 continue
 

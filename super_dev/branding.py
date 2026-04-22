@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 LOGO_COMPACT = "Super Dev"
-VERSION = "2.3.8"
+VERSION = "2.4.0"
 
 # 阶段编号和名称映射
 PHASE_NAMES: dict[str, str] = {
@@ -89,24 +89,6 @@ def phase_complete(phase: str, success: bool = True, score: float = 0.0) -> str:
         line += f" (质量: {score:.1f}分)"
     return f"\n{icon} {line}"
 
-
-def gate_check(gate_name: str, passed: bool) -> str:
-    """门禁检查结果。"""
-    icon = "[OK]" if passed else "[FAIL]"
-    status = "通过" if passed else "未通过"
-    return f"  {icon} {LOGO_COMPACT} 门禁 | {gate_name}: {status}"
-
-
-def enforcement_notice(rule: str) -> str:
-    """执行约束提醒（在宿主终端显示）。"""
-    return f"  {LOGO_COMPACT} 约束 | {rule}"
-
-
-def command_header(command: str) -> str:
-    """CLI 命令的品牌头部。"""
-    return f"\n{LOGO_COMPACT} v{VERSION} > {command}\n"
-
-
 def progress_bar(current: int, total: int, label: str = "") -> str:
     """简单的文本进度条。"""
     width = 30
@@ -125,17 +107,3 @@ PHASE_ANNOUNCEMENT_TEMPLATE = """
 主导专家: {expert}
 {description}
 """
-
-
-def host_phase_announcement(phase: str, description: str = "") -> str:
-    """生成宿主应该在聊天中显示的阶段宣告。
-
-    这个文本写入 SKILL.md，宿主在进入每个阶段时应该打印。
-    """
-    return PHASE_ANNOUNCEMENT_TEMPLATE.format(
-        logo=LOGO_COMPACT,
-        num=PHASE_NUMBERS.get(phase, "?"),
-        name=PHASE_NAMES.get(phase, phase),
-        expert=PHASE_EXPERTS.get(phase, ""),
-        description=description,
-    ).strip()

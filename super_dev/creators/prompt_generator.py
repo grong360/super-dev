@@ -10,6 +10,7 @@ AI 提示词生成器 - 生成可直接给 AI 的提示词
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from ..specs.models import TaskStatus
 from .prompt_sections import PromptBuilder, PromptSection
@@ -616,7 +617,7 @@ Super Dev 内置 11 位专家 Agent，每位专家有独立的角色定义、专
 > 切换回 QA 和安全专家身份，以质量和安全视角审视所有产出
 
 1. 当用户明确表示质量不达标、安全问题未解决、交付证据不完整、测试或门禁结果不可接受时，禁止直接宣称完成。
-2. 必须先修复相关质量问题，并重新执行 quality gate 与 release proof-pack。
+2. 必须先修复相关质量问题，并重新执行 quality gate 与交付证据刷新。
 3. 如问题涉及文档、架构或 UI，同步回写对应 `output/*` 文档。
 4. 只有在质量返工通过后，才允许继续交付或恢复后续动作。
 
@@ -631,7 +632,7 @@ Super Dev 内置 11 位专家 Agent，每位专家有独立的角色定义、专
    - `output/*-architecture.md`：记录根因、受影响模块、回滚点与回归范围
    - `output/*-uiux.md`：若影响前端，则记录交互、状态或文案补丁
 3. 未完成这些补丁文档前，不得直接跳到修复实现。
-4. 修复后必须重新执行前端运行验证、测试、quality gate 与 release proof-pack。"""
+4. 修复后必须重新执行前端运行验证、测试、quality gate 与交付证据刷新。"""
 
     def _section_knowledge_constraints(self, **ctx: object) -> str:
         # Knowledge constraints are woven into execution_order (phase 0 steps 2-3)
@@ -646,6 +647,12 @@ Super Dev 内置 11 位专家 Agent，每位专家有独立的角色定义、专
 
     def _section_implementation_rules(self, **ctx: object) -> str:
         ui_profile: dict = ctx["ui_profile"]  # type: ignore[assignment]
+        research_content = cast(str | None, ctx.get("research_content"))
+        prd_content = cast(str | None, ctx.get("prd_content"))
+        arch_content = cast(str | None, ctx.get("arch_content"))
+        uiux_content = cast(str | None, ctx.get("uiux_content"))
+        plan_content = cast(str | None, ctx.get("plan_content"))
+        frontend_blueprint = cast(str | None, ctx.get("frontend_blueprint"))
         return (
             f"""---
 
@@ -653,32 +660,32 @@ Super Dev 内置 11 位专家 Agent，每位专家有独立的角色定义、专
 
 ### 0. 研究报告
 
-{self._excerpt(ctx.get("research_content"), 1800) if ctx.get("research_content") else f'请查看 output/{ctx["name"]}-research.md'}
+{self._excerpt(research_content, 1800) if research_content else f'请查看 output/{ctx["name"]}-research.md'}
 ...
 
 ### 1. PRD (产品需求文档)
 
-{self._excerpt(ctx.get("prd_content"), 1800) if ctx.get("prd_content") else f'请查看 output/{ctx["name"]}-prd.md'}
+{self._excerpt(prd_content, 1800) if prd_content else f'请查看 output/{ctx["name"]}-prd.md'}
 ...
 
 ### 2. 架构设计文档
 
-{self._excerpt(ctx.get("arch_content"), 1800) if ctx.get("arch_content") else f'请查看 output/{ctx["name"]}-architecture.md'}
+{self._excerpt(arch_content, 1800) if arch_content else f'请查看 output/{ctx["name"]}-architecture.md'}
 ...
 
 ### 3. UI/UX 设计文档
 
-{self._excerpt(ctx.get("uiux_content"), 1800) if ctx.get("uiux_content") else f'请查看 output/{ctx["name"]}-uiux.md'}
+{self._excerpt(uiux_content, 1800) if uiux_content else f'请查看 output/{ctx["name"]}-uiux.md'}
 ...
 
 ### 4. 执行路线图
 
-{self._excerpt(ctx.get("plan_content"), 1400) if ctx.get("plan_content") else f'请查看 output/{ctx["name"]}-execution-plan.md'}
+{self._excerpt(plan_content, 1400) if plan_content else f'请查看 output/{ctx["name"]}-execution-plan.md'}
 ...
 
 ### 5. 前端蓝图
 
-{self._excerpt(ctx.get("frontend_blueprint"), 1400) if ctx.get("frontend_blueprint") else f'请查看 output/{ctx["name"]}-frontend-blueprint.md'}
+{self._excerpt(frontend_blueprint, 1400) if frontend_blueprint else f'请查看 output/{ctx["name"]}-frontend-blueprint.md'}
 ...
 
 ---

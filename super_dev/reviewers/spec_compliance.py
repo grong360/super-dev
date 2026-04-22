@@ -15,6 +15,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..artifact_utils import resolve_project_artifact_prefix
+from ..evidence_identity import (
+    build_evidence_identity,
+    evidence_identity_matches,
+    load_json_payload,
+)
+
 _LANGUAGE_MAP: dict[str, tuple[str, ...]] = {
     "python": (".py",),
     "javascript": (".js", ".jsx"),
@@ -75,6 +82,7 @@ class ComplianceReport:
     missing: int = 0
     score: int = 0
     matches: list[RequirementMatch] = field(default_factory=list)
+    evidence_identity: dict[str, Any] = field(default_factory=dict)
 
     @property
     def coverage_percent(self) -> float:
@@ -93,6 +101,7 @@ class ComplianceReport:
             "score": self.score,
             "coverage_percent": self.coverage_percent,
             "matches": [asdict(m) for m in self.matches],
+            "evidence_identity": dict(self.evidence_identity),
         }
 
     def to_markdown(self) -> str:
@@ -190,6 +199,118 @@ def _scan_code_files(project_dir: Path) -> dict[str, str]:
     return files
 
 
+def _scan_code_file_paths(project_dir: Path) -> list[Path]:
+    paths: list[Path] = []
+    for path in project_dir.rglob("*"):
+        if not path.is_file() or path.suffix not in _ALL_CODE_EXTENSIONS:
+            continue
+        parts = path.relative_to(project_dir).parts
+        if any(p in _IGNORE_DIRS for p in parts):
+            continue
+        paths.append(path.resolve())
+    return sorted(paths)
+
+
+def _report_paths(project_dir: Path, output_dir: Path) -> tuple[Path, Path]:
+    project_name = resolve_project_artifact_prefix(project_dir, fallback_name=project_dir.name)
+    return (
+        output_dir / f"{project_name}-spec-compliance.json",
+        output_dir / "spec-compliance.json",
+    )
+
+
+def _report_dependencies(project_dir: Path, output_dir: Path) -> list[Path]:
+    prd_files = sorted(list(output_dir.glob("*-prd.md")) + list(output_dir.glob("*prd*.md")))
+    return [*prd_files, *_scan_code_file_paths(project_dir)]
+
+
+def _load_existing_report(
+    project_dir: Path,
+    output_dir: Path,
+    *,
+    expected_identity: dict[str, Any],
+) -> ComplianceReport | None:
+    prefixed_json, fallback_json = _report_paths(project_dir, output_dir)
+    for path in (prefixed_json, fallback_json):
+        payload = load_json_payload(path)
+        if not payload:
+            continue
+        identity_ok, _ = evidence_identity_matches(payload, expected=expected_identity)
+        if not identity_ok:
+            continue
+        matches_payload = payload.get("matches", [])
+        matches = [
+            RequirementMatch(**item)
+            for item in matches_payload
+            if isinstance(item, dict)
+        ]
+        return ComplianceReport(
+            project_name=str(payload.get("project_name", "")).strip(),
+            generated_at=str(payload.get("generated_at", "")).strip()
+            or datetime.now(timezone.utc).isoformat(),
+            total_requirements=int(payload.get("total_requirements", 0) or 0),
+            found=int(payload.get("found", 0) or 0),
+            partial=int(payload.get("partial", 0) or 0),
+            missing=int(payload.get("missing", 0) or 0),
+            score=int(payload.get("score", 0) or 0),
+            matches=matches,
+            evidence_identity=dict(payload.get("evidence_identity", {}))
+            if isinstance(payload.get("evidence_identity", {}), dict)
+            else {},
+        )
+    return None
+
+
+def inspect_spec_compliance_artifact(
+    project_dir: Path,
+    output_dir: Path | None = None,
+) -> dict[str, Any]:
+    if output_dir is None:
+        output_dir = project_dir / "output"
+    project_dir = project_dir.resolve()
+    output_dir = output_dir.resolve()
+    expected_identity = build_evidence_identity(
+        project_dir,
+        artifact_name="spec-compliance",
+        dependencies=_report_dependencies(project_dir, output_dir),
+    )
+    prefixed_json, fallback_json = _report_paths(project_dir, output_dir)
+    for path in (prefixed_json, fallback_json):
+        if not path.exists():
+            continue
+        payload = load_json_payload(path)
+        if not payload:
+            return {
+                "status": "unreadable",
+                "path": str(path),
+                "expected_identity": expected_identity,
+            }
+        identity = payload.get("evidence_identity", {})
+        if not isinstance(identity, dict) or not str(identity.get("inputs_digest", "")).strip():
+            return {
+                "status": "identity_missing",
+                "path": str(path),
+                "expected_identity": expected_identity,
+            }
+        identity_ok, _ = evidence_identity_matches(payload, expected=expected_identity)
+        if not identity_ok:
+            return {
+                "status": "identity_mismatch",
+                "path": str(path),
+                "expected_identity": expected_identity,
+            }
+        return {
+            "status": "ready",
+            "path": str(path),
+            "expected_identity": expected_identity,
+        }
+    return {
+        "status": "missing",
+        "path": str(prefixed_json),
+        "expected_identity": expected_identity,
+    }
+
+
 def _match_requirement(
     req_id: str,
     req_text: str,
@@ -268,8 +389,27 @@ def run_spec_compliance(
     """
     if output_dir is None:
         output_dir = project_dir / "output"
+    project_dir = project_dir.resolve()
+    output_dir = output_dir.resolve()
 
-    report = ComplianceReport(project_name=project_dir.name)
+    dependencies = _report_dependencies(project_dir, output_dir)
+    expected_identity = build_evidence_identity(
+        project_dir,
+        artifact_name="spec-compliance",
+        dependencies=dependencies,
+    )
+    cached = _load_existing_report(
+        project_dir,
+        output_dir,
+        expected_identity=expected_identity,
+    )
+    if cached is not None:
+        return cached
+
+    report = ComplianceReport(
+        project_name=resolve_project_artifact_prefix(project_dir, fallback_name=project_dir.name)
+    )
+    report.evidence_identity = expected_identity
 
     # Find PRD files
     prd_files = list(output_dir.glob("*-prd.md")) + list(output_dir.glob("*prd*.md"))
@@ -320,12 +460,17 @@ def run_spec_compliance(
 
     # Persist reports
     output_dir.mkdir(parents=True, exist_ok=True)
+    prefixed_json = output_dir / f"{report.project_name}-spec-compliance.json"
+    prefixed_md = output_dir / f"{report.project_name}-spec-compliance.md"
+    payload = json.dumps(report.to_dict(), indent=2, ensure_ascii=False)
     (output_dir / "spec-compliance.json").write_text(
-        json.dumps(report.to_dict(), indent=2, ensure_ascii=False),
+        payload,
         encoding="utf-8",
     )
     (output_dir / "spec-compliance.md").write_text(
         report.to_markdown(), encoding="utf-8"
     )
+    prefixed_json.write_text(payload, encoding="utf-8")
+    prefixed_md.write_text(report.to_markdown(), encoding="utf-8")
 
     return report

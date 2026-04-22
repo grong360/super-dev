@@ -5,18 +5,77 @@ import type { SiteLocale } from '@/lib/site-locale';
 
 const CHANGELOG = {
   zh: [
+    {
+      version: '2.4.0',
+      date: '2026-04-22',
+      type: 'major' as const,
+      summary:
+        '把产品形态、宿主矩阵、安装与恢复路径、UI 审美治理、质量门和发布链一起重做的一次主版本。',
+      changes: [
+        '公开产品面正式收回宿主优先模型：终端只保留 super-dev / super-dev update / super-dev uninstall，真正的 baseline、research、三文档、确认门、Spec、实现与交付都回到宿主里完成',
+        '已有项目现在会沿着更完整的主路径继续：先补齐当前项目基线，再做 research、三文档、确认门、前端预览、后端、质量和交付',
+        '宿主接入升级为统一宿主矩阵（CLI / IDE / 桌面助手），并正式补齐 Droid CLI、Kimi Code、Qwen Code、Trae SOLO、Trae SOLOCN；OpenClaw 从现行支持面退场',
+        '安装体验改成项目优先：默认先接当前仓库，再给出宿主第一句、恢复方式和安装后先验，避免用户误以为“装完就等于 ready”',
+        '双模式准备度正式前推：用户能直接看到标准项目和 SEEAI 比赛模式当前是否已经可以开工，避免把文件写入成功误认为 ready',
+        'super-dev-core 从现行代码、模板、技能和测试合同中清退，统一只保留 super-dev 产品名；总则默认优先写入当前项目，不再落到系统级 AGENTS.md',
+        'UI 设计链升级：UI contract 新增视觉方向候选、主视觉哲学、反 AI 味护栏、五维设计批评标尺与 tweak categories；框架焦点与截图级 UI 视觉门正式进入 quality / proof-pack / release-readiness 交付链',
+        '发布门禁回到可发布状态：pytest 2576 passed, 2 skipped，preflight --allow-dirty 通过，核心发版门、knowledge gates、delivery smoke、host compatibility 和 build/twine-check 全绿',
+      ],
+      groups: [
+        {
+          title: '产品形态重构',
+          items: [
+            '终端公开面收口到 super-dev / update / uninstall，真实开发主路径全部回宿主。',
+            '公开叙事从“工具箱 / 脚手架”收回“宿主教练系统”，把宿主拉回商业交付主路径。',
+            '普通用户第一层只记住 /super-dev、/super-dev-seeai、继续当前流程、现在下一步是什么。',
+          ],
+        },
+        {
+          title: '宿主矩阵与接入升级',
+          items: [
+            '统一 CLI / IDE / 桌面助手宿主矩阵，补齐 Droid CLI、Kimi Code、Qwen Code、Trae SOLO、Trae SOLOCN。',
+            '项目优先接入成为默认模型，用户级 surfaces 改成显式 opt-in。',
+            '每个宿主现在都有 first prompt、resume guidance、repair playbook、official workflow checks、post-onboard self-check。',
+          ],
+        },
+        {
+          title: '已有项目与恢复链',
+          items: [
+            'baseline -> docs -> docs_confirm -> spec -> frontend -> preview_confirm -> backend -> quality -> delivery 成为正式主链。',
+            'resume / next / continue / doctor / validate 现在会直接告诉用户当前卡点、下一步和原因。',
+            '安装后 smoke guide、卸载 dry-run、cleanup report 都进入生命周期结果产物。',
+          ],
+        },
+        {
+          title: 'UI 与商业质感强化',
+          items: [
+            'UI contract 升级为视觉方向候选、品牌信号、证明构图、组件工艺、布局张力、反 AI 味护栏。',
+            '截图级 UI 视觉门进入 quality gate、proof-pack、release-readiness，页面过平、过空、模板味太重会被正式拦下。',
+            'Framework Coaching Focus 进入安装器、runtime report、smoke guide 和交付摘要。',
+          ],
+        },
+        {
+          title: '发布与工程质量',
+          items: [
+            'preflight、knowledge gates、delivery smoke、host compatibility、build/twine-check 全部回到绿线。',
+            '大量公开文档、官网、安装器和 changelog 口径统一到 2.4.0 当前真实模型。',
+            'super-dev-core、OpenClaw 现行支持面、旧别名和残留技能层被清退。',
+          ],
+        },
+      ],
+    },
     { version: '2.3.8', date: '2026-04-14', type: 'patch' as const, changes: [
-      'SEEAI 比赛验收升级为四段结构化证据：first_response / runtime_checkpoint / fallback_decision / demo_path 缺一段就阻塞，passed 不再等于 ready',
+      'SEEAI 比赛模式的验收被收得更严：真正可交付之前，比赛流必须给出更完整、更可信的运行与演示证据',
       'SEEAI 证据新增内容质量校验：每段最小 8 字符 + 模板 required 关键词覆盖检查，封堵 "ok / done / 跑通了" 这类糊弄填写',
       'SEEAI 证据写入入口贯通：CLI 新增 --competition-evidence-json，Web POST /api/hosts/runtime-validation 支持 competition_evidence 字段，runtime 报告高亮缺段与浅段',
       '新增设计灵感工作流（PR #11，感谢 @staruhub 超哥贡献）：UIUX 生成阶段引入 design inspiration prompt，配色 / 版式 / 组件参考自动接入文档与 Spec',
       '修复 WorkBuddy doctor 报错 user_surfaces 缺失：从 NO_SKILL_TARGETS 移除，onboard 自动安装 Skill',
       '修复补充 Skill（super-dev-seeai）重复安装报错：已存在时静默跳过，不再 --force 才能安装',
-      '全局清理 super-dev-core 残留：扫描所有宿主 skills 目录（包括未列表的），自动删除旧名称',
+      '全局清理旧技能别名残留：扫描所有宿主 skills 目录（包括未列表的），自动删除旧名称',
       'CI 配置重写：从 Node.js 全栈模板改为 Python CLI 项目，CI 不再 2 秒失败；ruff/black 仓库范围全量整改',
     ] },
     { version: '2.3.6', date: '2026-04-13', type: 'patch' as const, changes: [
-      '修复 Skill 重复安装问题：清空 Codex mirror 路径，安装时自动清理 super-dev-core 残留',
+      '宿主安装与更新继续自愈：旧残留、重复注入和过期技能版本更容易被自动修复',
       '修复安装器按 R 重选后失败：无集成文件的宿主跳过 integrate 步骤',
       '修复 WorkBuddy doctor 误报：无项目级文件的宿主 doctor 直接标记通过',
       'super-dev update 升级后自动刷新所有已安装的宿主 Skills',
@@ -36,7 +95,7 @@ const CHANGELOG = {
       'Windows 文件锁兼容：所有 rmtree 调用添加 ignore_errors',
     ] },
     { version: '2.3.5', date: '2026-04-12', type: 'patch' as const, changes: [
-      '新增 SEEAI 赛事模式：行动驱动的竞赛快速交付循环，流程为 需求→拆解→联网搜索→方案文档→Spec→写码→跑起来→反馈循环',
+      'SEEAI 比赛模式正式成型：比标准项目更短、更快，但仍保留研究、文档确认和真实运行这条主路径',
       'SEEAI 方案文档替代三文档：赛事场景下用一个 solution.md 取代 PRD + 架构 + UIUX，大幅压缩决策时间',
       'SEEAI Spec 增强：联网确认依赖版本和 API 签名后才写入 Spec，编码前锁定文件级 import 清单',
       'WorkBuddy 正式纳入 21 个统一安装宿主：install_mode 从 MANUAL 升级为 HYBRID，Skill 自动安装到 ~/.workbuddy/skills/',
@@ -64,13 +123,13 @@ const CHANGELOG = {
       '扩展 orchestrator 配置：加入 execution_mode、overseer_enabled、codex_review_enabled 等控制项',
     ] },
     { version: '2.3.3', date: '2026-04-07', type: 'patch' as const, changes: [
-      'Claude Code 统一为 super-dev 单一技能入口，消除 super-dev / super-dev-core 重复技能导致流水线不被遵循的问题',
+      'Claude Code 统一为 super-dev 单一技能入口，消除重复旧技能别名导致流水线不被遵循的问题',
       'super-dev update 升级后自动迁移所有宿主配置，super-dev 无参数入口自动检测旧版并迁移',
       'migrate.py 重写为全宿主迁移：自动检测所有已接入宿主，一键重建配置/Skill/slash/协议',
       '21 个宿主逐个对照官方文档深度适配：Roo Code/OpenCode 补齐 commands、Kilo Code 补齐 Skill、vscode-copilot 补齐认证',
       'commands 文件内容修复：之前 setup 写 .roo/commands/ 等文件时生成了错误的 rules 内容，现在正确生成 slash command 格式',
       '--auto 安装时同族宿主智能去重（cursor+cursor-cli 自动选 CLI 版）',
-      '版本提示统一为 super-dev update，install.sh Skill 提示去除 super-dev-core 名称',
+      '版本提示统一为 super-dev update，install.sh Skill 提示去除旧技能别名名称',
     ] },
     { version: '2.3.2', date: '2026-04-06', type: 'patch' as const, changes: [
       '21 个宿主口径继续收正：20 个统一接入宿主 + 1 个 OpenClaw 手动插件宿主，安装脚本、README、官网 Docs、能力审计页和站点矩阵统一到同一套真实模型',
@@ -100,7 +159,7 @@ const CHANGELOG = {
       '组件脚手架 + API 契约类型 + Next.js 脚手架生成器',
       '对抗性验证专家 + 三 Agent 并行审查',
       '12 位 Markdown 专家 + 条件规则 + Pipeline 状态/成本追踪',
-      '命令路由：所有命令在宿主内输入，终端只需 pip install + super-dev',
+      '命令路由：所有命令在宿主内输入，终端只需 uv tool install + super-dev',
       '支持 21 个宿主：20 个统一接入宿主 + 1 个 OpenClaw 手动插件宿主，并持续完善项目模板与 Shell 补全',
       '统一错误处理 + E2E 测试 + 1671 单元测试通过',
     ] },
@@ -162,18 +221,77 @@ const CHANGELOG = {
     { version: '1.0.0', date: '2025-12-29', type: 'major' as const, changes: ['首次发布', '基础流水线框架（research / documents / spec / implement）', 'Spec-Driven Development 模块', '支持 Claude Code、Cursor、Windsurf 宿主', 'PyPI 正式发布'] },
   ],
   en: [
+    {
+      version: '2.4.0',
+      date: '2026-04-22',
+      type: 'major' as const,
+      summary:
+        'This was not a light polish release. It was a multi-day product-shaping overhaul across the host model, onboarding lifecycle, recovery chain, UI coaching, and release gates.',
+      changes: [
+        'The public product surface is now fully host-first: the terminal keeps only super-dev / super-dev update / super-dev uninstall, while baseline, research, the three core docs, approval gates, spec, implementation, and delivery all happen inside the host',
+        'Existing projects now continue on a more complete path: establish the current baseline first, then move through research, the three core docs, approval, frontend preview, backend, quality, and delivery',
+        'Host onboarding was rebuilt around a unified host matrix (CLI / IDE / desktop assistants), with Droid CLI, Kimi Code, Qwen Code, Trae SOLO, and Trae SOLOCN treated as first-class hosts; OpenClaw has been removed from the current support surface',
+        'Onboarding is now project-first by default: connect the current repo first, then expose the host first prompt, resume path, and post-onboard self-check so install is not mistaken for true readiness',
+        'Dual-mode readiness is now explicit: users can see whether standard product work and SEEAI competition work are actually ready to start instead of just seeing that files were written',
+        'super-dev-core was purged from current code, templates, skills, and active test contracts. The product name is now consistently super-dev, and rules default to project-level surfaces instead of silently writing into system-level AGENTS.md',
+        'The UI design chain was upgraded: the UI contract now freezes art-direction candidates, a visual philosophy, anti-AI-slop guardrails, a five-dimension critique rubric, and tweak categories, while Framework focus and the screenshot-grade UI visual gate now participate in quality / proof-pack / release-readiness',
+        'Release gates are green again: pytest 2576 passed, 2 skipped; preflight --allow-dirty passes; the core release gates, knowledge gates, delivery smoke, host compatibility, and build/twine-check are all passing',
+      ],
+      groups: [
+        {
+          title: 'Product shape reset',
+          items: [
+            'The terminal was reduced to install/update/uninstall while the real workflow moved back into the host.',
+            'Public messaging was pulled away from “toolbox / scaffolding” language and back toward a host coaching system.',
+            'The first-layer user path now centers on /super-dev, /super-dev-seeai, continue current workflow, and what next.',
+          ],
+        },
+        {
+          title: 'Host matrix and onboarding',
+          items: [
+            'The unified host matrix now spans CLI, IDE, and desktop assistant hosts, with Droid CLI, Kimi Code, Qwen Code, Trae SOLO, and Trae SOLOCN elevated to first-class status.',
+            'Project-first onboarding is now the default, while user-level surfaces became an explicit opt-in.',
+            'Each host now exposes first prompts, resume guidance, repair playbooks, official workflow checks, and post-onboard self-checks.',
+          ],
+        },
+        {
+          title: 'Existing-project flow and recovery',
+          items: [
+            'baseline -> docs -> docs_confirm -> spec -> frontend -> preview_confirm -> backend -> quality -> delivery became the formal path.',
+            'resume / next / continue / doctor / validate now explain the current blocker, the next step, and why the workflow cannot skip ahead.',
+            'Onboard smoke guides, uninstall dry runs, and cleanup reports are now formal lifecycle outputs.',
+          ],
+        },
+        {
+          title: 'UI quality and premium delivery',
+          items: [
+            'The UI contract now captures art direction, brand signals, proof composition, component craft, layout tension, and anti-AI-slop guardrails.',
+            'The screenshot-grade UI gate now participates in quality, proof-pack, and release readiness.',
+            'Framework Coaching Focus now reaches the installer, runtime reports, smoke guides, and delivery summaries.',
+          ],
+        },
+        {
+          title: 'Release and engineering quality',
+          items: [
+            'Preflight, knowledge gates, delivery smoke, host compatibility, build, and twine-check all returned to green.',
+            'Public docs, the website, the installer, and changelog narratives were aligned to the current 2.4.0 model.',
+            'super-dev-core, OpenClaw current support, and old skill aliases were removed from the active product surface.',
+          ],
+        },
+      ],
+    },
     { version: '2.3.8', date: '2026-04-14', type: 'patch' as const, changes: [
-      'SEEAI competition acceptance upgraded to four-section structured evidence (first_response / runtime_checkpoint / fallback_decision / demo_path); any missing section blocks ready_for_delivery — passed no longer means ready',
+      'SEEAI competition acceptance became stricter: competition delivery now requires more complete and credible runtime and demo evidence before it can count as ready',
       'Evidence content-quality gates added: each section requires ≥8 chars plus template `required` keyword coverage, blocking "ok / done / works" placeholder fills',
       'Evidence write paths wired end-to-end: CLI gains --competition-evidence-json, Web POST /api/hosts/runtime-validation accepts competition_evidence, runtime reports highlight missing and shallow sections',
       'New design inspiration workflow (PR #11, contributed by @staruhub — thanks!): UIUX stage now injects design inspiration prompt; palette / layout / component references flow into documents and Spec automatically',
       'Fixed WorkBuddy doctor reporting missing user_surfaces: removed from NO_SKILL_TARGETS, onboard now installs Skill automatically',
       'Fixed supplemental skill (super-dev-seeai) install collision: silently skip if exists, no --force required',
-      'Global super-dev-core cleanup: scan all host skills directories (including unlisted), auto-remove legacy names',
+      'Global legacy skill-alias cleanup: scan all host skills directories (including unlisted) and remove old names automatically',
       'CI config rewritten: from Node.js fullstack template to Python CLI project, CI no longer fails in 2s; repo-wide ruff/black cleanup',
     ] },
     { version: '2.3.6', date: '2026-04-13', type: 'patch' as const, changes: [
-      'Fixed skill duplication: cleared Codex mirror paths, auto-cleanup of legacy super-dev-core',
+      'Host onboarding and update flows became more self-healing, with legacy residue, duplicate injections, and stale skills easier to repair automatically',
       'Fixed install selector R-then-Enter failure: skip integrate for hosts without project files',
       'Fixed WorkBuddy doctor false positive: hosts without project files pass integrate check',
       'super-dev update now auto-refreshes all installed host Skills after upgrade',
@@ -193,7 +311,7 @@ const CHANGELOG = {
       'Windows file lock compatibility: all rmtree calls use ignore_errors',
     ] },
     { version: '2.3.5', date: '2026-04-12', type: 'patch' as const, changes: [
-      'New SEEAI competition mode: action-driven fast delivery loop for time-boxed competitions — Requirements > Decompose > Web Search > Solution Doc > Spec > Code > Run > Feedback Loop',
+      'SEEAI competition mode became a first-class fast path: shorter and faster than the standard project path, but still grounded in research, document approval, and real runtime proof',
       'SEEAI solution doc replaces three-doc set: single solution.md instead of PRD + Architecture + UIUX for competition scenarios',
       'SEEAI Spec hardening: dependencies and API signatures verified online before writing into Spec, file-level import manifests locked before coding',
       'WorkBuddy promoted to 21 unified install hosts: install_mode upgraded from MANUAL to HYBRID, Skills auto-installed to ~/.workbuddy/skills/',
@@ -219,13 +337,13 @@ const CHANGELOG = {
       'Expanded orchestrator configuration with execution_mode, overseer_enabled, codex_review_enabled, and related controls',
     ] },
     { version: '2.3.3', date: '2026-04-07', type: 'patch' as const, changes: [
-      'Claude Code unified to a single super-dev skill entry, eliminating duplicate super-dev / super-dev-core skills that caused pipeline non-compliance',
+      'Claude Code unified to a single super-dev skill entry, eliminating duplicate legacy skill aliases that caused pipeline non-compliance',
       'super-dev update now auto-migrates all host configs after upgrade; super-dev (no args) auto-detects and migrates outdated projects',
       'migrate.py rewritten for all-host migration: auto-detects onboarded hosts and rebuilds configs/Skills/slash/protocols in one step',
       'All 21 hosts verified against official docs: Roo Code/OpenCode commands added, Kilo Code skill added, vscode-copilot certification added',
       'Fixed command file content bug: setup previously generated wrong rules content for .roo/commands/ etc., now correctly generates slash command format',
       'Auto-detect deduplicates same-family hosts (cursor+cursor-cli picks CLI variant)',
-      'Version hint unified to super-dev update; install.sh skill prompt removed super-dev-core naming',
+      'Version hint unified to super-dev update; install.sh skill prompt removed legacy alias naming',
     ] },
     { version: '2.3.2', date: '2026-04-06', type: 'patch' as const, changes: [
       'Host product scope was hardened again: 20 unified integration hosts plus 1 manual OpenClaw plugin host, with install scripts, README, website docs, capability audit, and host matrices finally sharing one accurate model',
@@ -255,7 +373,7 @@ const CHANGELOG = {
       'Code generators: component scaffold, API contract types, Next.js scaffold',
       'Adversarial verification agent + 4-way parallel review (reuse/quality/efficiency/security)',
       '12 Markdown expert definitions + conditional rules + pipeline state/cost tracking',
-      'Command routing: all commands via /super-dev in host, terminal only for pip install + super-dev',
+      'Command routing: all commands via /super-dev in host, terminal only for uv tool install + super-dev',
       'Support for 21 hosts: 20 unified integration hosts plus 1 manual OpenClaw plugin host, with continued improvements to project templates and shell completion',
       'Unified error handling + 22 E2E tests + 1671 unit tests passing',
     ] },
@@ -315,8 +433,22 @@ const CHANGELOG = {
 } as const;
 
 const COPY = {
-  zh: { title: '更新日志', body: 'Super Dev 版本历史。查看', link: 'GitHub 完整记录', major: '主版本', patch: '修复' },
-  en: { title: 'Changelog', body: 'Version history for Super Dev. See the', link: 'full GitHub changelog', major: 'Major', patch: 'Patch' },
+  zh: {
+    title: '更新日志',
+    body: '官网保留近期公开版本摘要。更完整的工程变更见',
+    link: 'GitHub 完整记录',
+    major: '主版本',
+    patch: '修复',
+    fullNotes: '查看完整版本说明',
+  },
+  en: {
+    title: 'Changelog',
+    body: 'The website keeps recent public release highlights. For the full engineering history, see the',
+    link: 'full GitHub changelog',
+    major: 'Major',
+    patch: 'Patch',
+    fullNotes: 'Read full release notes',
+  },
 } as const;
 
 export function ChangelogPageContent({ locale = 'zh' }: { locale?: SiteLocale }) {
@@ -332,7 +464,19 @@ export function ChangelogPageContent({ locale = 'zh' }: { locale?: SiteLocale })
             <h1 className="text-4xl font-bold text-text-primary mb-2 tracking-tight">{copy.title}</h1>
             <p className="text-text-muted mb-12">{copy.body}{' '}<a href="https://github.com/shangyankeji/super-dev/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer" className="text-accent-blue hover:text-accent-blue-hover transition-colors">{copy.link}</a></p>
             <div className="space-y-10">
-              {releases.map((release) => (
+              {releases.map((release, index) => {
+                const visibleChanges =
+                  release.type === 'major'
+                    ? release.changes.slice(0, index === 0 ? 8 : 5)
+                    : release.changes.slice(0, 2);
+                const showExpandedMajorView = index === 0 && release.type === 'major';
+                const releaseNotesHref =
+                  release.version === '2.4.0'
+                    ? locale === 'zh'
+                      ? '/docs/#highlights'
+                      : '/en/docs/#highlights'
+                    : null;
+                return (
                 <article key={release.version} className="relative pl-6 border-l border-border-default">
                   <div className="absolute -left-1.5 top-1 w-3 h-3 rounded-full bg-accent-blue border-2 border-bg-primary" aria-hidden="true" />
                   <header className="flex items-center gap-3 mb-4">
@@ -340,11 +484,50 @@ export function ChangelogPageContent({ locale = 'zh' }: { locale?: SiteLocale })
                     {typeBadge[release.type]}
                     <time dateTime={release.date} className="text-sm text-text-muted">{release.date}</time>
                   </header>
+                  {showExpandedMajorView && 'summary' in release ? (
+                    <p className="mb-5 text-sm leading-7 text-text-secondary">
+                      {release.summary}
+                    </p>
+                  ) : null}
                   <ul className="space-y-2" role="list">
-                    {release.changes.map((change) => <li key={change} className="text-sm text-text-secondary flex items-start gap-2"><span className="text-text-muted mt-0.5">-</span>{change}</li>)}
+                    {visibleChanges.map((change) => <li key={change} className="text-sm text-text-secondary flex items-start gap-2"><span className="text-text-muted mt-0.5">-</span>{change}</li>)}
                   </ul>
+                  {showExpandedMajorView && 'groups' in release ? (
+                    <div className="mt-6 space-y-4">
+                      {release.groups.map((group) => (
+                        <section
+                          key={group.title}
+                          className="rounded-2xl border border-border-default bg-bg-secondary/40 p-4"
+                        >
+                          <h3 className="text-sm font-semibold text-text-primary">{group.title}</h3>
+                          <ul className="mt-3 space-y-2" role="list">
+                            {group.items.map((item) => (
+                              <li
+                                key={item}
+                                className="text-sm leading-6 text-text-secondary flex items-start gap-2"
+                              >
+                                <span className="text-accent-blue mt-0.5">•</span>
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                      ))}
+                    </div>
+                  ) : null}
+                  {releaseNotesHref ? (
+                    <div className="mt-4">
+                      <a
+                        href={releaseNotesHref}
+                        className="text-sm text-accent-blue hover:text-accent-blue-hover transition-colors"
+                      >
+                        {copy.fullNotes}
+                      </a>
+                    </div>
+                  ) : null}
                 </article>
-              ))}
+              );
+              })}
             </div>
           </div>
         </section>

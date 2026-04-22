@@ -3,47 +3,52 @@ import { HOSTS, STATS } from '@/lib/constants';
 import type { SiteLocale } from '@/lib/site-locale';
 
 const HOST_ICON_MAP: Record<string, string> = {
+  'Claude': '/hosts/claude-code.ico',
   'Claude Code': '/hosts/claude-code.ico',
+  'Codex': '/hosts/codex-cli.png',
   'Codex CLI': '/hosts/codex-cli.png',
+  'Antigravity': '/hosts/antigravity.png',
   'Gemini CLI': '/hosts/gemini-cli.png',
   'Cursor CLI': '/hosts/cursor.ico',
   'Cursor': '/hosts/cursor.ico',
   'Windsurf': '/hosts/windsurf.ico',
-  'GitHub Copilot': '/hosts/copilot-cli.png',
   'Copilot CLI': '/hosts/copilot-cli.png',
   'Trae': '/hosts/trae.png',
   'Kiro CLI': '/hosts/kiro.ico',
   'Kiro': '/hosts/kiro.ico',
   'Cline': '/hosts/cline.png',
-  'Roo Code': '/hosts/roo-code.ico',
-  'Kilo Code': '/hosts/kilo-code.ico',
   'OpenCode': '/hosts/opencode.ico',
   'Qoder CLI': '/hosts/qoder.png',
   'Qoder': '/hosts/qoder.png',
-  'Antigravity': '/hosts/antigravity.png',
   'CodeBuddy CLI': '/hosts/codebuddy.png',
   'CodeBuddy': '/hosts/codebuddy.png',
 };
 
 const HOST_URLS: Record<string, string> = {
+  'Claude': 'https://claude.ai',
   'Claude Code': 'https://code.claude.com',
+  'Codex': 'https://openai.com/index/introducing-codex/',
   'Codex CLI': 'https://openai.com/index/introducing-codex/',
+  'Droid CLI': 'https://docs.factory.ai/reference/cli-reference',
+  'CodeBuddyCN': 'https://codebuddy.ai',
+  'Kimi Code': 'https://www.kimi.com/code/docs/en/kimi-cli.html',
+  'Qwen Code': 'https://qwenlm.github.io/qwen-code-docs/en/',
+  'Antigravity': 'https://antigravity.im/documentation',
   'Gemini CLI': 'https://github.com/google-gemini/gemini-cli',
   'Cursor CLI': 'https://cursor.com',
   'Cursor': 'https://cursor.com',
   'Windsurf': 'https://windsurf.com',
-  'GitHub Copilot': 'https://github.com/features/copilot',
   'Copilot CLI': 'https://github.com/features/copilot',
   'Trae': 'https://trae.ai',
+  'TraeCN': 'https://trae.ai',
+  'Trae SOLO': 'https://trae.ai',
+  'Trae SOLOCN': 'https://trae.ai',
   'Kiro CLI': 'https://kiro.dev',
   'Kiro': 'https://kiro.dev',
   'Cline': 'https://cline.bot',
-  'Roo Code': 'https://roocode.com',
-  'Kilo Code': 'https://kilo.ai',
   'OpenCode': 'https://opencode.ai',
   'Qoder CLI': 'https://qoder.ai',
   'Qoder': 'https://qoder.ai',
-  'Antigravity': 'https://antigravity.dev',
   'CodeBuddy CLI': 'https://codebuddy.ai',
   'CodeBuddy': 'https://codebuddy.ai',
 };
@@ -78,10 +83,12 @@ function HostLogo({ name }: { name: string }) {
 const COPY = {
   zh: {
     hosts: '当前宿主覆盖',
+    intro: '不是装完一个 Python 包就结束。安装器会把当前宿主矩阵收敛到同一条主路径：接入、复制宿主首句、回宿主里开始 research。',
     labels: STATS.zh,
   },
   en: {
     hosts: 'Current host coverage',
+    intro: 'Installing a Python package is not the product. The installer pulls the current host matrix onto one path: onboard, copy the host-specific first prompt, then go back into the host and start research.',
     labels: STATS.en,
   },
 } as const;
@@ -92,6 +99,8 @@ export function SocialProofBand({ locale = 'zh' }: { locale?: SiteLocale }) {
   return (
     <section className="border-y border-border-muted bg-bg-secondary py-10" aria-label="Site trust signals">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
+        <p className="mb-6 max-w-3xl text-sm leading-7 text-text-secondary">{copy.intro}</p>
+
         <dl className="mb-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {copy.labels.map((stat) => (
             <div key={stat.label} className="rounded-xl border border-border-default bg-bg-primary/60 px-5 py-4">

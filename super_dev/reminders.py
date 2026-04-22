@@ -305,11 +305,3 @@ def build_full_reminders(
         parts.append(project_reminders)
 
     return "\n\n".join(parts)
-
-
-def get_icon_enforcement_reminder(project_dir: Path | None = None) -> str:
-    """获取图标强制执行提醒（用于 system-reminder 标签注入）。"""
-    ui_policy = load_ui_policy(project_dir)
-    return format_system_reminder(
-        f"图标约束: {ui_policy['icon_policy']}\n" f"视觉风格: {ui_policy['style_policy']}"
-    )

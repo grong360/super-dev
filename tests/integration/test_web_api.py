@@ -4,6 +4,7 @@ Super Dev Web API 集成测试
 
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -12,14 +13,31 @@ from PIL import Image
 
 import super_dev.web.api as web_api
 from super_dev import __version__ as _super_dev_version
+from super_dev.analyzer import BaselineAuditBuilder
 from super_dev.catalogs import PRIMARY_HOST_TOOL_IDS
 from super_dev.cli import SuperDevCLI
-from super_dev.hooks.manager import HookManager
+from super_dev.evidence_identity import build_evidence_identity
 from super_dev.integrations import IntegrationManager
 from super_dev.orchestrator import Phase, PhaseResult
-from super_dev.review_state import save_docs_confirmation, save_ui_revision, save_workflow_state
+from super_dev.review_state import (
+    save_baseline_confirmation,
+    save_docs_confirmation,
+    save_resume_gate,
+    save_ui_revision,
+    save_workflow_state,
+)
+from super_dev.reviewers.architecture_drift import (
+    _report_dependencies as architecture_drift_dependencies,
+)
+from super_dev.reviewers.spec_compliance import _report_dependencies as spec_compliance_dependencies
+from super_dev.reviewers.uiux_compliance import _report_dependencies as uiux_compliance_dependencies
 from super_dev.skills import SkillManager
 from super_dev.specs.generator import SpecGenerator
+from super_dev.workflow_guard import (
+    record_stage_progress,
+    save_bound_docs_confirmation,
+    save_bound_preview_confirmation,
+)
 
 # Fixed API key for all integration tests
 _TEST_API_KEY = "test-integration-key-super-dev-2026"
@@ -83,25 +101,184 @@ def _prepare_workflow_context(project_dir: Path) -> None:
         ),
         encoding="utf-8",
     )
-    hook_history = HookManager.hook_history_file(project_dir)
-    hook_history.parent.mkdir(parents=True, exist_ok=True)
-    hook_history.write_text(
-        json.dumps(
-            {
-                "hook_name": "python3 scripts/check.py",
-                "event": "WorkflowEvent",
-                "success": True,
-                "output": "",
-                "error": "",
-                "duration_ms": 11.2,
-                "blocked": False,
-                "phase": "docs_confirmation_saved",
-                "source": "config",
-                "timestamp": "2026-04-06T01:02:03+00:00",
-            },
-            ensure_ascii=False,
+
+
+def _write_baseline_audit(project_dir: Path, *, work_mode: str = "variant") -> None:
+    (project_dir / "app").mkdir(parents=True, exist_ok=True)
+    (project_dir / "components").mkdir(parents=True, exist_ok=True)
+    (project_dir / "backend").mkdir(parents=True, exist_ok=True)
+    package_json = project_dir / "package.json"
+    if not package_json.exists():
+        package_json.write_text(
+            json.dumps(
+                {
+                    "name": project_dir.name,
+                    "dependencies": {"react": "^19.0.0", "next": "^15.0.0"},
+                }
+            ),
+            encoding="utf-8",
         )
-        + "\n",
+    builder = BaselineAuditBuilder(project_dir)
+    report = builder.build(work_mode_override=work_mode)
+    builder.write(report)
+
+
+def _hydrate_release_governance_artifacts(project_dir: Path) -> None:
+    output_dir = project_dir / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    project_name = project_dir.name
+
+    prd_path = output_dir / f"{project_name}-prd.md"
+    if not prd_path.exists():
+        prd_path.write_text(
+            "# PRD\n\n## Requirements\n\n- 支持邮箱密码登录并展示运营看板。\n",
+            encoding="utf-8",
+        )
+    architecture_path = output_dir / f"{project_name}-architecture.md"
+    if not architecture_path.exists():
+        architecture_path.write_text(
+            "# Architecture\n\n## Module: Web App\n- React\n## Module: Backend\n- Python\n",
+            encoding="utf-8",
+        )
+    uiux_path = output_dir / f"{project_name}-uiux.md"
+    if not uiux_path.exists():
+        uiux_path.write_text(
+            (
+                "# UIUX\n\n"
+                "icon library: lucide\n"
+                "font-family: Space Grotesk\n"
+                "token: --color-primary\n"
+            ),
+            encoding="utf-8",
+        )
+
+    app_dir = project_dir / "app"
+    app_dir.mkdir(parents=True, exist_ok=True)
+    (app_dir / "page.tsx").write_text(
+        (
+            "import { Sparkles } from 'lucide-react';\n"
+            "export default function Page() {\n"
+            "  return (\n"
+            "    <main style={{ color: 'var(--color-primary)' }}>\n"
+            "      <header><nav><a href=\"#hero\">Hero</a></nav></header>\n"
+            "      <section id=\"hero\"><Sparkles />Launch</section>\n"
+            "    </main>\n"
+            "  );\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    ui_contract_path = output_dir / f"{project_name}-ui-contract.json"
+    ui_review_path = output_dir / f"{project_name}-ui-review.json"
+    ui_alignment_path = output_dir / f"{project_name}-ui-contract-alignment.json"
+    frontend_runtime_path = output_dir / f"{project_name}-frontend-runtime.json"
+    os.utime(ui_contract_path, None)
+
+    ui_review_payload = json.loads(ui_review_path.read_text(encoding="utf-8"))
+    ui_review_payload["evidence_identity"] = build_evidence_identity(
+        project_dir,
+        artifact_name="ui-review",
+        dependencies=[ui_contract_path, uiux_path],
+    )
+    ui_review_path.write_text(
+        json.dumps(ui_review_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    ui_alignment_payload = json.loads(ui_alignment_path.read_text(encoding="utf-8"))
+    ui_alignment_payload["evidence_identity"] = build_evidence_identity(
+        project_dir,
+        artifact_name="ui-contract-alignment",
+        dependencies=[ui_contract_path, uiux_path],
+    )
+    ui_alignment_path.write_text(
+        json.dumps(ui_alignment_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    frontend_runtime_payload = json.loads(frontend_runtime_path.read_text(encoding="utf-8"))
+    frontend_runtime_payload["evidence_identity"] = build_evidence_identity(
+        project_dir,
+        artifact_name="frontend-runtime",
+        dependencies=[ui_contract_path, ui_alignment_path],
+    )
+    frontend_runtime_path.write_text(
+        json.dumps(frontend_runtime_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    quality_gate_payload = {
+        "passed": True,
+        "total_score": 92,
+        "summary": {
+            "executive_summary": "当前质量门禁已通过，UI 阶段与合规链证据当前均已闭环。"
+        },
+        "evidence_identity": build_evidence_identity(
+            project_dir,
+            artifact_name="quality-gate",
+            dependencies=[ui_review_path, ui_alignment_path, uiux_path],
+        ),
+    }
+    (output_dir / f"{project_name}-quality-gate.json").write_text(
+        json.dumps(quality_gate_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    spec_payload = {
+        "project_name": project_name,
+        "total_requirements": 1,
+        "found": 1,
+        "partial": 0,
+        "missing": 0,
+        "score": 98,
+        "matches": [],
+        "evidence_identity": build_evidence_identity(
+            project_dir,
+            artifact_name="spec-compliance",
+            dependencies=spec_compliance_dependencies(project_dir, output_dir),
+        ),
+    }
+    (output_dir / f"{project_name}-spec-compliance.json").write_text(
+        json.dumps(spec_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    architecture_payload = {
+        "project_name": project_name,
+        "declared_modules": ["Web App", "Backend"],
+        "actual_modules": ["Web App", "Backend"],
+        "declared_tech_stack": ["React", "Python"],
+        "actual_tech_stack": ["React", "Python"],
+        "drifts": [],
+        "score": 96,
+        "evidence_identity": build_evidence_identity(
+            project_dir,
+            artifact_name="architecture-drift",
+            dependencies=architecture_drift_dependencies(project_dir, output_dir),
+        ),
+    }
+    (output_dir / f"{project_name}-architecture-drift.json").write_text(
+        json.dumps(architecture_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    uiux_payload = {
+        "project_name": project_name,
+        "declared_icon_library": "lucide",
+        "declared_typography": ["Space Grotesk"],
+        "declared_tokens": ["--color-primary"],
+        "violations": [],
+        "score": 97,
+        "files_scanned": 1,
+        "evidence_identity": build_evidence_identity(
+            project_dir,
+            artifact_name="uiux-compliance",
+            dependencies=uiux_compliance_dependencies(project_dir, output_dir),
+        ),
+    }
+    (output_dir / f"{project_name}-uiux-compliance.json").write_text(
+        json.dumps(uiux_payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
@@ -145,33 +322,37 @@ def _prepare_release_ready_project(project_dir: Path) -> None:
         f'__version__ = "{_super_dev_version}"\n', encoding="utf-8"
     )
     (project_dir / "README.md").write_text(
-        f"当前版本：`{_super_dev_version}`\npip install -U super-dev\nuv tool install super-dev\n/super-dev\nsuper-dev:\nsuper-dev update\n",
+        f"当前版本：`{_super_dev_version}`\nuv tool install super-dev\n/super-dev\nsuper-dev:\nsuper-dev update\n",
         encoding="utf-8",
     )
     (project_dir / "README_EN.md").write_text(
-        f"Current version: `{_super_dev_version}`\npip install -U super-dev\nuv tool install super-dev\n/super-dev\nsuper-dev:\nsuper-dev update\n",
+        f"Current version: `{_super_dev_version}`\nuv tool install super-dev\n/super-dev\nsuper-dev:\nsuper-dev update\n",
+        encoding="utf-8",
+    )
+    (project_dir / "docs" / "INSTALL_OPTIONS.md").write_text(
+        "uv tool install super-dev\nsuper-dev update\n",
         encoding="utf-8",
     )
     (project_dir / "docs" / "HOST_USAGE_GUIDE.md").write_text(
         "Smoke\n/super-dev\nsuper-dev:\n", encoding="utf-8"
     )
     (project_dir / "docs" / "HOST_CAPABILITY_AUDIT.md").write_text(
-        "官方依据\nsuper-dev integrate smoke\n", encoding="utf-8"
+        "官方依据\nintegrate smoke / validate\n", encoding="utf-8"
     )
     (project_dir / "docs" / "HOST_RUNTIME_VALIDATION.md").write_text(
         "host runtime validation\nresearch\nsuper-dev review docs\n",
         encoding="utf-8",
     )
     (project_dir / "docs" / "HOST_INSTALL_SURFACES.md").write_text(
-        "Codex CLI\nsuper-dev:\nsuper-dev integrate audit --auto\n",
+        "Codex CLI\nsuper-dev:\n继续当前流程\n维护者再补 runtime 验收\n",
         encoding="utf-8",
     )
     (project_dir / "docs" / "README.md").write_text("用户文档\n维护者文档\n", encoding="utf-8")
     (project_dir / "docs" / "WORKFLOW_GUIDE.md").write_text(
-        "super-dev review docs\nsuper-dev run --resume\n", encoding="utf-8"
+        "super-dev review docs\n继续当前流程\n", encoding="utf-8"
     )
     (project_dir / "docs" / "WORKFLOW_GUIDE_EN.md").write_text(
-        "super-dev review docs\nsuper-dev run --resume\n", encoding="utf-8"
+        "super-dev review docs\ncontinue current workflow\n", encoding="utf-8"
     )
     (project_dir / "docs" / "PRODUCT_AUDIT.md").write_text(
         "super-dev product-audit\nproof-pack\nrelease readiness\n", encoding="utf-8"
@@ -279,6 +460,29 @@ def _prepare_release_ready_project(project_dir: Path) -> None:
                     "final_selected": "shadcn/ui + Radix + Tailwind",
                 },
                 "design_tokens": {"color": {"primary": "#0f172a"}},
+                "screen_recipes": [
+                    {
+                        "label": "North Star Hero",
+                        "section_order": ["hero", "proof", "cta"],
+                        "trust_modules": ["proof"],
+                        "required_states": ["loading", "empty"],
+                    }
+                ],
+                "design_context_protocol": {
+                    "preferred_import_order": ["tokens", "components"],
+                    "github_import_targets": ["theme.ts", "design-tokens.css"],
+                    "single_source_rule": "single source",
+                },
+                "tweak_strategy": {
+                    "mode": "single-source prototype",
+                    "default_controls": ["density", "tone"],
+                    "persistence_rule": "persist edits",
+                },
+                "verification_handoff": {
+                    "verification_order": ["preview", "runtime"],
+                    "required_artifacts": ["output/frontend/index.html"],
+                    "acceptance_checks": ["no emoji", "token aligned"],
+                },
             },
             ensure_ascii=False,
             indent=2,
@@ -288,6 +492,45 @@ def _prepare_release_ready_project(project_dir: Path) -> None:
     (output_dir / "frontend" / "design-tokens.css").write_text(
         ":root { --color-primary: #0f172a; }\n", encoding="utf-8"
     )
+    (output_dir / f"{project_dir.name}-ui-review.json").write_text(
+        json.dumps(
+            {
+                "score": 92,
+                "critical_count": 0,
+                "alignment_summary": {
+                    "runtime_claude_design_protocol": {
+                        "passed": True,
+                        "observed": "runtime aligned",
+                    },
+                    "source_claude_design_protocol": {
+                        "passed": True,
+                        "observed": "source aligned",
+                    },
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (output_dir / f"{project_dir.name}-ui-contract-alignment.json").write_text(
+        json.dumps(
+            {
+                "screen_recipes": {"passed": True, "observed": "hero/proof/cta"},
+                "design_context_protocol": {"passed": True, "observed": "tokens/components"},
+                "tweak_strategy": {"passed": True, "observed": "density/tone"},
+                "verification_handoff": {"passed": True, "observed": "preview/runtime"},
+                "theme_entry": {"passed": True, "observed": "theme provider"},
+                "navigation_shell": {"passed": True, "observed": "header/nav/cta"},
+                "component_imports": {"passed": True, "observed": "@/components/ui/button"},
+                "banned_patterns": {"passed": True, "observed": ""},
+                "design_tokens": {"passed": True, "observed": "--color-primary"},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     (output_dir / f"{project_dir.name}-frontend-runtime.json").write_text(
         json.dumps(
             {
@@ -300,6 +543,10 @@ def _prepare_release_ready_project(project_dir: Path) -> None:
                     "ui_navigation_shell": True,
                     "ui_component_imports": True,
                     "ui_banned_patterns": True,
+                    "ui_screen_recipes": True,
+                    "ui_design_context_protocol": True,
+                    "ui_tweak_strategy": True,
+                    "ui_verification_handoff": True,
                 },
             },
             ensure_ascii=False,
@@ -307,6 +554,15 @@ def _prepare_release_ready_project(project_dir: Path) -> None:
         ),
         encoding="utf-8",
     )
+    record_stage_progress(project_dir, stage="research", status="completed")
+    record_stage_progress(project_dir, stage="docs", status="completed")
+    save_bound_docs_confirmation(project_dir, {"status": "confirmed", "actor": "pytest"})
+    record_stage_progress(project_dir, stage="spec", status="completed")
+    record_stage_progress(project_dir, stage="frontend", status="completed")
+    save_bound_preview_confirmation(project_dir, {"status": "confirmed", "actor": "pytest"})
+    record_stage_progress(project_dir, stage="quality", status="completed")
+    record_stage_progress(project_dir, stage="delivery", status="completed")
+    _hydrate_release_governance_artifacts(project_dir)
 
 
 def _prepare_proof_pack_project(project_dir: Path) -> None:
@@ -316,29 +572,6 @@ def _prepare_proof_pack_project(project_dir: Path) -> None:
     (output_dir / "rehearsal").mkdir(parents=True, exist_ok=True)
     for suffix in ("research", "architecture", "uiux"):
         (output_dir / f"{project_dir.name}-{suffix}.md").write_text("# ok\n", encoding="utf-8")
-    (output_dir / f"{project_dir.name}-frontend-runtime.json").write_text(
-        json.dumps(
-            {
-                "passed": True,
-                "checks": {
-                    "output_frontend_index": True,
-                    "output_frontend_styles": True,
-                    "output_frontend_design_tokens": True,
-                    "output_frontend_script": True,
-                    "preview_html": True,
-                    "ui_contract_json": True,
-                    "ui_contract_alignment": True,
-                    "ui_theme_entry": True,
-                    "ui_navigation_shell": True,
-                    "ui_component_imports": True,
-                    "ui_banned_patterns": True,
-                },
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
     (output_dir / f"{project_dir.name}-ui-contract.json").write_text(
         json.dumps(
             {
@@ -356,6 +589,29 @@ def _prepare_proof_pack_project(project_dir: Path) -> None:
                     "final_selected": "shadcn/ui + Radix + Tailwind",
                 },
                 "design_tokens": {"color": {"primary": "#0f172a"}},
+                "screen_recipes": [
+                    {
+                        "label": "North Star Hero",
+                        "section_order": ["hero", "proof", "cta"],
+                        "trust_modules": ["proof"],
+                        "required_states": ["loading", "empty"],
+                    }
+                ],
+                "design_context_protocol": {
+                    "preferred_import_order": ["tokens", "components"],
+                    "github_import_targets": ["theme.ts", "design-tokens.css"],
+                    "single_source_rule": "single source",
+                },
+                "tweak_strategy": {
+                    "mode": "single-source prototype",
+                    "default_controls": ["density", "tone"],
+                    "persistence_rule": "persist edits",
+                },
+                "verification_handoff": {
+                    "verification_order": ["preview", "runtime"],
+                    "required_artifacts": ["output/frontend/index.html"],
+                    "acceptance_checks": ["no emoji", "token aligned"],
+                },
             },
             ensure_ascii=False,
             indent=2,
@@ -368,7 +624,20 @@ def _prepare_proof_pack_project(project_dir: Path) -> None:
     )
     (output_dir / f"{project_dir.name}-ui-review.json").write_text(
         json.dumps(
-            {"score": 91, "critical_count": 0, "alignment_summary": {}},
+            {
+                "score": 91,
+                "critical_count": 0,
+                "alignment_summary": {
+                    "runtime_claude_design_protocol": {
+                        "passed": True,
+                        "observed": "runtime aligned",
+                    },
+                    "source_claude_design_protocol": {
+                        "passed": True,
+                        "observed": "source aligned",
+                    },
+                },
+            },
             ensure_ascii=False,
             indent=2,
         ),
@@ -413,6 +682,30 @@ def _prepare_proof_pack_project(project_dir: Path) -> None:
                     "expected": "design-tokens.css",
                     "observed": "wired",
                 },
+                "screen_recipes": {
+                    "label": "页面配方冻结",
+                    "passed": True,
+                    "expected": "hero/proof/cta",
+                    "observed": "hero/proof/cta",
+                },
+                "design_context_protocol": {
+                    "label": "设计上下文协议",
+                    "passed": True,
+                    "expected": "tokens/components",
+                    "observed": "tokens/components",
+                },
+                "tweak_strategy": {
+                    "label": "Tweaks 变体策略",
+                    "passed": True,
+                    "expected": "density/tone",
+                    "observed": "density/tone",
+                },
+                "verification_handoff": {
+                    "label": "验证与交付协议",
+                    "passed": True,
+                    "expected": "preview/runtime",
+                    "observed": "preview/runtime",
+                },
                 "token_usage": {
                     "label": "冻结 Token 使用率",
                     "passed": True,
@@ -443,9 +736,52 @@ def _prepare_proof_pack_project(project_dir: Path) -> None:
         ),
         encoding="utf-8",
     )
+    (output_dir / f"{project_dir.name}-frontend-runtime.json").write_text(
+        json.dumps(
+            {
+                "passed": True,
+                "checks": {
+                    "output_frontend_index": True,
+                    "output_frontend_styles": True,
+                    "output_frontend_design_tokens": True,
+                    "output_frontend_script": True,
+                    "preview_html": True,
+                    "ui_contract_json": True,
+                    "ui_contract_alignment": True,
+                    "ui_theme_entry": True,
+                    "ui_navigation_shell": True,
+                    "ui_component_imports": True,
+                    "ui_banned_patterns": True,
+                    "ui_screen_recipes": True,
+                    "ui_design_context_protocol": True,
+                    "ui_tweak_strategy": True,
+                    "ui_verification_handoff": True,
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (output_dir / f"{project_dir.name}-quality-gate.md").write_text(
+        "# 质量门禁报告\n\n**状态**: <span style='color:green'>通过</span>\n**总分**: 90/100\n",
+        encoding="utf-8",
+    )
     (output_dir / f"{project_dir.name}-quality-gate.md").write_text(
         "# quality gate\npassed\n", encoding="utf-8"
     )
+    # Ensure the ready fixture reflects one coherent artifact generation round.
+    base_time = time.time() + 1
+    for index, artifact_name in enumerate(
+        (
+        f"{project_dir.name}-ui-review.json",
+        f"{project_dir.name}-ui-contract-alignment.json",
+        f"{project_dir.name}-frontend-runtime.json",
+        f"{project_dir.name}-quality-gate.md",
+        )
+    ):
+        ts = base_time + index
+        os.utime(output_dir / artifact_name, (ts, ts))
     (output_dir / f"{project_dir.name}-redteam.json").write_text(
         json.dumps(
             {
@@ -619,6 +955,19 @@ def _prepare_proof_pack_project(project_dir: Path) -> None:
         "# Tasks\n\n- [x] 支持邮箱密码登录\n- [x] 提供运营数据概览\n",
         encoding="utf-8",
     )
+    final_base_time = time.time() + 5
+    for index, artifact_name in enumerate(
+        (
+            f"{project_dir.name}-ui-contract.json",
+            f"{project_dir.name}-ui-review.json",
+            f"{project_dir.name}-ui-contract-alignment.json",
+            f"{project_dir.name}-frontend-runtime.json",
+            f"{project_dir.name}-quality-gate.md",
+        )
+    ):
+        ts = final_base_time + index
+        os.utime(output_dir / artifact_name, (ts, ts))
+    _hydrate_release_governance_artifacts(project_dir)
 
 
 class TestWebAPI:
@@ -939,6 +1288,164 @@ class TestWebAPI:
         )
         assert confirmation_stage["status"] == "waiting"
 
+    @pytest.mark.parametrize("work_mode", ["evolve", "variant", "patch"])
+    def test_workflow_status_blocks_existing_project_without_baseline(
+        self,
+        temp_project_dir: Path,
+        work_mode: str,
+    ):
+        client = _make_client()
+
+        (temp_project_dir / ".super-dev").mkdir(parents=True, exist_ok=True)
+        (temp_project_dir / ".super-dev" / "workflow-state.json").write_text(
+            json.dumps({"work_mode": work_mode}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        web_api._store_run_state(
+            f"{work_mode}-baseline01",
+            persist_dir=temp_project_dir,
+            status="running",
+            message="existing project baseline required",
+            requested_phases=["discovery"],
+            completed_phases=[],
+            progress=5,
+            project_dir=str(temp_project_dir),
+            results=[],
+        )
+
+        resp = client.get(
+            f"/api/workflow/status/{work_mode}-baseline01",
+            params={"project_dir": str(temp_project_dir)},
+        )
+        assert resp.status_code == 200
+        summary = resp.json()["pipeline_summary"]
+        assert summary["work_mode"] == work_mode
+        assert summary["workflow_status"] == "missing_baseline"
+        assert summary["artifacts"]["baseline_required"] is True
+        assert summary["artifacts"]["baseline"] is False
+        assert summary["current_stage_canonical_id"] == "baseline"
+        assert summary["baseline_governance"]["required"] is True
+        assert summary["baseline_governance"]["status"] == "missing_audit"
+        assert summary["baseline_governance"]["entry_gate"] == "missing_baseline"
+        assert summary["baseline_governance"]["ready"] is False
+        assert summary["baseline_governance"]["can_enter_delta_flow"] is False
+        assert (
+            summary["baseline_governance"]["recommended_command"]
+            == "在宿主里先扫描当前项目并建立 baseline，再继续当前流程"
+        )
+
+    def test_workflow_status_waits_for_baseline_confirmation_after_audit(
+        self, temp_project_dir: Path
+    ):
+        client = _make_client()
+
+        (temp_project_dir / ".super-dev").mkdir(parents=True, exist_ok=True)
+        (temp_project_dir / "output").mkdir(parents=True, exist_ok=True)
+        (temp_project_dir / ".super-dev" / "workflow-state.json").write_text(
+            json.dumps({"work_mode": "evolve"}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (temp_project_dir / "output" / f"{temp_project_dir.name}-baseline-audit.md").write_text(
+            "# baseline\n",
+            encoding="utf-8",
+        )
+        save_baseline_confirmation(
+            temp_project_dir,
+            {
+                "status": "pending_review",
+                "comment": "先确认当前项目边界和差量计划",
+                "actor": "pytest",
+            },
+        )
+
+        web_api._store_run_state(
+            "baseline-confirm01",
+            persist_dir=temp_project_dir,
+            status="running",
+            message="baseline confirmation pending",
+            requested_phases=["discovery"],
+            completed_phases=[],
+            progress=10,
+            project_dir=str(temp_project_dir),
+            results=[],
+        )
+
+        resp = client.get(
+            "/api/workflow/status/baseline-confirm01",
+            params={"project_dir": str(temp_project_dir)},
+        )
+        assert resp.status_code == 200
+        summary = resp.json()["pipeline_summary"]
+        assert summary["workflow_status"] == "waiting_baseline_confirmation"
+        assert summary["artifacts"]["baseline_required"] is True
+        assert summary["artifacts"]["baseline"] is True
+        assert summary["current_stage_canonical_id"] == "baseline"
+        assert "baseline 确认" in summary["recommended_command"]
+        assert summary["baseline_governance"]["status"] == "pending_confirmation"
+        assert summary["baseline_governance"]["entry_gate"] == "waiting_baseline_confirmation"
+        assert summary["baseline_governance"]["confirmation_status"] == "pending_review"
+        assert summary["baseline_governance"]["ready"] is False
+        assert summary["baseline_governance"]["can_enter_delta_flow"] is False
+        assert (
+            summary["baseline_governance"]["recommended_command"]
+            == "在宿主里先确认 baseline；如果通过，直接说“baseline 确认，可以继续当前流程”"
+        )
+
+    def test_workflow_status_prioritizes_resume_gate_over_missing_baseline(
+        self, temp_project_dir: Path
+    ):
+        client = _make_client()
+
+        (temp_project_dir / ".super-dev").mkdir(parents=True, exist_ok=True)
+        (temp_project_dir / ".super-dev" / "workflow-state.json").write_text(
+            json.dumps({"work_mode": "variant"}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        save_resume_gate(
+            temp_project_dir,
+            {
+                "status": "pending_review",
+                "comment": "先确认从哪里恢复",
+                "actor": "pytest",
+            },
+        )
+
+        web_api._store_run_state(
+            "resume-gate01",
+            persist_dir=temp_project_dir,
+            status="running",
+            message="resume gate pending",
+            requested_phases=["discovery"],
+            completed_phases=[],
+            progress=5,
+            project_dir=str(temp_project_dir),
+            results=[],
+        )
+
+        resp = client.get(
+            "/api/workflow/status/resume-gate01",
+            params={"project_dir": str(temp_project_dir)},
+        )
+        assert resp.status_code == 200
+        summary = resp.json()["pipeline_summary"]
+        assert summary["work_mode"] == "variant"
+        assert summary["workflow_status"] == "waiting_resume_gate"
+        assert summary["resume_gate"]["status"] == "pending_review"
+        assert summary["artifacts"]["baseline_required"] is True
+        assert summary["artifacts"]["baseline"] is False
+        assert summary["baseline_governance"]["entry_gate"] == "waiting_resume_gate"
+        assert summary["baseline_governance"]["resume_state"] == "pending_review"
+        assert summary["baseline_governance"]["can_enter_delta_flow"] is False
+        assert (
+            summary["baseline_governance"]["blocking_reason"]
+            == "当前存在恢复门，必须先明确恢复点，再继续当前流程。"
+        )
+        assert (
+            summary["baseline_governance"]["recommended_command"]
+            == "在宿主里先确认恢复点；如果通过，直接说“恢复点确认，可以继续当前流程”"
+        )
+
     def test_workflow_status_requires_frontend_runtime_report(self, temp_project_dir: Path):
         client = _make_client()
 
@@ -1132,6 +1639,11 @@ class TestWebAPI:
         )
         assert update_resp.status_code == 200
         assert update_resp.json()["status"] == "confirmed"
+        assert update_resp.json()["artifact_binding"]["stage"] == "docs"
+        assert update_resp.json()["artifact_binding"]["file_count"] == 3
+        assert update_resp.json()["artifact_binding"]["digest"]
+        assert update_resp.json()["ledger_entry"]["status"] == "confirmed"
+        assert update_resp.json()["binding_matches_current"] is True
 
         get_resp = client.get(
             "/api/workflow/docs-confirmation",
@@ -1140,6 +1652,9 @@ class TestWebAPI:
         assert get_resp.status_code == 200
         assert get_resp.json()["status"] == "confirmed"
         assert get_resp.json()["comment"] == "文档已确认"
+        assert get_resp.json()["artifact_binding"]["digest"]
+        assert get_resp.json()["ledger_entry"]["artifact_binding"]["digest"]
+        assert get_resp.json()["binding_matches_current"] is True
 
         status_resp = client.get(
             "/api/workflow/status/confirm01",
@@ -1152,6 +1667,69 @@ class TestWebAPI:
             item for item in summary["stages"] if item["id"] == "confirmation_gate"
         )
         assert confirmation_stage["status"] == "completed"
+
+    def test_workflow_baseline_confirmation_roundtrip(self, temp_project_dir: Path):
+        client = _make_client()
+        output_dir = temp_project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (temp_project_dir / ".super-dev" / "review-state").mkdir(parents=True, exist_ok=True)
+        (temp_project_dir / ".super-dev" / "workflow-state.json").write_text(
+            json.dumps({"work_mode": "evolve"}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (output_dir / f"{temp_project_dir.name}-baseline-audit.md").write_text(
+            "# baseline\n", encoding="utf-8"
+        )
+
+        update_resp = client.post(
+            "/api/workflow/baseline-confirmation",
+            params={"project_dir": str(temp_project_dir), "run_id": "baseline01"},
+            json={"status": "confirmed", "comment": "baseline 已确认", "actor": "user"},
+        )
+        assert update_resp.status_code == 200
+        assert update_resp.json()["status"] == "confirmed"
+        assert update_resp.json()["baseline_governance"]["status"] == "confirmed"
+        assert update_resp.json()["workflow_context"]["workflow_status"] in {
+            "missing_core_docs",
+            "waiting_docs_confirmation",
+            "missing_research",
+            "missing_spec",
+            "ready",
+        }
+
+        get_resp = client.get(
+            "/api/workflow/baseline-confirmation",
+            params={"project_dir": str(temp_project_dir)},
+        )
+        assert get_resp.status_code == 200
+        assert get_resp.json()["status"] == "confirmed"
+        assert get_resp.json()["comment"] == "baseline 已确认"
+        assert get_resp.json()["baseline_governance"]["status"] == "confirmed"
+        assert get_resp.json()["workflow_context"]["baseline_confirmation_status"] == "confirmed"
+
+        web_api._store_run_state(
+            "baseline01",
+            persist_dir=temp_project_dir,
+            status="running",
+            message="baseline confirmed",
+            requested_phases=["discovery"],
+            completed_phases=[],
+            progress=20,
+            project_dir=str(temp_project_dir),
+            results=[],
+        )
+        status_resp = client.get(
+            "/api/workflow/status/baseline01",
+            params={"project_dir": str(temp_project_dir)},
+        )
+        assert status_resp.status_code == 200
+        summary = status_resp.json()["pipeline_summary"]
+        assert summary["baseline_confirmation"]["status"] == "confirmed"
+        assert summary["baseline_governance"]["status"] == "confirmed"
+        assert summary["baseline_governance"]["entry_gate"] == "ready"
+        assert summary["baseline_governance"]["ready"] is True
+        assert summary["baseline_governance"]["can_enter_delta_flow"] is True
+        assert summary["baseline_governance"]["recommended_command"] == "在宿主里说“继续当前流程”"
 
     def test_workflow_ui_revision_roundtrip(self, temp_project_dir: Path):
         client = _make_client()
@@ -1220,7 +1798,7 @@ class TestWebAPI:
         change_dir.mkdir(parents=True, exist_ok=True)
         (change_dir / "proposal.md").write_text("# proposal", encoding="utf-8")
         (change_dir / "tasks.md").write_text("- [ ] frontend", encoding="utf-8")
-        save_docs_confirmation(
+        save_bound_docs_confirmation(
             temp_project_dir,
             {
                 "status": "confirmed",
@@ -1268,6 +1846,11 @@ class TestWebAPI:
         )
         assert update_resp.status_code == 200
         assert update_resp.json()["status"] == "revision_requested"
+        assert update_resp.json()["artifact_binding"]["stage"] == "preview"
+        assert update_resp.json()["artifact_binding"]["file_count"] >= 1
+        assert update_resp.json()["artifact_binding"]["digest"]
+        assert update_resp.json()["ledger_entry"]["status"] == "revision_requested"
+        assert update_resp.json()["binding_matches_current"] is True
 
         get_resp = client.get(
             "/api/workflow/preview-confirmation",
@@ -1276,6 +1859,8 @@ class TestWebAPI:
         assert get_resp.status_code == 200
         assert get_resp.json()["status"] == "revision_requested"
         assert get_resp.json()["comment"] == "预览还需要调一下"
+        assert get_resp.json()["artifact_binding"]["digest"]
+        assert get_resp.json()["binding_matches_current"] is True
 
         status_resp = client.get(
             "/api/workflow/status/preview01",
@@ -1501,13 +2086,54 @@ class TestWebAPI:
             params={"project_dir": str(temp_project_dir)},
             json={"phases": ["redteam"]},
         )
+        assert run_resp.status_code == 409
+        payload = run_resp.json()["detail"]
+        assert payload["gate"] == "docs_confirmation"
+        assert payload["action"] == "workflow_run"
+        assert payload["details"]["requested_phases"] == ["redteam"]
+
+        output_dir = temp_project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "api-redteam-prd.md").write_text("# prd", encoding="utf-8")
+        (output_dir / "api-redteam-architecture.md").write_text("# architecture", encoding="utf-8")
+        (output_dir / "api-redteam-uiux.md").write_text("# uiux", encoding="utf-8")
+        save_docs_confirmation(
+            temp_project_dir,
+            {
+                "status": "confirmed",
+                "comment": "legacy confirmation",
+                "actor": "pytest",
+                "run_id": "legacy-confirmed",
+            },
+        )
+
+        run_resp = client.post(
+            "/api/workflow/run",
+            params={"project_dir": str(temp_project_dir)},
+            json={"phases": ["redteam"]},
+        )
+        assert run_resp.status_code == 409
+        legacy_detail = run_resp.json()["detail"]
+        assert legacy_detail["gate"] == "docs_confirmation"
+        assert legacy_detail["details"]["binding_matches_current"] is False
+
+        confirm_resp = client.post(
+            "/api/workflow/docs-confirmation",
+            params={"project_dir": str(temp_project_dir), "run_id": "redteam-bound"},
+            json={"status": "confirmed", "comment": "文档确认", "actor": "user"},
+        )
+        assert confirm_resp.status_code == 200
+        assert confirm_resp.json()["binding_matches_current"] is True
+
+        run_resp = client.post(
+            "/api/workflow/run",
+            params={"project_dir": str(temp_project_dir)},
+            json={"phases": ["redteam"]},
+        )
         assert run_resp.status_code == 200
         run_id = run_resp.json()["run_id"]
 
-        status_resp = client.get(
-            f"/api/workflow/status/{run_id}",
-            params={"project_dir": str(temp_project_dir)},
-        )
+        status_resp = client.get(f"/api/workflow/status/{run_id}", params={"project_dir": str(temp_project_dir)})
         assert status_resp.status_code == 200
         payload = status_resp.json()
         assert payload["status"] in {
@@ -1522,6 +2148,111 @@ class TestWebAPI:
         redteam_result = payload["results"][0]
         assert redteam_result["phase"] == "redteam"
         assert redteam_result["output"]["issues"]["security"][0]["line"] == 12
+
+        (output_dir / "api-redteam-uiux.md").write_text("# uiux v2", encoding="utf-8")
+        rerun_resp = client.post(
+            "/api/workflow/run",
+            params={"project_dir": str(temp_project_dir)},
+            json={"phases": ["redteam"]},
+        )
+        assert rerun_resp.status_code == 409
+        rerun_detail = rerun_resp.json()["detail"]
+        assert rerun_detail["details"]["binding_matches_current"] is False
+
+    def test_workflow_run_requires_preview_confirmation_for_late_phases(
+        self, temp_project_dir: Path, monkeypatch
+    ):
+        client = _make_client()
+        init_resp = client.post(
+            "/api/init",
+            params={"project_dir": str(temp_project_dir)},
+            json={
+                "name": "api-preview",
+                "platform": "web",
+                "frontend": "react",
+                "backend": "python",
+            },
+        )
+        assert init_resp.status_code == 200
+        output_dir = temp_project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "api-preview-prd.md").write_text("# prd", encoding="utf-8")
+        (output_dir / "api-preview-architecture.md").write_text("# architecture", encoding="utf-8")
+        (output_dir / "api-preview-uiux.md").write_text("# uiux", encoding="utf-8")
+        (output_dir / "api-preview-ui-contract.json").write_text(
+            json.dumps({"style_direction": "clean"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (output_dir / "api-preview-ui-contract-alignment.json").write_text(
+            json.dumps({"design_tokens": {"passed": True}}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (output_dir / "api-preview-frontend-runtime.json").write_text(
+            json.dumps({"passed": True, "summary": "frontend ready"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        save_bound_docs_confirmation(
+            temp_project_dir,
+            {
+                "status": "confirmed",
+                "comment": "文档已确认",
+                "actor": "pytest",
+                "run_id": "preview-gate-docs",
+            },
+        )
+
+        async def fake_run(self, phases=None, context=None, **kwargs):
+            return {
+                Phase.REDTEAM: PhaseResult(
+                    phase=Phase.REDTEAM,
+                    success=True,
+                    duration=0.01,
+                    quality_score=90.0,
+                    output={"status": "ok"},
+                )
+            }
+
+        monkeypatch.setattr(web_api.WorkflowEngine, "run", fake_run)
+
+        blocked_resp = client.post(
+            "/api/workflow/run",
+            params={"project_dir": str(temp_project_dir)},
+            json={"phases": ["redteam"]},
+        )
+        assert blocked_resp.status_code == 409
+        detail = blocked_resp.json()["detail"]
+        assert detail["gate"] == "preview_confirmation"
+        assert detail["details"]["binding_matches_current"] is False
+
+        confirm_resp = client.post(
+            "/api/workflow/preview-confirmation",
+            params={"project_dir": str(temp_project_dir), "run_id": "preview-bound"},
+            json={"status": "confirmed", "comment": "预览确认", "actor": "user"},
+        )
+        assert confirm_resp.status_code == 200
+        assert confirm_resp.json()["binding_matches_current"] is True
+
+        allowed_resp = client.post(
+            "/api/workflow/run",
+            params={"project_dir": str(temp_project_dir)},
+            json={"phases": ["redteam"]},
+        )
+        assert allowed_resp.status_code == 200
+
+        (output_dir / "api-preview-frontend-runtime.json").write_text(
+            json.dumps({"passed": True, "summary": "frontend ready v2"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        stale_resp = client.post(
+            "/api/workflow/run",
+            params={"project_dir": str(temp_project_dir)},
+            json={"phases": ["redteam"]},
+        )
+        assert stale_resp.status_code == 409
+        stale_detail = stale_resp.json()["detail"]
+        assert stale_detail["gate"] == "preview_confirmation"
+        assert stale_detail["details"]["binding_matches_current"] is False
 
     def test_workflow_run_invalid_phase(self, temp_project_dir: Path):
         client = _make_client()
@@ -1542,6 +2273,42 @@ class TestWebAPI:
             json={"phases": ["not-a-phase"]},
         )
         assert run_resp.status_code == 400
+
+    def test_workflow_run_accepts_canonical_phase_name(self, temp_project_dir: Path, monkeypatch):
+        client = _make_client()
+        client.post(
+            "/api/init",
+            params={"project_dir": str(temp_project_dir)},
+            json={
+                "name": "api-canonical-phase",
+                "platform": "web",
+                "frontend": "react",
+                "backend": "node",
+            },
+        )
+
+        captured = {}
+
+        async def fake_run(self, phases=None, context=None, **kwargs):
+            captured["phases"] = [phase.value for phase in (phases or [])]
+            return {
+                Phase.DISCOVERY: PhaseResult(
+                    phase=Phase.DISCOVERY,
+                    success=True,
+                    duration=0.01,
+                    quality_score=90.0,
+                )
+            }
+
+        monkeypatch.setattr(web_api.WorkflowEngine, "run", fake_run)
+
+        run_resp = client.post(
+            "/api/workflow/run",
+            params={"project_dir": str(temp_project_dir)},
+            json={"phases": ["research"]},
+        )
+        assert run_resp.status_code == 200
+        assert captured["phases"] == ["discovery", "intelligence"]
 
     def test_init_rejects_invalid_host_compatibility_threshold(self, temp_project_dir: Path):
         client = _make_client()
@@ -1707,8 +2474,48 @@ class TestWebAPI:
                     ],
                     "strengths": ["结构完整"],
                     "notes": [],
+                    "alignment_summary": {
+                        "runtime_claude_design_protocol": {
+                            "passed": False,
+                            "observed": "mismatch=screen_recipes",
+                        },
+                        "source_claude_design_protocol": {
+                            "passed": True,
+                            "observed": "source aligned",
+                        },
+                    },
                 },
                 ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-contract.json").write_text(
+            json.dumps(
+                {
+                    "style_direction": "Editorial workspace",
+                    "screen_recipes": [{"label": "North Star Hero"}],
+                    "design_context_protocol": {"single_source_rule": "single source"},
+                    "tweak_strategy": {"mode": "single-source prototype"},
+                    "verification_handoff": {"verification_order": ["preview"]},
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-frontend-runtime.json").write_text(
+            json.dumps(
+                {
+                    "passed": True,
+                    "checks": {
+                        "ui_screen_recipes": True,
+                        "ui_design_context_protocol": True,
+                        "ui_tweak_strategy": True,
+                        "ui_verification_handoff": True,
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
             ),
             encoding="utf-8",
         )
@@ -1725,6 +2532,9 @@ class TestWebAPI:
         payload = resp.json()
         assert payload["run_id"] == run_id
         assert payload["summary"]["score"] == 88
+        assert payload["frontend_governance_summary"]["state"] == "source_runtime_drift"
+        assert payload["runtime_claude_design_protocol"]["observed"] == "mismatch=screen_recipes"
+        assert payload["source_claude_design_protocol"]["observed"] == "source aligned"
         assert payload["screenshot"]["exists"] is True
         assert payload["report_path"].endswith("demo-ui-review.md")
 
@@ -1858,7 +2668,7 @@ class TestWebAPI:
         assert status_payload["message"] == "工作流已取消"
         assert status_payload["cancel_requested"] is True
 
-    def test_expert_advice_generation(self, temp_project_dir: Path):
+    def test_expert_catalog_endpoint(self, temp_project_dir: Path):
         client = _make_client()
 
         experts_resp = client.get("/api/experts")
@@ -1866,83 +2676,6 @@ class TestWebAPI:
         expert_ids = {item["id"] for item in experts_resp.json()["experts"]}
         assert "PM" in expert_ids
         assert "RCA" in expert_ids
-
-        advice_resp = client.post(
-            "/api/experts/pm/advice",
-            params={"project_dir": str(temp_project_dir)},
-            json={"prompt": "请帮我规划登录功能"},
-        )
-        assert advice_resp.status_code == 200
-        payload = advice_resp.json()
-        assert payload["expert_id"] == "PM"
-        assert "建议清单" in payload["content"]
-        assert Path(payload["file_path"]).exists()
-
-    def test_expert_advice_unknown_expert(self, temp_project_dir: Path):
-        client = _make_client()
-        advice_resp = client.post(
-            "/api/experts/unknown/advice",
-            params={"project_dir": str(temp_project_dir)},
-            json={"prompt": "test"},
-        )
-        assert advice_resp.status_code == 404
-
-    def test_expert_advice_history_and_content(self, temp_project_dir: Path):
-        client = _make_client()
-
-        # 先生成两份建议
-        r1 = client.post(
-            "/api/experts/pm/advice",
-            params={"project_dir": str(temp_project_dir)},
-            json={"prompt": "规划用户增长"},
-        )
-        assert r1.status_code == 200
-        f1 = r1.json()["file_name"]
-
-        r2 = client.post(
-            "/api/experts/qa/advice",
-            params={"project_dir": str(temp_project_dir)},
-            json={"prompt": "建立测试策略"},
-        )
-        assert r2.status_code == 200
-        f2 = r2.json()["file_name"]
-
-        history_resp = client.get(
-            "/api/experts/advice/history",
-            params={"project_dir": str(temp_project_dir), "limit": 10},
-        )
-        assert history_resp.status_code == 200
-        payload = history_resp.json()
-        assert payload["count"] >= 2
-        assert any(item["file_name"] == f1 for item in payload["items"])
-        assert any(item["file_name"] == f2 for item in payload["items"])
-
-        content_resp = client.get(
-            "/api/experts/advice/content",
-            params={"project_dir": str(temp_project_dir), "file_name": f1},
-        )
-        assert content_resp.status_code == 200
-        assert "PM 专家建议" in content_resp.json()["content"]
-
-        bad_name_resp = client.get(
-            "/api/experts/advice/content",
-            params={"project_dir": str(temp_project_dir), "file_name": "../x.md"},
-        )
-        assert bad_name_resp.status_code == 400
-
-        missing_resp = client.get(
-            "/api/experts/advice/content",
-            params={"project_dir": str(temp_project_dir), "file_name": "expert-none-advice.md"},
-        )
-        assert missing_resp.status_code == 404
-
-    def test_deploy_platforms(self):
-        client = _make_client()
-        resp = client.get("/api/deploy/platforms")
-        assert resp.status_code == 200
-        payload = resp.json()
-        ids = {item["id"] for item in payload["platforms"]}
-        assert {"all", "github", "gitlab", "jenkins", "azure", "bitbucket"}.issubset(ids)
 
     def test_catalogs_endpoint(self):
         client = _make_client()
@@ -1971,12 +2704,14 @@ class TestWebAPI:
         assert {
             "antigravity",
             "claude-code",
+            "droid-cli",
             "codebuddy-cli",
             "codebuddy",
             "codex-cli",
             "cursor-cli",
             "windsurf",
             "gemini-cli",
+            "kimi-code",
             "kiro-cli",
             "opencode",
             "qoder-cli",
@@ -1984,17 +2719,31 @@ class TestWebAPI:
             "kiro",
             "qoder",
             "trae",
+            "trae-solo",
+            "trae-solocn",
             "workbuddy",
         }.issubset(host_tool_ids)
+        for host in payload["host_tools"]:
+            if host["id"] not in PRIMARY_HOST_TOOL_IDS:
+                continue
+            assert host["standard_flow_first_prompt"]
+            assert "super-dev" in host["standard_flow_first_prompt"].lower()
+            assert host["competition_flow_first_prompt"]
+            assert "seeai" in host["competition_flow_first_prompt"].lower()
+            assert host["host_start_playbook"]
+            assert host["post_onboard_self_check"]
+            assert host["official_workflow_checks"]
+            assert host["official_pass_criteria"]
+            assert host["host_repair_playbook"]
         antigravity_host = next(
             item for item in payload["host_tools"] if item["id"] == "antigravity"
         )
         assert antigravity_host["category"] == "ide"
         assert "GEMINI.md" in antigravity_host["integration_files"]
         assert ".agent/workflows/super-dev.md" in antigravity_host["integration_files"]
-        assert antigravity_host["slash_command_file"] == ".gemini/commands/super-dev.md"
+        assert antigravity_host["slash_command_file"] == ".gemini/commands/super-dev.toml"
         assert antigravity_host["usage_mode"] == "native-slash"
-        assert antigravity_host["host_protocol_mode"] == "official-workflow"
+        assert antigravity_host["host_protocol_mode"] == "recommended-gemini-workflow"
         assert antigravity_host["commands"]["trigger"].startswith("/super-dev")
         claude_host = next(item for item in payload["host_tools"] if item["id"] == "claude-code")
         assert claude_host["category"] == "cli"
@@ -2005,9 +2754,17 @@ class TestWebAPI:
         assert claude_host["slash_command_file"] == ".claude/commands/super-dev.md"
         assert claude_host["usage_mode"] == "native-slash-and-skill"
         assert claude_host["commands"]["trigger"].startswith("/super-dev")
-        assert claude_host["commands"]["setup"].startswith("super-dev setup --host claude-code")
-        assert claude_host["commands"]["audit"] == "super-dev integrate audit --target claude-code"
-        assert claude_host["commands"]["smoke"] == "super-dev integrate smoke --target claude-code"
+        assert claude_host["maintenance_commands"]["setup"].startswith(
+            "super-dev setup --host claude-code"
+        )
+        assert (
+            claude_host["maintenance_commands"]["audit"]
+            == "super-dev integrate audit --target claude-code"
+        )
+        assert (
+            claude_host["maintenance_commands"]["smoke"]
+            == "super-dev integrate smoke --target claude-code"
+        )
         assert claude_host["competition_mode"]["enabled"] is True
         assert claude_host["competition_mode"]["timebox_minutes"] == 30
         assert claude_host["competition_mode"]["trigger"].startswith("/super-dev-seeai")
@@ -2054,24 +2811,47 @@ class TestWebAPI:
         assert payload["decision_card"]["recommended_reason"]
         assert payload["decision_card"]["first_action"]
         assert payload["decision_card"]["lines"]
+        assert any("官方补充检查:" in item for item in payload["decision_card"]["lines"])
+        assert payload["decision_card"]["selected_host_post_onboard_self_check"]
+        assert payload["decision_card"]["selected_host_start_playbook"]
+        assert payload["decision_card"]["selected_host_standard_flow_first_prompt"]
+        assert payload["decision_card"]["selected_host_competition_flow_first_prompt"]
+        assert payload["decision_card"]["selected_host_resume_guidance"]
+        assert payload["decision_card"]["selected_host_injection_closure"]
+        assert payload["decision_card"]["selected_host_ready_for_standard_flow"] is False
+        assert payload["decision_card"]["selected_host_ready_for_competition_flow"] is False
+        assert payload["decision_card"]["selected_host_standard_flow_label"]
+        assert payload["decision_card"]["selected_host_competition_flow_label"]
+        assert payload["decision_card"]["selected_host_official_workflow_checks"]
+        assert payload["decision_card"]["selected_host_repair_playbook"]
+        assert any(
+            "super-dev-seeai" in item
+            for item in payload["decision_card"]["selected_host_post_onboard_self_check"]
+        )
         assert isinstance(payload["primary_repair_action"]["secondary_actions"], list)
         assert payload["decision_card"]["selected_host"] == "claude-code"
         assert (
             payload["decision_card"]["selected_path_override"]["env_key"]
             == "SUPER_DEV_HOST_PATH_CLAUDE_CODE"
         )
+        assert payload["adaptation_contracts"]["claude-code"]["level"] == "elite"
+        assert payload["selected_host_adaptation"]["level"] == "elite"
         assert payload["usage_profiles"]["claude-code"]["usage_mode"] == "native-slash-and-skill"
         assert payload["usage_profiles"]["claude-code"]["certification_level"] == "certified"
+        assert payload["usage_profiles"]["claude-code"]["host_id"] == "claude-code"
+        assert payload["usage_profiles"]["claude-code"]["capability_labels"]["slash"] == "native"
+        assert payload["usage_profiles"]["claude-code"]["official_docs_url"].startswith("https://")
+        assert payload["usage_profiles"]["claude-code"]["official_docs_references"]
         assert (
             payload["usage_profiles"]["claude-code"]["path_override"]["env_key"]
             == "SUPER_DEV_HOST_PATH_CLAUDE_CODE"
         )
         assert payload["usage_profiles"]["claude-code"]["trigger_command"].startswith("/super-dev")
-        assert payload["usage_profiles"]["claude-code"]["final_trigger"] == '/super-dev "你的需求"'
+        assert payload["usage_profiles"]["claude-code"]["final_trigger"] == "/super-dev 你的需求"
         assert "SMOKE_OK" in payload["usage_profiles"]["claude-code"]["smoke_test_prompt"]
         host = payload["report"]["hosts"]["claude-code"]
         assert host["ready"] is False
-        assert {"integrate", "user_surfaces"}.issubset(set(host["missing"]))
+        assert {"integrate", "skill"}.issubset(set(host["missing"]))
         assert "slash" not in host["missing"]
         assert "plugin_enhancement" in host["optional_missing"]
         assert host["checks"]["contract"]["ok"] is True
@@ -2149,6 +2929,12 @@ class TestWebAPI:
         assert resp.status_code == 200
         payload = resp.json()
         usage = payload["usage_profiles"]["codex-cli"]
+        assert payload["adaptation_contracts"]["codex-cli"]["supports_slash_entry"] is False
+        assert payload["selected_host_adaptation"]["supports_slash_entry"] is False
+        assert usage["host_id"] == "codex-cli"
+        assert usage["capability_labels"]["skills"] == "official"
+        assert usage["official_docs_url"].startswith("https://")
+        assert usage["official_docs_references"]
         assert usage["precondition_status"] == "session-restart-required"
         assert any(
             item["status"] == "session-restart-required" for item in usage["precondition_items"]
@@ -2230,6 +3016,21 @@ class TestWebAPI:
             payload["decision_card"]["candidates"][0]["path_override"]["env_key"]
             == expected_env_key
         )
+        assert payload["decision_card"]["candidates"][0]["adaptation_contract"]["score"] >= 0
+        assert payload["decision_card"]["candidates"][0]["experience_profile"]["tier"]
+        assert payload["decision_card"]["candidates"][0]["primary_entry"]
+        assert payload["decision_card"]["candidates"][0]["usage_mode"]
+        assert payload["selected_host_experience"]["tier"]
+        assert payload["selected_host_experience"]["start_playbook"]
+        assert payload["selected_host_post_onboard_self_check"]
+        assert payload["selected_host_start_playbook"]
+        assert payload["selected_host_standard_flow_first_prompt"]
+        assert payload["selected_host_competition_flow_first_prompt"]
+        assert payload["selected_host_resume_guidance"]
+        assert payload["selected_host_official_workflow_checks"]
+        assert payload["selected_host_repair_playbook"]
+        assert any("起手建议:" in item for item in payload["decision_card"]["lines"])
+        assert payload["experience_profiles"][payload["decision_card"]["selected_host"]]["tier"]
 
     def test_hosts_doctor_prefers_install_action_when_no_host_detected(
         self, temp_project_dir: Path, monkeypatch
@@ -2259,6 +3060,12 @@ class TestWebAPI:
             payload["primary_repair_action"]["secondary_actions"]
             == payload["decision_card"]["secondary_actions"]
         )
+        assert payload["decision_card"]["next_actions"][0] == payload["decision_card"][
+            "first_action"
+        ]
+        assert payload["decision_card"]["secondary_actions"] == payload["decision_card"][
+            "next_actions"
+        ][1:]
         assert payload["decision_card"]["path_override_examples"][0]["env_key"]
 
     def test_hosts_validate_exposes_human_detection_details(
@@ -2309,6 +3116,9 @@ class TestWebAPI:
             payload["decision_card"]["candidates"][0]["path_override"]["env_key"]
             == expected_env_key
         )
+        assert payload["decision_card"]["candidates"][0]["adaptation_contract"]["score"] >= 0
+        assert payload["decision_card"]["candidates"][0]["primary_entry"]
+        assert payload["decision_card"]["candidates"][0]["usage_mode"]
 
     def test_hosts_validate_trims_candidate_preview_for_multi_host_detection(
         self, temp_project_dir: Path, monkeypatch
@@ -2347,6 +3157,21 @@ class TestWebAPI:
         assert len(decision_card["candidates"]) == 3
         assert decision_card["remaining_candidate_count"] == 2
         assert decision_card["candidates"][0]["recommended"] is True
+        assert decision_card["candidates"][0]["injection_closure"]
+        assert decision_card["candidates"][0]["ready_for_standard_flow"] is False
+        assert decision_card["candidates"][0]["ready_for_competition_flow"] is False
+        assert decision_card["candidates"][0]["standard_flow_label"]
+        assert decision_card["candidates"][0]["competition_flow_label"]
+        assert decision_card["candidates"][0]["readiness_summary"]
+        assert decision_card["candidates"][0]["first_action"]
+        assert decision_card["candidates"][0]["start_playbook"]
+        assert decision_card["candidates"][0]["standard_flow_first_prompt"]
+        assert decision_card["candidates"][0]["competition_flow_first_prompt"]
+        assert decision_card["candidates"][0]["resume_guidance"]
+        assert decision_card["candidates"][0]["official_workflow_checks"]
+        assert decision_card["candidates"][0]["repair_playbook"]
+        assert any("候选准备度:" in item for item in decision_card["lines"])
+        assert decision_card["candidates"][0]["experience_profile"]["label"]
         assert decision_card["lines"]
 
     def test_hosts_doctor_trae_uses_compat_skill_and_skips_slash(
@@ -2436,6 +3261,9 @@ class TestWebAPI:
         payload = resp.json()
         codex_host = next(item for item in payload["host_tools"] if item["id"] == "codex-cli")
         assert codex_host["supports_slash"] is False
+        assert codex_host["adaptation_contract"]["supports_slash"] is False
+        assert codex_host["adaptation_contract"]["supports_slash_entry"] is False
+        assert codex_host["adaptation_contract"]["dimensions"]["entry_experience"]["status"] == "ready"
         assert codex_host["slash_command_file"] == ""
         assert codex_host["certification_level"] == "certified"
         assert codex_host["certification_label"] == "Certified"
@@ -2443,49 +3271,44 @@ class TestWebAPI:
         assert codex_host["host_protocol_mode"] == "official-skill"
         assert (
             codex_host["host_protocol_summary"]
-            == "官方 AGENTS.md + 官方 Skills + optional repo plugin enhancement"
+            == "官方 AGENTS.md + Skills + CLI $skill entry"
         )
-        assert "/` 列表选择 `super-dev`" in codex_host["primary_entry"]
-        assert any(item["entry"] == "/super-dev" for item in codex_host["entry_variants"])
+        assert "$super-dev" in codex_host["primary_entry"]
         assert any(item["entry"] == "$super-dev" for item in codex_host["entry_variants"])
+        assert any(item["entry"] == "super-dev: <需求描述>" for item in codex_host["entry_variants"])
         assert codex_host["usage_location"]
         assert codex_host["usage_notes"]
         assert codex_host["requires_restart_after_onboard"] is True
         assert any("重启 codex" in step for step in codex_host["post_onboard_steps"])
         assert codex_host["commands"]["slash"] == ""
-        assert codex_host["commands"]["skill_slash"] == "/super-dev"
+        assert codex_host["commands"]["skill_slash"] == ""
         assert codex_host["commands"]["skill"] == "$super-dev"
-        assert codex_host["supports_skill_slash_entry"] is True
-        assert codex_host["skill_slash_entry_command"] == "/super-dev"
+        assert codex_host["supports_skill_slash_entry"] is False
+        assert codex_host["skill_slash_entry_command"] == ""
         assert codex_host["flow_contract"]["consistent_flow_required"] is True
-        assert codex_host["flow_contract"]["preferred_entry_order"] == [
-            "app_desktop",
-            "cli",
-            "fallback",
-        ]
+        assert codex_host["flow_contract"]["preferred_entry_order"] == ["cli", "fallback"]
         assert "同一条 Super Dev 流程" in codex_host["flow_contract"]["summary"]
         assert codex_host["flow_probe"]["enabled"] is True
-        assert len(codex_host["flow_probe"]["steps"]) >= 4
+        assert len(codex_host["flow_probe"]["steps"]) >= 3
         assert ".agents/skills/super-dev/SKILL.md" in codex_host["official_project_surfaces"]
-        assert "~/.codex/AGENTS.md" in codex_host["official_user_surfaces"]
         assert "~/.agents/skills/super-dev/SKILL.md" in codex_host["official_user_surfaces"]
+        assert "~/.codex/AGENTS.md" in codex_host["optional_user_surfaces"]
+        assert codex_host["default_install_scope"] == "project-first"
+        assert codex_host["user_surface_opt_in_available"] is True
+        assert codex_host["user_surface_opt_in_flag"] == "--with-user-surfaces"
         assert ".agents/plugins/marketplace.json" in codex_host["optional_project_surfaces"]
         assert (
             "plugins/super-dev-codex/.codex-plugin/plugin.json"
             in codex_host["optional_project_surfaces"]
         )
-        assert (
-            "~/.agents/skills/super-dev/SKILL.md" in codex_host["observed_compatibility_surfaces"]
-        )
-        assert "~/.codex/skills/super-dev/SKILL.md" in codex_host["observed_compatibility_surfaces"]
         assert "~/.codex/skills/super-dev/SKILL.md" in codex_host["observed_compatibility_surfaces"]
         assert (
             codex_host["commands"]["trigger"]
-            == "App/Desktop: /super-dev | CLI: $super-dev | 回退: super-dev: 你的需求"
+            == "CLI: $super-dev | 回退: super-dev: 你的需求"
         )
         assert (
             codex_host["final_trigger"]
-            == "App/Desktop: /super-dev | CLI: $super-dev | 回退: super-dev: 你的需求"
+            == "CLI: $super-dev | 回退: super-dev: 你的需求"
         )
         assert "SMOKE_OK" in codex_host["smoke_test_prompt"]
 
@@ -2499,13 +3322,16 @@ class TestWebAPI:
         assert claude_host["host_protocol_mode"] == "official-skill"
         assert (
             claude_host["host_protocol_summary"]
-            == "官方 CLAUDE.md + Skills + optional repo plugin enhancement"
+            == "官方 CLAUDE.md + settings + project/user skills + subagents"
         )
         assert "CLAUDE.md" in claude_host["official_project_surfaces"]
+        assert ".claude/CLAUDE.md" in claude_host["official_project_surfaces"]
         assert ".claude/skills/super-dev/SKILL.md" in claude_host["official_project_surfaces"]
-        assert "~/.claude/CLAUDE.md" in claude_host["official_user_surfaces"]
+        assert ".claude/agents/super-dev.md" in claude_host["official_project_surfaces"]
         assert "~/.claude/skills/super-dev/SKILL.md" in claude_host["official_user_surfaces"]
-        assert ".claude/CLAUDE.md" in claude_host["optional_project_surfaces"]
+        assert "~/.claude/agents/super-dev.md" in claude_host["official_user_surfaces"]
+        assert ".claude/settings.json" in claude_host["optional_project_surfaces"]
+        assert "~/.claude/settings.json" in claude_host["optional_user_surfaces"]
         assert ".claude/commands/super-dev.md" in claude_host["optional_project_surfaces"]
         assert ".claude-plugin/marketplace.json" in claude_host["optional_project_surfaces"]
         assert (
@@ -2514,7 +3340,7 @@ class TestWebAPI:
         )
         assert "~/.claude/commands/super-dev.md" in claude_host["optional_user_surfaces"]
         assert claude_host["observed_compatibility_surfaces"] == []
-        assert claude_host["commands"]["skill"] == "super-dev"
+        assert claude_host["commands"]["skill"] == ""
 
     def test_qoder_host_catalog_is_native_slash(self):
         client = _make_client()
@@ -2526,21 +3352,23 @@ class TestWebAPI:
         assert qoder_host["host_protocol_mode"] == "official-skill"
         assert qoder_host["slash_command_file"] == ".qoder/commands/super-dev.md"
         assert qoder_host["usage_mode"] == "native-slash"
-        assert qoder_host["commands"]["slash"] == '/super-dev "你的需求"'
-        assert qoder_host["commands"]["trigger"] == '/super-dev "你的需求"'
-        assert qoder_host["final_trigger"] == '/super-dev "你的需求"'
+        assert qoder_host["commands"]["slash"] == "/super-dev 你的需求"
+        assert qoder_host["commands"]["trigger"] == "/super-dev 你的需求"
+        assert qoder_host["final_trigger"] == "/super-dev 你的需求"
         assert "AGENTS.md" in qoder_host["integration_files"]
-        assert "AGENTS.md" in qoder_host["official_project_surfaces"]
         assert ".qoder/rules/super-dev.md" in qoder_host["integration_files"]
+        assert ".qoder/agents/super-dev.md" in qoder_host["integration_files"]
         assert ".qoder/commands/super-dev.md" in qoder_host["official_project_surfaces"]
         assert ".qoder/rules/super-dev.md" in qoder_host["official_project_surfaces"]
-        assert "~/.qoder/AGENTS.md" in qoder_host["official_user_surfaces"]
-        assert "~/.qoder/commands/super-dev.md" in qoder_host["official_user_surfaces"]
         assert ".qoder/skills/super-dev/SKILL.md" in qoder_host["official_project_surfaces"]
+        assert ".qoder/agents/super-dev.md" in qoder_host["optional_project_surfaces"]
+        assert "~/.qoder/commands/super-dev.md" in qoder_host["official_user_surfaces"]
         assert "~/.qoder/skills/super-dev/SKILL.md" in qoder_host["official_user_surfaces"]
+        assert "~/.qoder/AGENTS.md" in qoder_host["official_user_surfaces"]
+        assert "~/.qoder/agents/super-dev.md" in qoder_host["optional_user_surfaces"]
         assert qoder_host["observed_compatibility_surfaces"] == []
 
-    def test_codebuddy_and_openclaw_catalogs_expose_competition_mode(self):
+    def test_codebuddy_and_droid_cli_catalogs_expose_competition_mode(self):
         client = _make_client()
         resp = client.get("/api/catalogs")
         assert resp.status_code == 200
@@ -2548,7 +3376,7 @@ class TestWebAPI:
 
         codebuddy_host = next(item for item in payload["host_tools"] if item["id"] == "codebuddy")
         assert codebuddy_host["competition_mode"]["enabled"] is True
-        assert codebuddy_host["competition_mode"]["trigger"] == '/super-dev-seeai "比赛需求"'
+        assert codebuddy_host["competition_mode"]["trigger"] == "/super-dev-seeai 比赛需求"
         assert codebuddy_host["competition_mode"]["agent_team"][0] == "rapid_researcher"
         assert codebuddy_host["competition_mode"]["research_priorities"][0].startswith(
             "先判断题型和复杂度"
@@ -2630,32 +3458,53 @@ class TestWebAPI:
             == "12 分钟内首个可见界面"
         )
 
-        openclaw_host = next(item for item in payload["host_tools"] if item["id"] == "openclaw")
-        assert ".openclaw/commands/super-dev-seeai.md" in openclaw_host["official_project_surfaces"]
-        assert (
-            "~/.openclaw/skills/super-dev-seeai/SKILL.md" in openclaw_host["official_user_surfaces"]
-        )
-        assert openclaw_host["competition_mode"]["enabled"] is True
-        assert openclaw_host["competition_mode"]["trigger"] == '/super-dev-seeai "比赛需求"'
+        droid_host = next(item for item in payload["host_tools"] if item["id"] == "droid-cli")
+        assert ".factory/commands/super-dev-seeai.md" in droid_host["official_project_surfaces"]
+        assert "~/.factory/commands/super-dev-seeai.md" in droid_host["optional_user_surfaces"]
+        assert droid_host["adaptation_contract"]["level"] == "elite"
+        assert droid_host["adaptation_contract"]["dimensions"]["competition"]["status"] == "ready"
+        assert droid_host["competition_mode"]["enabled"] is True
+        assert droid_host["competition_mode"]["trigger"] == "/super-dev-seeai 比赛需求"
+        assert any("droid exec --session-id" in tip for tip in droid_host["competition_mode"]["host_tips"])
+        assert "SEEAI_SMOKE_OK" in droid_host["competition_smoke_test_prompt"]
         assert any(
-            "super-dev-seeai:" in tip for tip in openclaw_host["competition_mode"]["host_tips"]
+            "/super-dev-seeai" in item for item in droid_host["competition_smoke_test_steps"]
         )
-        assert "SEEAI_SMOKE_OK" in openclaw_host["competition_smoke_test_prompt"]
-        assert any(
-            "super-dev-seeai:" in item for item in openclaw_host["competition_smoke_test_steps"]
-        )
-        assert any("作品类型" in item for item in openclaw_host["competition_smoke_test_steps"])
+        assert any("作品类型" in item for item in droid_host["competition_smoke_test_steps"])
         assert any(
             "12 分钟内先跑出首个可见界面" in item
-            for item in openclaw_host["competition_smoke_test_steps"]
+            for item in droid_host["competition_smoke_test_steps"]
+        )
+
+        qoder_host = next(item for item in payload["host_tools"] if item["id"] == "qoder")
+        assert (
+            ".qoder/skills/super-dev-seeai/SKILL.md"
+            in qoder_host["managed_competition_project_surfaces"]
+        )
+        assert qoder_host["standard_flow_first_prompt"]
+        assert qoder_host["competition_flow_first_prompt"]
+        assert qoder_host["post_onboard_self_check"]
+        assert qoder_host["host_start_playbook"]
+        assert qoder_host["host_repair_playbook"]
+        assert any("SEEAI 项目补充面" in item for item in qoder_host["official_workflow_checks"])
+
+        trae_solo_host = next(item for item in payload["host_tools"] if item["id"] == "trae-solo")
+        assert (
+            ".trae/skills/super-dev-seeai/SKILL.md"
+            in trae_solo_host["managed_competition_project_surfaces"]
         )
 
         workbuddy_host = next(item for item in payload["host_tools"] if item["id"] == "workbuddy")
         assert workbuddy_host["install_mode"] == "hybrid"
         assert workbuddy_host["competition_mode"]["enabled"] is True
         assert workbuddy_host["competition_mode"]["trigger"] == "super-dev-seeai: 比赛需求"
-        assert workbuddy_host["host_protocol_mode"] == "skills"
+        assert workbuddy_host["host_protocol_mode"] == "manual-task-workbench-mcp"
         assert "Skills" in workbuddy_host["host_protocol_summary"]
+        assert (
+            "~/.workbuddy/skills/super-dev-seeai/SKILL.md"
+            in workbuddy_host["managed_competition_user_surfaces"]
+        )
+        assert any("MCP" in item for item in workbuddy_host["official_workflow_checks"])
         assert any(
             "super-dev-seeai:" in item for item in workbuddy_host["competition_smoke_test_steps"]
         )
@@ -2672,8 +3521,9 @@ class TestWebAPI:
         payload = resp.json()
         host = next(item for item in payload["host_tools"] if item["id"] == "cursor")
         assert host["host_protocol_mode"] == "official-context"
-        assert host["host_protocol_summary"] == "官方 commands + rules + AGENTS.md compatibility"
-        assert "AGENTS.md" in host["observed_compatibility_surfaces"]
+        assert host["host_protocol_summary"] == "官方 Agent Chat + AGENTS.md + rules (+ beta commands)"
+        assert "AGENTS.md" in host["official_project_surfaces"]
+        assert "CLAUDE.md" in host["optional_project_surfaces"]
 
     def test_gemini_host_catalog_exposes_global_command_surface(self):
         client = _make_client()
@@ -2682,8 +3532,56 @@ class TestWebAPI:
         payload = resp.json()
         host = next(item for item in payload["host_tools"] if item["id"] == "gemini-cli")
         assert host["host_protocol_mode"] == "official-context"
-        assert host["host_protocol_summary"] == "官方 commands + GEMINI.md"
-        assert "~/.gemini/commands/super-dev.md" in host["official_user_surfaces"]
+        assert host["host_protocol_summary"] == "官方 GEMINI.md + settings + custom commands"
+        assert ".gemini/settings.json" in host["optional_project_surfaces"]
+        assert "~/.gemini/commands/super-dev.toml" in host["optional_user_surfaces"]
+        assert "~/.gemini/settings.json" in host["optional_user_surfaces"]
+
+    def test_kimi_code_host_catalog_exposes_skill_and_resume_surfaces(self):
+        client = _make_client()
+        resp = client.get("/api/catalogs")
+        assert resp.status_code == 200
+        payload = resp.json()
+        host = next(item for item in payload["host_tools"] if item["id"] == "kimi-code")
+        assert host["supports_slash"] is False
+        assert host["supports_skill_slash_entry"] is True
+        assert host["skill_slash_entry_command"] == "/skill:super-dev"
+        assert host["host_protocol_mode"] == "official-agents-entry"
+        assert ".kimi/AGENTS.md" in host["integration_files"]
+        assert "~/.kimi/skills/super-dev/SKILL.md" in host["optional_user_surfaces"]
+        assert "/skill:super-dev <需求描述>" in host["primary_entry"]
+        assert any(
+            variant["entry"] == "/flow:super-dev <需求描述>" for variant in host["entry_variants"]
+        )
+
+    def test_copilot_cli_host_catalog_exposes_agents_as_official_surface(self):
+        client = _make_client()
+        resp = client.get("/api/catalogs")
+        assert resp.status_code == 200
+        payload = resp.json()
+        host = next(item for item in payload["host_tools"] if item["id"] == "copilot-cli")
+        assert host["host_protocol_mode"] == "official-context"
+        assert host["host_protocol_summary"] == "官方 copilot-instructions + AGENTS.md + skills + agents"
+        assert "AGENTS.md" in host["official_project_surfaces"]
+        assert ".github/copilot-instructions.md" in host["official_project_surfaces"]
+        assert ".github/agents/super-dev.md" in host["official_project_surfaces"]
+        assert "~/.copilot/copilot-instructions.md" in host["official_user_surfaces"]
+        assert "~/.copilot/agents/super-dev.md" in host["official_user_surfaces"]
+        assert "AGENTS.md" not in host["observed_compatibility_surfaces"]
+
+    def test_qwen_code_host_catalog_exposes_user_level_qwen_context_surface(self):
+        client = _make_client()
+        resp = client.get("/api/catalogs")
+        assert resp.status_code == 200
+        payload = resp.json()
+        host = next(item for item in payload["host_tools"] if item["id"] == "qwen-code")
+        assert host["host_protocol_mode"] == "official-context"
+        assert host["host_protocol_summary"] == "官方 QWEN.md + settings + commands + skills + agents + /resume"
+        assert "QWEN.md" in host["official_project_surfaces"]
+        assert ".qwen/agents/super-dev.md" in host["official_project_surfaces"]
+        assert "~/.qwen/QWEN.md" in host["official_user_surfaces"]
+        assert "~/.qwen/commands/super-dev.md" in host["official_user_surfaces"]
+        assert "~/.qwen/agents/super-dev.md" in host["official_user_surfaces"]
 
     def test_antigravity_host_catalog_uses_gemini_and_workflow_surfaces(self):
         client = _make_client()
@@ -2693,14 +3591,19 @@ class TestWebAPI:
         host = next(item for item in payload["host_tools"] if item["id"] == "antigravity")
         assert host["supports_slash"] is True
         assert host["usage_mode"] == "native-slash"
-        assert host["host_protocol_mode"] == "official-workflow"
-        assert host["host_protocol_summary"] == "官方 commands + workflows + skills"
+        assert host["host_protocol_mode"] == "recommended-gemini-workflow"
+        assert (
+            host["host_protocol_summary"]
+            == "当前推荐接入模型: GEMINI.md + custom commands + optional workflows"
+        )
         assert "GEMINI.md" in host["official_project_surfaces"]
-        assert ".agent/workflows/super-dev.md" in host["official_project_surfaces"]
-        assert "~/.gemini/GEMINI.md" in host["official_user_surfaces"]
-        assert "~/.gemini/skills/super-dev/SKILL.md" in host["official_user_surfaces"]
-        assert host["commands"]["trigger"] == '/super-dev "你的需求"'
-        assert host["final_trigger"] == '/super-dev "你的需求"'
+        assert ".agent/workflows/super-dev.md" in host["optional_project_surfaces"]
+        assert "~/.gemini/skills/super-dev/SKILL.md" in host["observed_compatibility_surfaces"]
+        assert "~/.gemini/GEMINI.md" in host["optional_user_surfaces"]
+        assert host["commands"]["trigger"] == "/super-dev 你的需求"
+        assert host["final_trigger"] == "/super-dev 你的需求"
+        assert host["standard_flow_first_prompt"] == "/super-dev 你的需求"
+        assert host["competition_flow_first_prompt"] == "/super-dev-seeai 比赛需求"
         assert host["requires_restart_after_onboard"] is True
 
     def test_kiro_host_catalog_uses_global_steering_surface(self):
@@ -2712,28 +3615,30 @@ class TestWebAPI:
         assert kiro_host["supports_slash"] is True
         assert kiro_host["usage_mode"] == "native-slash"
         assert kiro_host["host_protocol_mode"] == "official-steering"
-        assert kiro_host["host_protocol_summary"] == "官方 steering + slash entry + skills"
+        assert kiro_host["host_protocol_summary"] == "官方 AGENTS.md + steering + skills + agent continuity"
         assert kiro_host["slash_command_file"] == ".kiro/steering/super-dev.md"
-        assert kiro_host["commands"]["trigger"] == '/super-dev "你的需求"'
-        assert kiro_host["final_trigger"] == '/super-dev "你的需求"'
+        assert kiro_host["commands"]["trigger"] == "/super-dev 你的需求"
+        assert kiro_host["final_trigger"] == "/super-dev 你的需求"
+        assert "AGENTS.md" in kiro_host["official_project_surfaces"]
         assert ".kiro/steering/super-dev.md" in kiro_host["official_project_surfaces"]
         assert ".kiro/skills/super-dev/SKILL.md" in kiro_host["official_project_surfaces"]
-        assert "~/.kiro/steering/super-dev.md" in kiro_host["official_user_surfaces"]
         assert "~/.kiro/skills/super-dev/SKILL.md" in kiro_host["official_user_surfaces"]
-        assert "~/.kiro/steering/AGENTS.md" in kiro_host["observed_compatibility_surfaces"]
+        assert "~/.kiro/steering/super-dev.md" in kiro_host["optional_user_surfaces"]
+        assert "~/.kiro/steering/AGENTS.md" in kiro_host["optional_user_surfaces"]
 
     @pytest.mark.parametrize(
         ("host_id", "slash_file"),
         [
-            ("antigravity", ".gemini/commands/super-dev.md"),
+            ("antigravity", ".gemini/commands/super-dev.toml"),
             ("codebuddy", ".codebuddy/commands/super-dev.md"),
             ("cursor", ".cursor/commands/super-dev.md"),
             ("kiro", ".kiro/steering/super-dev.md"),
             ("kiro-cli", ".kiro/steering/super-dev.md"),
             ("windsurf", ".windsurf/workflows/super-dev.md"),
-            ("gemini-cli", ".gemini/commands/super-dev.md"),
+            ("gemini-cli", ".gemini/commands/super-dev.toml"),
             ("opencode", ".opencode/commands/super-dev.md"),
             ("qoder", ".qoder/commands/super-dev.md"),
+            ("trae-solo", ".trae/commands/super-dev.md"),
         ],
     )
     def test_verified_slash_hosts_catalog_keeps_native_entry(self, host_id: str, slash_file: str):
@@ -2743,15 +3648,18 @@ class TestWebAPI:
         payload = resp.json()
         host = next(item for item in payload["host_tools"] if item["id"] == host_id)
         assert host["supports_slash"] is True
-        assert host["usage_mode"] == "native-slash"
+        if host_id == "trae-solo":
+            assert host["usage_mode"] == "workspace-rules-slash-skill"
+        else:
+            assert host["usage_mode"] == "native-slash"
         assert host["slash_command_file"] == slash_file
         if host_id == "gemini-cli":
             assert host["host_protocol_mode"] == "official-context"
-            assert host["host_protocol_summary"] == "官方 commands + GEMINI.md"
+            assert host["host_protocol_summary"] == "官方 GEMINI.md + settings + custom commands"
             assert "GEMINI.md" in host["official_project_surfaces"]
-            assert "~/.gemini/GEMINI.md" in host["official_user_surfaces"]
-        assert host["commands"]["trigger"] == '/super-dev "你的需求"'
-        assert host["final_trigger"] == '/super-dev "你的需求"'
+            assert "~/.gemini/GEMINI.md" in host["optional_user_surfaces"]
+        assert host["commands"]["trigger"] == "/super-dev 你的需求"
+        assert host["final_trigger"] == "/super-dev 你的需求"
 
     def test_kiro_cli_catalog_uses_slash_trigger_with_steering_and_skills(self):
         client = _make_client()
@@ -2762,12 +3670,14 @@ class TestWebAPI:
         assert host["supports_slash"] is True
         assert host["usage_mode"] == "native-slash"
         assert host["host_protocol_mode"] == "official-steering"
-        assert host["host_protocol_summary"] == "官方 steering + slash entry + skills"
+        assert host["host_protocol_summary"] == "官方 AGENTS.md + steering + skills + native resume"
         assert host["slash_command_file"] == ".kiro/steering/super-dev.md"
-        assert host["final_trigger"] == '/super-dev "你的需求"'
+        assert host["final_trigger"] == "/super-dev 你的需求"
+        assert "AGENTS.md" in host["official_project_surfaces"]
         assert ".kiro/steering/super-dev.md" in host["official_project_surfaces"]
         assert ".kiro/skills/super-dev/SKILL.md" in host["official_project_surfaces"]
-        assert "~/.kiro/steering/super-dev.md" in host["official_user_surfaces"]
+        assert "~/.kiro/steering/super-dev.md" in host["optional_user_surfaces"]
+        assert "~/.kiro/steering/AGENTS.md" in host["optional_user_surfaces"]
         assert "~/.kiro/skills/super-dev/SKILL.md" in host["official_user_surfaces"]
 
     def test_hosts_doctor_endpoint_ready_after_files_present(
@@ -2834,237 +3744,6 @@ class TestWebAPI:
             for item in invalid_surfaces.values()
         )
 
-    def test_deploy_precheck_github(self, temp_project_dir: Path, monkeypatch):
-        client = _make_client()
-        monkeypatch.setenv("DOCKER_USERNAME", "demo-user")
-        (temp_project_dir / "Dockerfile").write_text("FROM node:18", encoding="utf-8")
-
-        resp = client.get(
-            "/api/deploy/precheck",
-            params={
-                "project_dir": str(temp_project_dir),
-                "cicd_platform": "github",
-                "include_runtime": True,
-            },
-        )
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert payload["status"] == "success"
-        assert payload["cicd_platform"] == "github"
-        assert payload["target_count"] >= 10
-        assert "Dockerfile" in payload["existing_files"]
-        checks = {item["name"]: item for item in payload["env_checks"]}
-        assert checks["DOCKER_USERNAME"]["present"] is True
-        assert checks["DOCKER_PASSWORD"]["present"] is False
-        assert "DOCKER_PASSWORD" in payload["missing_env"]
-
-    def test_deploy_precheck_invalid_platform(self, temp_project_dir: Path):
-        client = _make_client()
-        resp = client.get(
-            "/api/deploy/precheck",
-            params={"project_dir": str(temp_project_dir), "cicd_platform": "invalid"},
-        )
-        assert resp.status_code == 400
-
-    def test_deploy_remediation_only_missing(self, monkeypatch):
-        client = _make_client()
-        monkeypatch.setenv("DOCKER_USERNAME", "demo-user")
-
-        resp = client.get(
-            "/api/deploy/remediation",
-            params={"cicd_platform": "github", "only_missing": True},
-        )
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert payload["status"] == "success"
-        assert payload["cicd_platform"] == "github"
-
-        item_names = {item["name"] for item in payload["items"]}
-        assert "DOCKER_PASSWORD" in item_names
-        assert "DOCKER_USERNAME" not in item_names
-        assert len(payload["platform_guidance"]) >= 1
-
-    def test_deploy_remediation_include_present(self, monkeypatch):
-        client = _make_client()
-        monkeypatch.setenv("DOCKER_USERNAME", "demo-user")
-
-        resp = client.get(
-            "/api/deploy/remediation",
-            params={"cicd_platform": "github", "only_missing": False},
-        )
-        assert resp.status_code == 200
-        payload = resp.json()
-        item_map = {item["name"]: item for item in payload["items"]}
-        assert "DOCKER_USERNAME" in item_map
-        assert item_map["DOCKER_USERNAME"]["present"] is True
-
-    def test_deploy_remediation_invalid_platform(self):
-        client = _make_client()
-        resp = client.get(
-            "/api/deploy/remediation",
-            params={"cicd_platform": "invalid"},
-        )
-        assert resp.status_code == 400
-
-    def test_deploy_remediation_export(self, temp_project_dir: Path, monkeypatch):
-        client = _make_client()
-        monkeypatch.setenv("DOCKER_USERNAME", "demo-user")
-
-        resp = client.post(
-            "/api/deploy/remediation/export",
-            params={"project_dir": str(temp_project_dir)},
-            json={
-                "cicd_platform": "github",
-                "only_missing": True,
-            },
-        )
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert payload["status"] == "success"
-        assert payload["cicd_platform"] == "github"
-        assert payload["split_by_platform"] is True
-        assert isinstance(payload["generated_files"], list)
-        generated_names = {Path(p).name for p in payload["generated_files"]}
-        assert ".env.deploy.example" in generated_names
-
-        env_path = Path(payload["env_file"]["path"])
-        checklist_path = Path(payload["checklist_file"]["path"])
-        assert env_path.exists()
-        assert checklist_path.exists()
-
-        env_content = env_path.read_text(encoding="utf-8")
-        assert "DOCKER_PASSWORD" in env_content
-        assert "DOCKER_USERNAME" not in env_content
-
-        checklist_content = checklist_path.read_text(encoding="utf-8")
-        assert "Deploy Remediation Checklist" in checklist_content
-        assert "Platform Guidance" in checklist_content
-
-    def test_deploy_remediation_export_all_with_split(self, temp_project_dir: Path):
-        client = _make_client()
-        resp = client.post(
-            "/api/deploy/remediation/export",
-            params={"project_dir": str(temp_project_dir)},
-            json={
-                "cicd_platform": "all",
-                "only_missing": True,
-                "split_by_platform": True,
-            },
-        )
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert payload["status"] == "success"
-        assert payload["cicd_platform"] == "all"
-        assert payload["split_by_platform"] is True
-        assert len(payload["per_platform_files"]) == 5
-
-        per_platform = {item["platform"] for item in payload["per_platform_files"]}
-        assert per_platform == {"github", "gitlab", "jenkins", "azure", "bitbucket"}
-        for item in payload["per_platform_files"]:
-            assert Path(item["env_file"]["path"]).exists()
-            assert Path(item["checklist_file"]["path"]).exists()
-
-    def test_deploy_remediation_export_invalid_file_name(self, temp_project_dir: Path):
-        client = _make_client()
-        resp = client.post(
-            "/api/deploy/remediation/export",
-            params={"project_dir": str(temp_project_dir)},
-            json={
-                "cicd_platform": "github",
-                "env_file_name": "bad/name.env",
-            },
-        )
-        assert resp.status_code == 400
-
-    def test_deploy_remediation_archive_download(self, temp_project_dir: Path):
-        client = _make_client()
-        resp = client.get(
-            "/api/deploy/remediation/archive",
-            params={
-                "project_dir": str(temp_project_dir),
-                "cicd_platform": "all",
-                "only_missing": True,
-                "split_by_platform": True,
-            },
-        )
-        assert resp.status_code == 200
-        assert resp.headers.get("content-type", "").startswith("application/zip")
-        disposition = resp.headers.get("content-disposition", "")
-        assert "deploy-remediation-all.zip" in disposition
-        assert len(resp.content) > 0
-
-    def test_deploy_generate_all_platforms(self, temp_project_dir: Path):
-        client = _make_client()
-        resp = client.post(
-            "/api/deploy/generate",
-            params={"project_dir": str(temp_project_dir)},
-            json={
-                "cicd_platform": "all",
-                "include_runtime": True,
-                "overwrite": True,
-                "name": "demo-app",
-            },
-        )
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert payload["status"] == "success"
-        assert payload["generated_count"] >= 6
-        assert ".github/workflows/ci.yml" in payload["generated_files"]
-        assert ".gitlab-ci.yml" in payload["generated_files"]
-        assert "Jenkinsfile" in payload["generated_files"]
-        assert ".azure-pipelines.yml" in payload["generated_files"]
-        assert "bitbucket-pipelines.yml" in payload["generated_files"]
-        assert "Dockerfile" in payload["generated_files"]
-        assert "k8s/deployment.yaml" in payload["generated_files"]
-
-    def test_deploy_generate_cicd_only(self, temp_project_dir: Path):
-        client = _make_client()
-        resp = client.post(
-            "/api/deploy/generate",
-            params={"project_dir": str(temp_project_dir)},
-            json={
-                "cicd_platform": "github",
-                "include_runtime": False,
-                "overwrite": True,
-                "name": "demo-app",
-            },
-        )
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert "Dockerfile" not in payload["generated_files"]
-        assert "k8s/deployment.yaml" not in payload["generated_files"]
-        assert ".github/workflows/ci.yml" in payload["generated_files"]
-        assert ".github/workflows/cd.yml" in payload["generated_files"]
-
-    def test_deploy_generate_invalid_platform(self, temp_project_dir: Path):
-        client = _make_client()
-        resp = client.post(
-            "/api/deploy/generate",
-            params={"project_dir": str(temp_project_dir)},
-            json={"cicd_platform": "invalid-platform"},
-        )
-        assert resp.status_code == 400
-
-    def test_deploy_generate_without_overwrite(self, temp_project_dir: Path):
-        client = _make_client()
-        existing = temp_project_dir / ".gitlab-ci.yml"
-        existing.write_text("old-content", encoding="utf-8")
-
-        resp = client.post(
-            "/api/deploy/generate",
-            params={"project_dir": str(temp_project_dir)},
-            json={
-                "cicd_platform": "gitlab",
-                "include_runtime": False,
-                "overwrite": False,
-            },
-        )
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert ".gitlab-ci.yml" in payload["skipped_files"]
-        assert payload["skipped_count"] == 1
-        assert existing.read_text(encoding="utf-8") == "old-content"
-
     def test_release_readiness_endpoint(self, temp_project_dir: Path):
         _prepare_release_ready_project(temp_project_dir)
         client = _make_client()
@@ -3077,9 +3756,12 @@ class TestWebAPI:
         payload = resp.json()
         assert payload["passed"] is True
         assert payload["score"] >= 90
-        assert Path(payload["report_file"]).exists()
-        assert Path(payload["json_file"]).exists()
+        assert payload["persisted"] is False
+        assert payload["report_file"] == ""
+        assert payload["json_file"] == ""
         assert any(check["name"] == "Spec Quality" for check in payload["checks"])
+        assert payload["frontend_governance_summary"]["state"] in {"ready", "unknown"}
+        assert payload["compliance_governance_summary"]["state"] in {"ready", "unknown"}
 
     def test_release_proof_pack_endpoint(self, temp_project_dir: Path):
         _prepare_proof_pack_project(temp_project_dir)
@@ -3093,9 +3775,10 @@ class TestWebAPI:
         payload = resp.json()
         assert payload["status"] == "ready"
         assert payload["ready_count"] == payload["total_count"]
-        assert Path(payload["report_file"]).exists()
-        assert Path(payload["json_file"]).exists()
-        assert Path(payload["summary_file"]).exists()
+        assert payload["persisted"] is False
+        assert payload["report_file"] == ""
+        assert payload["json_file"] == ""
+        assert payload["summary_file"] == ""
         assert payload["summary"]["blocking_count"] == 0
         assert any(artifact["name"] == "Spec Quality" for artifact in payload["artifacts"])
         assert any(artifact["name"] == "Repo Map" for artifact in payload["artifacts"])
@@ -3110,117 +3793,33 @@ class TestWebAPI:
             artifact["name"] == "UI Contract Alignment" and artifact["status"] == "ready"
             for artifact in payload["artifacts"]
         )
+        assert payload["frontend_governance_summary"]["state"] in {"ready", "unknown"}
+        assert payload["compliance_governance_summary"]["state"] in {"ready", "unknown"}
 
-    def test_repo_map_endpoint(self, temp_project_dir: Path):
-        (temp_project_dir / "pyproject.toml").write_text(
-            "[project]\nname='demo'\n", encoding="utf-8"
-        )
-        (temp_project_dir / "main.py").write_text("print('hello')\n", encoding="utf-8")
-        (temp_project_dir / "services").mkdir(parents=True, exist_ok=True)
-        (temp_project_dir / "services" / "billing.py").write_text(
-            "class BillingService:\n    pass\n", encoding="utf-8"
-        )
-
+    def test_release_endpoints_persist_only_when_requested(self, temp_project_dir: Path):
+        _prepare_proof_pack_project(temp_project_dir)
         client = _make_client()
-        resp = client.get(
-            "/api/analyze/repo-map",
-            params={"project_dir": str(temp_project_dir)},
-        )
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert payload["project_name"] == temp_project_dir.name
-        assert Path(payload["report_file"]).exists()
-        assert Path(payload["json_file"]).exists()
-        assert any(item["path"] == "main.py" for item in payload["entry_points"])
 
-    def test_impact_analysis_endpoint(self, temp_project_dir: Path):
-        (temp_project_dir / "pyproject.toml").write_text(
-            "[project]\nname='demo'\n", encoding="utf-8"
+        readiness_resp = client.get(
+            "/api/release/readiness",
+            params={"project_dir": str(temp_project_dir), "persist": True},
         )
-        (temp_project_dir / "main.py").write_text("print('hello')\n", encoding="utf-8")
-        (temp_project_dir / "services").mkdir(parents=True, exist_ok=True)
-        (temp_project_dir / "services" / "auth.py").write_text(
-            "class AuthService:\n    pass\n", encoding="utf-8"
-        )
+        assert readiness_resp.status_code == 200
+        readiness_payload = readiness_resp.json()
+        assert readiness_payload["persisted"] is True
+        assert Path(readiness_payload["report_file"]).exists()
+        assert Path(readiness_payload["json_file"]).exists()
 
-        client = _make_client()
-        resp = client.get(
-            "/api/analyze/impact",
-            params={
-                "project_dir": str(temp_project_dir),
-                "description": "修改登录流程",
-                "files": ["services/auth.py"],
-            },
+        proof_resp = client.get(
+            "/api/release/proof-pack",
+            params={"project_dir": str(temp_project_dir), "persist": True},
         )
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert payload["project_name"] == temp_project_dir.name
-        assert payload["risk_level"] in {"medium", "high"}
-        assert Path(payload["report_file"]).exists()
-        assert Path(payload["json_file"]).exists()
-        assert payload["affected_modules"]
-
-    def test_regression_guard_endpoint(self, temp_project_dir: Path):
-        (temp_project_dir / "pyproject.toml").write_text(
-            "[project]\nname='demo'\n", encoding="utf-8"
-        )
-        (temp_project_dir / "services").mkdir(parents=True, exist_ok=True)
-        (temp_project_dir / "services" / "auth.py").write_text(
-            "class AuthService:\n    pass\n", encoding="utf-8"
-        )
-
-        client = _make_client()
-        resp = client.get(
-            "/api/analyze/regression-guard",
-            params={
-                "project_dir": str(temp_project_dir),
-                "description": "修改登录流程",
-                "files": ["services/auth.py"],
-            },
-        )
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert payload["project_name"] == temp_project_dir.name
-        assert payload["risk_level"] in {"medium", "high"}
-        assert Path(payload["report_file"]).exists()
-        assert Path(payload["json_file"]).exists()
-        assert (
-            payload["high_priority_checks"]
-            or payload["medium_priority_checks"]
-            or payload["supporting_checks"]
-        )
-
-    def test_dependency_graph_endpoint(self, temp_project_dir: Path):
-        (temp_project_dir / "pyproject.toml").write_text(
-            "[project]\nname='demo'\n", encoding="utf-8"
-        )
-        (temp_project_dir / "main.py").write_text(
-            "from services.auth import login\n", encoding="utf-8"
-        )
-        (temp_project_dir / "services").mkdir(parents=True, exist_ok=True)
-        (temp_project_dir / "services" / "__init__.py").write_text("", encoding="utf-8")
-        (temp_project_dir / "services" / "auth.py").write_text(
-            "from api.routes import login_route\n\ndef login():\n    return login_route()\n",
-            encoding="utf-8",
-        )
-        (temp_project_dir / "api").mkdir(parents=True, exist_ok=True)
-        (temp_project_dir / "api" / "__init__.py").write_text("", encoding="utf-8")
-        (temp_project_dir / "api" / "routes.py").write_text(
-            "def login_route():\n    return True\n", encoding="utf-8"
-        )
-
-        client = _make_client()
-        resp = client.get(
-            "/api/analyze/dependency-graph",
-            params={"project_dir": str(temp_project_dir)},
-        )
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert payload["project_name"] == temp_project_dir.name
-        assert Path(payload["report_file"]).exists()
-        assert Path(payload["json_file"]).exists()
-        assert payload["node_count"] >= 3
-        assert payload["edge_count"] >= 1
+        assert proof_resp.status_code == 200
+        proof_payload = proof_resp.json()
+        assert proof_payload["persisted"] is True
+        assert Path(proof_payload["report_file"]).exists()
+        assert Path(proof_payload["json_file"]).exists()
+        assert Path(proof_payload["summary_file"]).exists()
 
     def test_hosts_validate_endpoint(self, temp_project_dir: Path):
         client = _make_client()
@@ -3234,6 +3833,7 @@ class TestWebAPI:
         assert payload["selected_targets"] == ["kiro-cli"]
         assert payload["report"]["hosts"][0]["host"] == "kiro-cli"
         assert payload["report"]["hosts"][0]["manual_runtime_status_label"] == "待真人验收"
+        assert payload["report"]["hosts"][0]["repo_probe"]["status"] == "pending"
         assert (
             payload["report"]["hosts"][0]["runtime_evidence"]["integration_status"]["status"]
             == "missing"
@@ -3245,6 +3845,7 @@ class TestWebAPI:
         assert payload["report"]["hosts"][0]["competition_evidence_ready"] is False
         assert "first_response" in payload["report"]["hosts"][0]["competition_evidence_missing"]
         assert payload["report"]["summary"]["total_hosts"] == 1
+        assert payload["report"]["summary"]["repo_probe_pending_count"] == 1
         assert payload["report"]["summary"]["blocking_count"] >= 1
         assert payload["report"]["blockers"][0]["host"] == "kiro-cli"
 
@@ -3285,7 +3886,6 @@ class TestWebAPI:
         assert any("$super-dev" in item for item in host["pass_criteria"])
         assert any("回退栈" in item for item in host["pass_criteria"])
         assert host["flow_probe"]["enabled"] is True
-        assert any("/` 列表选择 `super-dev`" in item for item in host["flow_probe"]["steps"])
         assert any("$super-dev" in item for item in host["flow_probe"]["steps"])
 
     def test_hosts_validate_opencode_uses_host_specific_runtime_checklist(
@@ -3337,7 +3937,13 @@ class TestWebAPI:
             params={"project_dir": str(temp_project_dir), "host": "codebuddy"},
         )
         assert resp.status_code == 200
-        host = resp.json()["report"]["hosts"][0]
+        payload = resp.json()
+        assert payload["adaptation_contracts"]["codebuddy"]["score"] >= 75
+        assert payload["selected_host_adaptation"]["score"] >= 75
+        host = payload["report"]["hosts"][0]
+        assert host["adaptation_contract"]["score"] >= 75
+        assert host["usage_mode"] == "native-slash"
+        assert host["primary_entry"]
         assert any(
             "/super-dev-seeai" in item or "super-dev-seeai:" in item
             for item in host["runtime_checklist"]
@@ -3352,15 +3958,15 @@ class TestWebAPI:
         assert host["flow_probe"]["enabled"] is True
         assert any("/super-dev-seeai" in item for item in host["flow_probe"]["steps"])
 
-    def test_catalog_openclaw_flow_probe_exposes_seeai_plugin_validation(self):
+    def test_catalog_droid_cli_flow_probe_exposes_seeai_session_validation(self):
         client = _make_client()
         resp = client.get("/api/catalogs")
         assert resp.status_code == 200
         payload = resp.json()
-        host = next(item for item in payload["host_tools"] if item["id"] == "openclaw")
+        host = next(item for item in payload["host_tools"] if item["id"] == "droid-cli")
         assert host["flow_probe"]["enabled"] is True
-        assert any("super-dev-seeai:" in item for item in host["flow_probe"]["steps"])
-        assert any("OpenClaw Gateway" in item for item in host["flow_probe"]["steps"])
+        assert any("/super-dev-seeai" in item for item in host["flow_probe"]["steps"])
+        assert any("droid exec --session-id" in item for item in host["flow_probe"]["steps"])
 
     def test_hosts_validate_with_workflow_context_exposes_resume_probe_prompt(
         self, temp_project_dir: Path, monkeypatch
@@ -3385,9 +3991,12 @@ class TestWebAPI:
         )
         assert resp.status_code == 200
         payload = resp.json()
+        decision_card = payload["decision_card"]
         host = payload["report"]["hosts"][0]
+        resume_card = payload["session_resume_cards"]["opencode"]
+        workflow_context = payload["workflow_context"]
         assert ".super-dev/SESSION_BRIEF.md" in host["resume_probe_prompt"]
-        assert '/super-dev "' in host["resume_probe_prompt"]
+        assert "/super-dev " in host["resume_probe_prompt"]
         assert any("当前项目会话里恢复" in item for item in host["resume_checklist"])
         assert host["framework_playbook"]["framework"] == "uni-app"
         assert any("provider" in item for item in host["framework_playbook"]["native_capabilities"])
@@ -3396,20 +4005,51 @@ class TestWebAPI:
         assert any("框架专项必验场景" in item for item in host["runtime_checklist"])
         assert any("跨平台框架专项能力" in item for item in host["pass_criteria"])
         assert any("uni-app 的专项 playbook" in item for item in host["resume_checklist"])
-        assert payload["session_resume_cards"]["opencode"]["enabled"] is True
-        assert payload["session_resume_cards"]["opencode"]["workflow_mode"] == "revise"
-        assert (
-            payload["session_resume_cards"]["opencode"]["workflow_mode_label"]
-            == "返工/补充当前流程"
+        assert decision_card["selected_host"] == "opencode"
+        assert decision_card["workflow_mode"] == "continue"
+        assert decision_card["session_resume_card"]["enabled"] is True
+        assert decision_card["session_resume_card"]["host_first_sentence"] == resume_card[
+            "host_first_sentence"
+        ]
+        assert decision_card["action_title"] == resume_card["action_title"]
+        assert decision_card["action_examples"] == resume_card["action_examples"]
+        assert decision_card["first_action"].endswith(resume_card["host_first_sentence"])
+        assert any(
+            line == f"继续当前流程第一句: {resume_card['host_first_sentence']}"
+            for line in decision_card["lines"]
         )
-        assert payload["session_resume_cards"]["opencode"]["action_title"]
-        assert payload["session_resume_cards"]["opencode"]["action_examples"]
-        assert payload["session_resume_cards"]["opencode"]["user_action_shortcuts"]
+        assert resume_card["enabled"] is True
+        assert resume_card["workflow_mode"] == "revise"
+        assert resume_card["workflow_mode_label"] == "返工/补充当前流程"
+        assert resume_card["action_title"]
+        assert resume_card["action_examples"]
+        assert resume_card["user_action_shortcuts"]
+        assert "super-dev create" not in resume_card["host_first_sentence"]
+        assert "super-dev fix" not in resume_card["host_first_sentence"]
+        assert "super-dev workflow" not in resume_card["host_first_sentence"]
+        assert all("super-dev create" not in item for item in resume_card["action_examples"])
+        assert all("super-dev fix" not in item for item in resume_card["action_examples"])
+        assert all("super-dev workflow" not in item for item in resume_card["action_examples"])
+        baseline_card = next(
+            item for item in resume_card["scenario_cards"] if item["id"] == "existing_project_baseline"
+        )
+        assert baseline_card["title"] == "当前项目不是从零开始，先做 baseline"
+        assert "1-N+1" in baseline_card["when"]
+        assert "建立 baseline" in baseline_card["cli_command"]
         assert (
             ".super-dev/SESSION_BRIEF.md"
-            in payload["session_resume_cards"]["opencode"]["session_brief_path"]
+            in resume_card["session_brief_path"]
         )
-        assert payload["session_resume_cards"]["opencode"]["recommended_workflow_command"]
+        assert resume_card["recommended_workflow_command"]
+        assert workflow_context == payload["decision_card"]["workflow_context"]
+        assert workflow_context["baseline_required"] is False
+        assert workflow_context["baseline_audit_status"] == "not_required"
+        assert workflow_context["baseline_confirmation_status"] == "not_required"
+        assert workflow_context["blocking_gate"] == "waiting_docs_confirmation"
+        assert workflow_context["recommended_host_action"] == "/super-dev 继续当前流程"
+        assert workflow_context["recommended_host_sentence"] == "super-dev: 继续当前流程"
+        assert workflow_context["can_resume"] is True
+        assert workflow_context["can_progress"] is False
 
     def test_hosts_doctor_with_workflow_context_exposes_resume_card(
         self, temp_project_dir: Path, monkeypatch
@@ -3434,29 +4074,41 @@ class TestWebAPI:
             params={"project_dir": str(temp_project_dir), "host": "codex-cli"},
         )
         assert resp.status_code == 200
-        card = resp.json()["session_resume_cards"]["codex-cli"]
+        payload = resp.json()
+        decision_card = payload["decision_card"]
+        card = payload["session_resume_cards"]["codex-cli"]
         assert card["enabled"] is True
         assert card["workflow_mode"] == "revise"
         assert card["workflow_mode_label"] == "返工/补充当前流程"
         assert card["action_title"]
         assert card["action_examples"]
         assert card["user_action_shortcuts"]
-        assert card["preferred_entry"] == "app_desktop"
-        assert card["preferred_entry_label"] == "App/Desktop"
-        assert card["host_first_sentence"].startswith('/super-dev "')
-        assert card["entry_prompts"]["app_desktop"].startswith('/super-dev "')
-        assert card["entry_prompts"]["cli"].startswith('$super-dev "')
+        assert card["preferred_entry"] == "cli"
+        assert card["preferred_entry_label"] == "CLI"
+        assert card["host_first_sentence"].startswith("$super-dev ")
+        assert decision_card["selected_host"] == "codex-cli"
+        assert decision_card["workflow_mode"] == "continue"
+        assert decision_card["session_resume_card"]["enabled"] is True
+        assert decision_card["session_resume_card"]["host_first_sentence"] == card[
+            "host_first_sentence"
+        ]
+        assert decision_card["action_title"] == card["action_title"]
+        assert decision_card["action_examples"] == card["action_examples"]
+        assert decision_card["first_action"].endswith(card["host_first_sentence"])
+        assert any(
+            line == f"继续当前流程第一句: {card['host_first_sentence']}"
+            for line in decision_card["lines"]
+        )
+        assert card["entry_prompts"]["cli"].startswith("$super-dev ")
         assert card["entry_prompts"]["fallback"].startswith("super-dev:")
         assert card["workflow_event_log_path"].endswith(".super-dev/workflow-events.jsonl")
         assert card["hook_history_path"].endswith(".super-dev/hook-history.jsonl")
         assert card["operational_harnesses"]
         assert card["operational_focus"]["status"] == "needs_attention"
         assert card["operational_focus"]["kind"] == "framework"
-        assert [item["id"] for item in card["scenario_cards"][:3]] == [
-            "resume_workday",
-            "know_next",
-            "current_gate_or_stage",
-        ]
+        scenario_ids = [item["id"] for item in card["scenario_cards"]]
+        assert scenario_ids[:2] == ["resume_workday", "know_next"]
+        assert "current_gate_or_stage" in scenario_ids
         assert any(
             item["cli_command"] == "回到宿主里说“继续当前流程，不要重新开题”"
             for item in card["scenario_cards"]
@@ -3468,7 +4120,7 @@ class TestWebAPI:
         }
         assert card["recent_snapshots"]
         assert card["recent_events"]
-        assert card["recent_hook_events"]
+        assert isinstance(card["recent_hook_events"], list)
         assert card["recent_timeline"]
         assert card["recent_snapshots"][0]["current_step_label"] == "等待三文档确认"
         assert any(
@@ -3477,7 +4129,8 @@ class TestWebAPI:
         )
         assert any("最近一次:" in line for line in card["lines"])
         assert any("最近事件:" in line for line in card["lines"])
-        assert any("最近 Hook:" in line for line in card["lines"])
+        if card["recent_hook_events"]:
+            assert any("最近 Hook:" in line for line in card["lines"])
         assert any("关键时间线:" in line for line in card["lines"])
         assert any("Workflow Continuity:" in line for line in card["lines"])
         assert any("当前治理焦点:" in line for line in card["lines"])
@@ -3487,7 +4140,187 @@ class TestWebAPI:
         assert card["framework_playbook"]["framework"] == "uni-app"
         assert any("provider" in item for item in card["framework_playbook"]["native_capabilities"])
         assert any("框架专项: uni-app" in line for line in card["lines"])
-        assert resp.json()["decision_card"]["selection_source"] == "explicit"
+        assert payload["decision_card"]["selection_source"] == "explicit"
+        assert decision_card["workflow_context"] == card["workflow_context"]
+        assert card["workflow_context"]["baseline_required"] is False
+        assert card["workflow_context"]["baseline_audit_status"] == "not_required"
+        assert card["workflow_context"]["blocking_gate"] == "waiting_docs_confirmation"
+        assert card["workflow_context"]["recommended_host_action"] == "$super-dev 继续当前流程"
+        assert card["workflow_context"]["can_progress"] is False
+
+    def test_hosts_doctor_with_kimi_context_exposes_skill_and_flow_resume_entries(
+        self, temp_project_dir: Path
+    ):
+        cli = SuperDevCLI()
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            _prepare_workflow_context(temp_project_dir)
+            assert cli.run(["onboard", "--host", "kimi-code", "--force", "--yes"]) == 0
+        finally:
+            os.chdir(original_cwd)
+
+        client = _make_client()
+        resp = client.get(
+            "/api/hosts/doctor",
+            params={"project_dir": str(temp_project_dir), "host": "kimi-code"},
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        card = payload["session_resume_cards"]["kimi-code"]
+        assert card["enabled"] is True
+        assert card["preferred_entry"] == "skill"
+        assert card["preferred_entry_label"] == "Skill"
+        assert card["entry_labels"]["skill"] == "Skill"
+        assert card["entry_prompts"]["skill"].startswith("/skill:super-dev ")
+        assert card["entry_prompts"]["flow"].startswith("/flow:super-dev ")
+        assert card["entry_prompts"]["fallback"].startswith("super-dev:")
+        assert card["workflow_context"]["recommended_host_action"].startswith("/skill:super-dev ")
+        assert card["workflow_context"]["recommended_host_sentence"].startswith("super-dev:")
+
+    def test_hosts_doctor_with_droid_context_exposes_headless_resume_entry(
+        self, temp_project_dir: Path
+    ):
+        cli = SuperDevCLI()
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            _prepare_workflow_context(temp_project_dir)
+            assert cli.run(["onboard", "--host", "droid-cli", "--force", "--yes"]) == 0
+        finally:
+            os.chdir(original_cwd)
+
+        client = _make_client()
+        resp = client.get(
+            "/api/hosts/doctor",
+            params={"project_dir": str(temp_project_dir), "host": "droid-cli"},
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        card = payload["session_resume_cards"]["droid-cli"]
+        assert card["enabled"] is True
+        assert card["preferred_entry"] == "slash"
+        assert card["preferred_entry_label"] == "Slash"
+        assert card["entry_labels"]["headless"] == "Headless"
+        assert card["entry_prompts"]["slash"].startswith("/super-dev ")
+        assert "droid exec --session-id" in card["entry_prompts"]["headless"]
+
+    @pytest.mark.parametrize(
+        ("host_id", "expected_resume_line", "expected_start_line"),
+        [
+            (
+                "kimi-code",
+                "原生恢复: kimi --continue / kimi --session <id>",
+                "起手建议: 中文项目优先用 /skill:super-dev",
+            ),
+            (
+                "droid-cli",
+                "原生恢复: droid exec --session-id <id> / /super-dev 继续当前流程",
+                "起手建议: 优先留在当前 Factory session",
+            ),
+        ],
+    )
+    def test_hosts_validate_flagship_hosts_expose_native_resume_guidance(
+        self,
+        temp_project_dir: Path,
+        host_id: str,
+        expected_resume_line: str,
+        expected_start_line: str,
+    ):
+        cli = SuperDevCLI()
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            _prepare_workflow_context(temp_project_dir)
+            assert cli.run(["onboard", "--host", host_id, "--force", "--yes"]) == 0
+        finally:
+            os.chdir(original_cwd)
+
+        client = _make_client()
+        resp = client.get(
+            "/api/hosts/validate",
+            params={"project_dir": str(temp_project_dir), "host": host_id},
+        )
+        assert resp.status_code == 200
+        host = resp.json()["report"]["hosts"][0]
+        assert any(expected_resume_line in item for item in host["resume_checklist"])
+        assert any(expected_start_line in item for item in host["runtime_checklist"])
+        assert host["injection_closure"]["scope"] == "project-first"
+        assert host["injection_closure"]["project_default_ready"] is True
+        assert host["ready_for_standard_flow"] is True
+        if host_id == "kimi-code":
+            assert (
+                host["injection_closure"]["status"]
+                == "project_default_ready_with_user_opt_in_available"
+            )
+            assert host["ready_for_competition_flow"] is True
+            assert any("/skill:super-dev" in item for item in host["runtime_checklist"])
+            assert any("官方工作流面" in item for item in host["pass_criteria"])
+        if host_id == "droid-cli":
+            assert (
+                host["injection_closure"]["status"]
+                == "project_default_ready_with_user_opt_in_available"
+            )
+            assert host["ready_for_competition_flow"] is True
+            assert any(".factory/rules" in item for item in host["runtime_checklist"])
+            assert any("官方工作流面" in item for item in host["pass_criteria"])
+
+    def test_hosts_doctor_with_baseline_confirmation_context_exposes_baseline_resume_language(
+        self, temp_project_dir: Path, monkeypatch
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        (fake_home / ".codex").mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        cli = SuperDevCLI()
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            _prepare_workflow_context(temp_project_dir)
+            _write_baseline_audit(temp_project_dir, work_mode="variant")
+            save_workflow_state(temp_project_dir, {"work_mode": "variant"})
+            save_baseline_confirmation(
+                temp_project_dir,
+                {
+                    "status": "pending_review",
+                    "comment": "先确认当前项目边界和差量计划",
+                    "actor": "pytest",
+                },
+            )
+            assert cli.run(["onboard", "--host", "codex-cli", "--force", "--yes"]) == 0
+        finally:
+            os.chdir(original_cwd)
+
+        client = _make_client()
+        resp = client.get(
+            "/api/hosts/doctor",
+            params={"project_dir": str(temp_project_dir), "host": "codex-cli"},
+        )
+        assert resp.status_code == 200
+        card = resp.json()["session_resume_cards"]["codex-cli"]
+        baseline_card = next(
+            item for item in card["scenario_cards"] if item["id"] == "baseline_confirmation"
+        )
+        assert baseline_card["title"] == "已有项目先确认 baseline 再继续"
+        assert "差量计划" in baseline_card["when"]
+        assert "先确认 baseline" in baseline_card["cli_command"]
+        assert card["baseline_summary"]
+        assert card["baseline_audit_path"].endswith("-baseline-audit.json")
+        assert card["baseline_reuse_surfaces"]
+        assert card["workflow_context"]["baseline_required"] is True
+        assert card["workflow_context"]["baseline_audit_status"] == "ready"
+        assert card["workflow_context"]["baseline_confirmation_status"] == "pending_review"
+        assert card["workflow_context"]["blocking_gate"] == "waiting_baseline_confirmation"
+        assert (
+            card["workflow_context"]["recommended_host_action"]
+            == "$super-dev baseline 确认，可以继续当前流程"
+        )
+        assert (
+            card["workflow_context"]["recommended_host_sentence"]
+            == "super-dev: baseline 确认，可以继续当前流程"
+        )
+        assert card["workflow_context"]["can_progress"] is False
 
     @pytest.mark.parametrize(
         ("host_id", "expected_runtime_hint", "expected_resume_hint"),
@@ -3497,7 +4330,7 @@ class TestWebAPI:
             ("gemini-cli", "当前 Gemini CLI 会话就在目标项目目录", "再次读取了 `GEMINI.md`"),
             (
                 "codebuddy",
-                "当前 CodeBuddy IDE Agent Chat 绑定的是目标项目",
+                "当前 CodeBuddy Agent Chat 绑定的是目标项目",
                 "继续当前确认门而不是重新开题",
             ),
             (
@@ -3581,10 +4414,21 @@ class TestWebAPI:
         update_payload = update.json()
         assert update_payload["manual_runtime_status"] == "passed"
         assert update_payload["manual_runtime_status_label"] == "已真人通过"
+        assert update_payload["repo_probe"]["status"] == "pending"
         assert update_payload["runtime_evidence"]["runtime_status"]["status"] == "passed"
         assert update_payload["competition_evidence_ready"] is False
         assert "first_response" in update_payload["competition_evidence_missing"]
         assert update_payload["updated_at"]
+        state_file = Path(update_payload["file_path"])
+        assert state_file.exists()
+        assert state_file.name == "host-runtime-validation.json"
+        stored_state = json.loads(state_file.read_text(encoding="utf-8"))
+        stored_host = stored_state["hosts"]["codex-cli"]
+        assert stored_host["status"] == "passed"
+        assert stored_host["comment"] == "首轮先进入 research，三文档已真实落盘"
+        assert stored_host["actor"] == "user"
+        assert stored_host["competition_evidence_ready"] is False
+        assert "first_response" in stored_host["competition_evidence_missing"]
 
         resp = client.get(
             "/api/hosts/runtime-validation",
@@ -3600,6 +4444,7 @@ class TestWebAPI:
         assert host["manual_runtime_status_label"] == "已真人通过"
         assert host["manual_runtime_comment"] == "首轮先进入 research，三文档已真实落盘"
         assert host["manual_runtime_updated_at"]
+        assert host["repo_probe"]["status"] == "pending"
         assert host["competition_evidence_ready"] is False
         assert host["ready_for_delivery"] is False
         assert host["blocking_reason"] == "SEEAI 比赛验收证据不完整"
@@ -3631,7 +4476,14 @@ class TestWebAPI:
             },
         )
         assert evidence_update.status_code == 200
-        assert evidence_update.json()["competition_evidence_ready"] is True
+        evidence_payload = evidence_update.json()
+        assert evidence_payload["competition_evidence_ready"] is True
+        stored_state = json.loads(state_file.read_text(encoding="utf-8"))
+        stored_host = stored_state["hosts"]["codex-cli"]
+        assert stored_host["comment"] == "补齐比赛验收证据"
+        assert stored_host["competition_evidence_ready"] is True
+        assert stored_host["competition_evidence_missing"] == []
+        assert stored_host["competition_evidence"]["demo_path"]["summary"].startswith("30-60 秒主演示路径")
 
         ready_resp = client.get(
             "/api/hosts/runtime-validation",
@@ -3642,177 +4494,65 @@ class TestWebAPI:
         assert ready_host["competition_evidence_missing"] == []
         assert ready_host["ready_for_delivery"] is True
 
-    def test_hooks_history_endpoint_returns_recent_results(self, temp_project_dir: Path) -> None:
-        marker = temp_project_dir / "hook-history-marker.txt"
-        (temp_project_dir / "super-dev.yaml").write_text(
-            "\n".join(
-                [
-                    "hooks:",
-                    "  WorkflowEvent:",
-                    '    - matcher: "docs_confirmation_saved"',
-                    "      type: command",
-                    f"      command: \"python3 -c \\\"from pathlib import Path; Path(r'{marker}').write_text('ok', encoding='utf-8')\\\"\"",
-                    "      blocking: false",
-                ]
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        save_docs_confirmation(
-            temp_project_dir,
-            {
-                "status": "confirmed",
-                "current_step_label": "三文档已确认",
-            },
-        )
+    def test_hosts_runtime_validation_marks_repo_probe_failure_as_delivery_blocker(
+        self, temp_project_dir: Path, monkeypatch
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
 
-        client = _make_client()
-        resp = client.get(
-            "/api/hooks/history",
-            params={"project_dir": str(temp_project_dir), "limit": 5},
-        )
-        assert resp.status_code == 200
-        payload = resp.json()["data"]
-        assert payload
-        assert payload[0]["event"] == "WorkflowEvent"
-        assert payload[0]["phase"] == "docs_confirmation_saved"
-        assert payload[0]["source"] == "config"
-        assert HookManager.hook_history_file(temp_project_dir).exists()
-
-    def test_governance_harness_endpoints(self, temp_project_dir: Path) -> None:
         _prepare_workflow_context(temp_project_dir)
         save_workflow_state(
             temp_project_dir,
             {
                 "status": "waiting_docs_confirmation",
-                "workflow_mode": "revise",
+                "workflow_mode": "continue",
                 "current_step_label": "等待三文档确认",
-                "recommended_command": "super-dev review docs --status confirmed",
+                "recommended_command": "文档确认，可以继续",
             },
         )
-        save_docs_confirmation(
-            temp_project_dir,
-            {
-                "status": "confirmed",
-                "current_step_label": "三文档已确认",
-            },
-        )
-        (temp_project_dir / "output" / f"{temp_project_dir.name}-frontend-runtime.json").write_text(
-            json.dumps(
-                {
-                    "passed": True,
-                    "checks": {
-                        "ui_framework_playbook": True,
-                        "ui_framework_execution": True,
-                    },
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-        (
-            temp_project_dir / "output" / f"{temp_project_dir.name}-ui-contract-alignment.json"
-        ).write_text(
-            json.dumps(
-                {
-                    "framework_execution": {
-                        "label": "框架 Playbook 执行",
-                        "passed": True,
-                    }
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-        HookManager.hook_history_file(temp_project_dir).parent.mkdir(parents=True, exist_ok=True)
-        HookManager.hook_history_file(temp_project_dir).write_text(
-            json.dumps(
-                {
-                    "hook_name": "python3 scripts/check.py",
-                    "event": "WorkflowEvent",
-                    "success": True,
-                    "output": "",
-                    "error": "",
-                    "duration_ms": 6.0,
-                    "blocked": False,
-                    "phase": "docs_confirmation_saved",
-                    "source": "config",
-                    "timestamp": "2026-04-06T01:02:03+00:00",
-                },
-                ensure_ascii=False,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+
+        cli = SuperDevCLI()
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            assert cli.run(["onboard", "--host", "opencode", "--force", "--yes"]) == 0
+        finally:
+            os.chdir(original_cwd)
 
         client = _make_client()
-
-        workflow_resp = client.get(
-            "/api/governance/workflow-harness",
+        update = client.post(
+            "/api/hosts/runtime-validation",
             params={"project_dir": str(temp_project_dir)},
+            json={
+                "host": "opencode",
+                "status": "passed",
+                "comment": "manual accepted",
+                "actor": "user",
+                "competition_evidence": {
+                    "first_response": {"summary": "作品类型 / wow 点 / P0 / 放弃项"},
+                    "runtime_checkpoint": {
+                        "summary": "12 分钟内首个可见界面 + 主路径首个点击动作 + 真实启动模块"
+                    },
+                    "fallback_decision": {"summary": "失败点 / 回退栈 / 降级原因"},
+                    "demo_path": {"summary": "30-60 秒主演示路径 + 结果页/结束态 + wow 点截图"},
+                },
+            },
         )
-        assert workflow_resp.status_code == 200
-        assert workflow_resp.json()["enabled"] is True
-        assert "json_file" in workflow_resp.json()
+        assert update.status_code == 200
+        assert update.json()["repo_probe"]["status"] == "failed"
 
-        framework_resp = client.get(
-            "/api/governance/framework-harness",
-            params={"project_dir": str(temp_project_dir)},
+        resp = client.get(
+            "/api/hosts/runtime-validation",
+            params={"project_dir": str(temp_project_dir), "host": "opencode"},
         )
-        assert framework_resp.status_code == 200
-        assert framework_resp.json()["enabled"] is True
-        assert framework_resp.json()["framework"] == "uni-app"
-
-        hook_resp = client.get(
-            "/api/governance/hook-harness",
-            params={"project_dir": str(temp_project_dir)},
-        )
-        assert hook_resp.status_code == 200
-        assert hook_resp.json()["enabled"] is True
-        assert hook_resp.json()["total_events"] >= 1
-
-        aggregate_resp = client.get(
-            "/api/governance/harnesses",
-            params={"project_dir": str(temp_project_dir), "hook_limit": 1},
-        )
-        assert aggregate_resp.status_code == 200
-        aggregate_payload = aggregate_resp.json()
-        assert aggregate_payload["enabled"] is True
-        assert aggregate_payload["json_file"].endswith("-operational-harness.json")
-        assert aggregate_payload["report_file"].endswith("-operational-harness.md")
-        assert set(aggregate_payload["harnesses"]) == {"workflow", "framework", "hooks"}
-        assert aggregate_payload["harnesses"]["workflow"]["label"] == "Workflow Continuity"
-        assert aggregate_payload["harnesses"]["framework"]["label"] == "Framework Harness"
-        assert aggregate_payload["harnesses"]["hooks"]["label"] == "Hook Audit Trail"
-        assert aggregate_payload["harnesses"]["hooks"]["total_events"] >= 1
-
-        operational_resp = client.get(
-            "/api/governance/operational-harness",
-            params={"project_dir": str(temp_project_dir), "hook_limit": 1},
-        )
-        assert operational_resp.status_code == 200
-        operational_payload = operational_resp.json()
-        assert operational_payload["enabled"] is True
-        assert operational_payload["passed"] is True
-        assert operational_payload["enabled_count"] == 3
-        assert operational_payload["passed_count"] == 3
-        assert set(operational_payload["harnesses"]) == {"workflow", "framework", "hooks"}
-        assert operational_payload["json_file"].endswith("-operational-harness.json")
-        assert operational_payload["report_file"].endswith("-operational-harness.md")
-
-        timeline_resp = client.get(
-            "/api/governance/timeline",
-            params={"project_dir": str(temp_project_dir), "limit": 5},
-        )
-        assert timeline_resp.status_code == 200
-        timeline_payload = timeline_resp.json()
-        assert timeline_payload["count"] >= 1
-        assert timeline_payload["timeline"]
-        assert timeline_payload["timeline"][0]["kind"] in {
-            "workflow_snapshot",
-            "workflow_event",
-            "hook_event",
-        }
-        assert timeline_payload["timeline"][0]["message"]
+        assert resp.status_code == 200
+        payload = resp.json()
+        host = payload["report"]["hosts"][0]
+        assert host["repo_probe"]["status"] == "failed"
+        assert host["ready_for_delivery"] is False
+        assert "所需仓库级连续性证据不完整" in host["blocking_reason"]
+        assert "确认三文档" in host["recommended_action"] or "review docs" in host["recommended_action"]
+        assert payload["report"]["summary"]["repo_probe_failed_count"] == 1
+        assert payload["report"]["summary"]["fully_ready_count"] == 0
+        assert payload["report"]["blockers"][0]["type"] == "repo_probe"

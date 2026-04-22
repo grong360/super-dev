@@ -199,25 +199,3 @@ def detect_dropped_hunks(
         "dropped_files": dropped_files,
         "safe": len(dropped_files) == 0,
     }
-
-
-def format_report(result: dict[str, Any]) -> str:
-    """Format the merge safety result as a human-readable string."""
-    if not result["merge_detected"]:
-        return "No merge commit detected at HEAD."
-
-    if result["safe"]:
-        return "Merge safety check passed — no dropped code hunks detected."
-
-    lines = ["Merge safety check: potential dropped code detected!"]
-    lines.append("")
-    for entry in result["dropped_files"]:
-        lines.append(f"  File: {entry['file']}  (from parent {entry['parent']})")
-        for block in entry["blocks"]:
-            lines.append(
-                f"    Lines {block['start_line']}-{block['end_line']} "
-                f"({block['line_count']} lines) — {block['preview'][:80]}"
-            )
-    lines.append("")
-    lines.append(f"Total files with dropped hunks: {len(result['dropped_files'])}")
-    return "\n".join(lines)

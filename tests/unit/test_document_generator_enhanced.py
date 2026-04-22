@@ -240,6 +240,12 @@ class TestUIUXGeneration:
         uiux = mobile_generator.generate_uiux()
         assert isinstance(uiux, str)
 
+    def test_uiux_includes_art_direction_and_anti_ai_sections(self, generator):
+        uiux = generator.generate_uiux()
+        assert "视觉方向候选" in uiux
+        assert "反 AI 味护栏" in uiux
+        assert "设计批评标尺" in uiux
+
 
 # ---------------------------------------------------------------------------
 # 执行计划生成

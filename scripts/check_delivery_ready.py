@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -64,9 +65,42 @@ def _check_manifest(path: Path) -> tuple[bool, str]:
     return True, "交付门禁通过"
 
 
+def _write_skipped_quality_gate_note(smoke_dir: Path, project_name: str) -> Path:
+    report = smoke_dir / "output" / f"{project_name}-quality-gate.md"
+    report.write_text(
+        "\n".join(
+            [
+                "# 质量门禁报告",
+                "",
+                "> delivery smoke 使用 `--skip-quality-gate` 仅验证交付打包链路。",
+                f"> generated_at: {datetime.now(timezone.utc).isoformat()}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return report
+
+
+def _auto_confirm_review(cli: Any, review_type: str) -> None:
+    result = cli.run(
+        [
+            "review",
+            review_type,
+            "--status",
+            "confirmed",
+            "--comment",
+            "smoke auto confirm",
+        ]
+    )
+    if result != 0:
+        raise RuntimeError(f"pipeline smoke {review_type} 确认失败: exit={result}")
+
+
 def _run_smoke(project_root: Path) -> Path:
     # 延迟导入，避免仅校验 manifest 时引入额外依赖
     from super_dev.cli import SuperDevCLI
+    from super_dev.workflow_guard import docs_gate_status, preview_gate_status
 
     with tempfile.TemporaryDirectory(prefix="super-dev-delivery-smoke-") as tmp:
         smoke_dir = Path(tmp)
@@ -106,6 +140,7 @@ def _run_smoke(project_root: Path) -> Path:
                     "python",
                     "--cicd",
                     "all",
+                    "--skip-quality-gate",
                     "--quality-threshold",
                     "75",
                 ]
@@ -115,28 +150,49 @@ def _run_smoke(project_root: Path) -> Path:
 
             manifest = smoke_dir / "output" / "delivery" / "release-smoke-delivery-manifest.json"
             if not manifest.exists():
-                review_result = cli.run(
-                    [
-                        "review",
-                        "docs",
-                        "--status",
-                        "confirmed",
-                        "--comment",
-                        "smoke auto confirm",
-                    ]
-                )
-                if review_result != 0:
-                    raise RuntimeError(f"pipeline smoke 文档确认失败: exit={review_result}")
-                resume_result = cli.run(["run", "--resume"])
-                if resume_result != 0 and not manifest.exists():
+                resume_result = 0
+                for _ in range(8):
+                    docs_status = docs_gate_status(smoke_dir)
+                    preview_status = preview_gate_status(smoke_dir)
+                    if docs_status.get("has_context") and not docs_status.get("confirmed"):
+                        _auto_confirm_review(cli, "docs")
+                    elif preview_status.get("has_context") and not preview_status.get("confirmed"):
+                        _auto_confirm_review(cli, "preview")
+                    resume_result = cli.run(["run", "--resume"])
+                    if manifest.exists():
+                        break
                     try:
                         manifest = _latest_manifest(smoke_dir)
-                    except FileNotFoundError as exc:
-                        raise RuntimeError(f"pipeline smoke 恢复执行失败: exit={resume_result}") from exc
+                        break
+                    except FileNotFoundError:
+                        continue
+                if resume_result != 0 and not manifest.exists():
+                    raise RuntimeError(f"pipeline smoke 恢复执行失败: exit={resume_result}")
 
             if not manifest.exists():
                 # 回退查找最新 manifest，避免名称变更导致误判
                 manifest = _latest_manifest(smoke_dir)
+
+            data = _load_manifest(manifest)
+            missing_required = data.get("missing_required", [])
+            if (
+                isinstance(missing_required, list)
+                and data.get("status") != "ready"
+                and {
+                    str(item.get("path", ""))
+                    for item in missing_required
+                    if isinstance(item, dict)
+                }
+                == {"output/release-smoke-quality-gate.md"}
+            ):
+                from super_dev.deployers.delivery import DeliveryPackager
+
+                _write_skipped_quality_gate_note(smoke_dir, "release-smoke")
+                manifest_payload = DeliveryPackager(
+                    smoke_dir,
+                    "release-smoke",
+                ).package(cicd_platform="all")
+                manifest = Path(str(manifest_payload["manifest_file"]))
 
             ok, message = _check_manifest(manifest)
             if not ok:

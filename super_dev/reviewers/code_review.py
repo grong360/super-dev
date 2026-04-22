@@ -8,6 +8,7 @@
 """
 
 from pathlib import Path
+from typing import cast
 
 
 class CodeReviewGenerator:
@@ -967,10 +968,13 @@ jobs:
                 )
 
             # 注入安全专家的交叉审查维度
-            for dim in self._security_toolkit.protocol.review_dimensions:
-                dim_name = dim.get("dimension", "")
-                checklist = dim.get("checklist", [])
-                if dim_name and checklist:
+            review_dimensions = cast(
+                list[dict[str, object]], self._security_toolkit.protocol.review_dimensions
+            )
+            for dim in review_dimensions:
+                dim_name = str(dim.get("dimension", ""))
+                checklist = dim.get("checklist")
+                if dim_name and isinstance(checklist, list):
                     sections.append(f"**{dim_name}:**\n")
                     for check_item in checklist:
                         if isinstance(check_item, str):

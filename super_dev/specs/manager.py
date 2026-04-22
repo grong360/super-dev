@@ -10,6 +10,7 @@ Spec-Driven Development 管理器
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import cast
 
 import yaml  # type: ignore[import-untyped]
 
@@ -650,7 +651,7 @@ class ChangeManager:
     # Spec Dependency Analysis
     # ------------------------------------------------------------------
 
-    def analyze_dependencies(self) -> dict[str, list[dict[str, str]]]:
+    def analyze_dependencies(self) -> dict[str, object]:
         """
         分析所有变更之间的依赖关系。
 
@@ -825,7 +826,8 @@ class ChangeManager:
         by_category: dict[str, float] = {}
         for est in estimates:
             cat = str(est["category"])
-            by_category[cat] = by_category.get(cat, 0.0) + float(est["estimated_hours"])
+            estimated_hours = cast(float, est["estimated_hours"])
+            by_category[cat] = by_category.get(cat, 0.0) + estimated_hours
 
         return {
             "change_id": change_id,

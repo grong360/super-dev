@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .analyzer import ProjectAnalyzer
-from .repo_map import RepoMapBuilder
+from .repo_map import RepoMapBuilder, RepoMapReport
 
 SUPPORTED_SUFFIXES = {".py", ".js", ".ts", ".tsx", ".jsx"}
 
@@ -306,7 +306,7 @@ class DependencyGraphBuilder:
         path_index: dict[str, Path],
         inbound: dict[str, int],
         outbound: dict[str, int],
-        repo_map: object | None = None,
+        repo_map: RepoMapReport | None = None,
     ) -> list[DependencyNode]:
         if repo_map is None:
             repo_map = self.repo_map_builder.build()
@@ -330,7 +330,7 @@ class DependencyGraphBuilder:
         self,
         edges: list[DependencyEdge],
         critical_nodes: list[DependencyNode],
-        repo_map: object | None = None,
+        repo_map: RepoMapReport | None = None,
     ) -> list[CriticalPath]:
         adjacency: dict[str, list[str]] = defaultdict(list)
         for edge in edges:

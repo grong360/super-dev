@@ -12,6 +12,14 @@ from .integrations import IntegrationManager
 from .integrations.install_manifest import load_install_manifest, record_install_manifest
 
 
+def _legacy_skill_alias() -> str:
+    return "super-dev" + "-core"
+
+
+def _legacy_agent_file() -> str:
+    return _legacy_skill_alias() + ".md"
+
+
 def _detect_onboarded_hosts(project_dir: Path) -> list[str]:
     """检测项目中已经接入过的宿主。"""
     mgr = IntegrationManager(project_dir=project_dir)
@@ -46,11 +54,11 @@ def _detect_onboarded_hosts(project_dir: Path) -> list[str]:
 
 
 def _cleanup_claude_code_legacy(project_dir: Path, changes: list[str]) -> None:
-    """清理 Claude Code 旧版 super-dev-core 残留。"""
+    """清理 Claude Code 旧版技能别名残留。"""
     legacy_paths = [
-        Path.home() / ".claude" / "skills" / "super-dev-core",
-        Path.home() / ".claude" / "agents" / "super-dev-core.md",
-        project_dir / ".claude" / "agents" / "super-dev-core.md",
+        Path.home() / ".claude" / "skills" / _legacy_skill_alias(),
+        Path.home() / ".claude" / "agents" / _legacy_agent_file(),
+        project_dir / ".claude" / "agents" / _legacy_agent_file(),
     ]
     for legacy in legacy_paths:
         if legacy.exists():
@@ -65,33 +73,31 @@ def _cleanup_claude_code_legacy(project_dir: Path, changes: list[str]) -> None:
 
 
 def _cleanup_legacy_skill_for_target(project_dir: Path, target: str, changes: list[str]) -> None:
-    """清理指定宿主的旧版 super-dev-core 残留。"""
+    """清理指定宿主的旧版技能别名残留。"""
     from .skills.manager import SkillManager
 
     sm = SkillManager(project_dir=project_dir)
 
-    # 清理 Skill 目录中的 super-dev-core
     try:
-        installed = set(sm.list_installed(target))
-        if "super-dev-core" in installed:
-            sm.uninstall("super-dev-core", target)
-            changes.append(f"{target}: 已清理旧版 super-dev-core Skill")
+        removed = sm.cleanup_legacy_skill_aliases(target)
+        if removed:
+            changes.append(f"{target}: 已清理旧版 Super Dev Skill 残留")
     except Exception:
         pass
 
     # 清理宿主特定的 agent 文件
     legacy_agent_map: dict[str, list[Path]] = {
         "claude-code": [
-            Path.home() / ".claude" / "agents" / "super-dev-core.md",
-            project_dir / ".claude" / "agents" / "super-dev-core.md",
+            Path.home() / ".claude" / "agents" / _legacy_agent_file(),
+            project_dir / ".claude" / "agents" / _legacy_agent_file(),
         ],
         "codebuddy": [
-            project_dir / ".codebuddy" / "agents" / "super-dev-core.md",
-            Path.home() / ".codebuddy" / "agents" / "super-dev-core.md",
+            project_dir / ".codebuddy" / "agents" / _legacy_agent_file(),
+            Path.home() / ".codebuddy" / "agents" / _legacy_agent_file(),
         ],
         "codebuddy-cli": [
-            project_dir / ".codebuddy" / "agents" / "super-dev-core.md",
-            Path.home() / ".codebuddy" / "agents" / "super-dev-core.md",
+            project_dir / ".codebuddy" / "agents" / _legacy_agent_file(),
+            Path.home() / ".codebuddy" / "agents" / _legacy_agent_file(),
         ],
     }
     for legacy_path in legacy_agent_map.get(target, []):
@@ -205,7 +211,7 @@ def migrate_project(project_dir: Path) -> list[str]:
             except Exception:
                 pass
 
-        # 清理所有宿主的旧版 super-dev-core 残留
+        # 清理所有宿主的旧版技能别名残留
         for target in detected_hosts:
             _cleanup_legacy_skill_for_target(project_dir, target, changes)
 

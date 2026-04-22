@@ -88,14 +88,13 @@ class NextjsScaffoldGenerator:
         radius = p.get("radius", {})
 
         def _c(key: str, fallback: str) -> str:
-            return colors.get(key, fallback)
+            return str(colors.get(key, fallback))
 
         def _f(key: str, fallback: str) -> str:
-            raw = fonts.get(key, fallback)
-            return raw
+            return str(fonts.get(key, fallback))
 
         def _r(key: str, fallback: str) -> str:
-            return radius.get(key, fallback)
+            return str(radius.get(key, fallback))
 
         return f"""\
 import type {{ Config }} from "tailwindcss";
@@ -238,7 +237,7 @@ export default async function HomePage() {{
         colors = profile.get("colors", {})
 
         def _c(key: str, fallback: str) -> str:
-            return colors.get(key, fallback)
+            return str(colors.get(key, fallback))
 
         return f"""\
 @tailwind base;

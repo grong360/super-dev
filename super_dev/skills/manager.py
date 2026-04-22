@@ -34,29 +34,37 @@ class SkillManager:
 
     # Default skill name for hosts not listed in CANONICAL_SKILL_NAMES.
     DEFAULT_SKILL_NAME = "super-dev"
+    LEGACY_SKILL_SUFFIXES = ("-core",)
 
     LEGACY_SKILL_ALIASES: dict[str, list[str]] = {}
     SUPPLEMENTAL_BUILTIN_SKILLS = {
         "codex-cli": ["super-dev-seeai"],
+        "codex": ["super-dev-seeai"],
         "claude-code": ["super-dev-seeai"],
         "antigravity": ["super-dev-seeai"],
         "cline": ["super-dev-seeai"],
         "codebuddy-cli": ["super-dev-seeai"],
         "codebuddy": ["super-dev-seeai"],
+        "codebuddy-cn": ["super-dev-seeai"],
+        "droid-cli": ["super-dev-seeai"],
         "copilot-cli": ["super-dev-seeai"],
         "cursor-cli": ["super-dev-seeai"],
         "cursor": ["super-dev-seeai"],
         "gemini-cli": ["super-dev-seeai"],
+        "kimi-code": ["super-dev-seeai"],
         "kiro-cli": ["super-dev-seeai"],
         "kiro": ["super-dev-seeai"],
         "kilo-code": ["super-dev-seeai"],
-        "openclaw": ["super-dev-seeai"],
         "opencode": ["super-dev-seeai"],
+        "qwen-code": ["super-dev-seeai"],
         "workbuddy": ["super-dev-seeai"],
         "qoder-cli": ["super-dev-seeai"],
         "qoder": ["super-dev-seeai"],
         "roo-code": ["super-dev-seeai"],
         "trae": ["super-dev-seeai"],
+        "trae-cn": ["super-dev-seeai"],
+        "trae-solo": ["super-dev-seeai"],
+        "trae-solocn": ["super-dev-seeai"],
         "vscode-copilot": ["super-dev-seeai"],
         "windsurf": ["super-dev-seeai"],
     }
@@ -68,12 +76,18 @@ class SkillManager:
         "cline": "~/.cline/skills",
         "codebuddy-cli": "~/.codebuddy/skills",
         "codebuddy": "~/.codebuddy/skills",
+        "codebuddy-cn": "~/.codebuddy/skills",
         "copilot-cli": "~/.copilot/skills",
+        "droid-cli": "~/.factory/skills",
+        "codex": "~/.agents/skills",
         "codex-cli": "~/.agents/skills",
         "kiro-cli": "~/.kiro/skills",
         "kiro": "~/.kiro/skills",
-        "openclaw": "~/.openclaw/skills",
+        "kimi-code": "~/.kimi/skills",
         "opencode": "~/.config/opencode/skills",
+        "qwen-code": "~/.qwen/skills",
+        "trae-cn": "~/.trae-cn/skills",
+        "trae-solocn": "~/.trae-cn/skills",
         "workbuddy": "~/.workbuddy/skills",
         "qoder-cli": "~/.qoder/skills",
         "qoder": "~/.qoder/skills",
@@ -89,15 +103,19 @@ class SkillManager:
         "gemini-cli": "~/.gemini/skills",
         "kilo-code": "~/.kilocode/skills",
         "trae": "~/.trae/skills",
+        "trae-solo": "~/.trae/skills",
         "vscode-copilot": "~/.copilot/skills",
+    }
+
+    COMPATIBILITY_MIRROR_PATHS: dict[str, list[str]] = {
+        "kimi-code": ["~/.config/agents/skills", "~/.agents/skills"],
+        "codex": ["~/.codex/skills"],
     }
 
     TARGET_PATHS = {
         **OBSERVED_TARGET_PATHS,
         **OFFICIAL_TARGET_PATHS,
     }
-
-    COMPATIBILITY_MIRROR_PATHS: dict[str, list[str]] = {}
 
     def __init__(self, project_dir: Path):
         self.project_dir = Path(project_dir).resolve()
@@ -155,6 +173,19 @@ class SkillManager:
         return list(cls.SUPPLEMENTAL_BUILTIN_SKILLS.get(target, []))
 
     @classmethod
+    def managed_builtin_skill_names(cls, target: str) -> list[str]:
+        names = [cls.default_skill_name(target), *cls.supplemental_builtin_skills(target)]
+        managed: list[str] = []
+        for name in names:
+            if name not in managed:
+                managed.append(name)
+        return managed
+
+    @classmethod
+    def legacy_cleanup_skill_names(cls) -> list[str]:
+        return [f"{cls.DEFAULT_SKILL_NAME}{suffix}" for suffix in cls.LEGACY_SKILL_SUFFIXES]
+
+    @classmethod
     def target_path_kind(cls, target: str) -> str:
         if target in cls.OFFICIAL_TARGET_PATHS:
             return "official-user-surface"
@@ -208,8 +239,7 @@ class SkillManager:
             target_dir = base / skill_name
 
             # Clean up legacy skill names for this target
-            legacy_names = ["super-dev-core"]  # Old skill names to clean up
-            for legacy in legacy_names:
+            for legacy in self.legacy_cleanup_skill_names():
                 if legacy == skill_name:
                     continue  # Don't remove the skill we're about to install
                 legacy_dir = base / legacy
@@ -288,7 +318,7 @@ class SkillManager:
 
     @classmethod
     def cleanup_all_legacy(cls) -> list[str]:
-        """扫描所有已知和常见 skill 目录，删除 super-dev-core 残留。"""
+        """扫描所有已知和常见 skill 目录，删除旧版技能别名残留。"""
         cleaned: list[str] = []
         # 已知宿主路径
         all_paths = {**cls.OFFICIAL_TARGET_PATHS, **cls.OBSERVED_TARGET_PATHS}
@@ -304,10 +334,11 @@ class SkillManager:
                     search_dirs.append(match)
         # 扫描并清理
         for skill_dir in search_dirs:
-            legacy = skill_dir / "super-dev-core"
-            if legacy.exists():
-                shutil.rmtree(legacy, ignore_errors=True)
-                cleaned.append(str(legacy))
+            for legacy_name in cls.legacy_cleanup_skill_names():
+                legacy = skill_dir / legacy_name
+                if legacy.exists():
+                    shutil.rmtree(legacy, ignore_errors=True)
+                    cleaned.append(str(legacy))
         return cleaned
 
     def uninstall(self, name: str, target: str) -> Path:
@@ -327,6 +358,55 @@ class SkillManager:
         if not removed_any:
             raise FileNotFoundError(f"Skill not found: {name} ({target})")
         return target_dir
+
+    def managed_skill_cleanup_paths(self, target: str, name: str) -> list[Path]:
+        paths: list[Path] = []
+        for candidate in self.compatibility_skill_names(target, name):
+            paths.append(self._target_dir(target) / candidate)
+            for mirror_base in self._compatibility_target_dirs(target):
+                paths.append(mirror_base / candidate)
+        deduped: list[Path] = []
+        seen: set[str] = set()
+        for path in paths:
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(path)
+        return deduped
+
+    def legacy_skill_cleanup_paths(self, target: str) -> list[Path]:
+        paths: list[Path] = []
+        for legacy_name in self.legacy_cleanup_skill_names():
+            paths.append(self._target_dir(target) / legacy_name)
+            for mirror_base in self._compatibility_target_dirs(target):
+                paths.append(mirror_base / legacy_name)
+        deduped: list[Path] = []
+        seen: set[str] = set()
+        for path in paths:
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(path)
+        return deduped
+
+    def cleanup_legacy_skill_aliases(self, target: str) -> list[str]:
+        removed: list[str] = []
+        for legacy_name in self.legacy_cleanup_skill_names():
+            removed_any = False
+            primary = self._target_dir(target) / legacy_name
+            if primary.exists():
+                shutil.rmtree(primary, ignore_errors=True)
+                removed_any = True
+            for mirror_base in self._compatibility_target_dirs(target):
+                mirror_dir = mirror_base / legacy_name
+                if mirror_dir.exists():
+                    shutil.rmtree(mirror_dir, ignore_errors=True)
+                    removed_any = True
+            if removed_any:
+                removed.append(legacy_name)
+        return removed
 
     def _target_dir(self, target: str) -> Path:
         relative = self.TARGET_PATHS.get(target)
@@ -366,16 +446,17 @@ class SkillManager:
             writer(mirror_dir)
 
     def _cleanup_legacy_skills(self, target: str) -> None:
-        """Remove legacy super-dev-core from the target host's skill directory."""
+        """Remove legacy skill aliases from the target host's skill directory."""
         # 清理当前宿主下的旧名称
         base = self._target_dir(target)
-        legacy_name = base / "super-dev-core"
-        if legacy_name.exists():
-            shutil.rmtree(legacy_name, ignore_errors=True)
+        for legacy_name in self.legacy_cleanup_skill_names():
+            legacy_dir = base / legacy_name
+            if legacy_dir.exists():
+                shutil.rmtree(legacy_dir, ignore_errors=True)
 
         # 清理 mirror 路径下的旧名称和旧 mirror
         for mirror_base in self._compatibility_target_dirs(target):
-            for old_name in ("super-dev-core", "super-dev", "super-dev-seeai"):
+            for old_name in (*self.legacy_cleanup_skill_names(), "super-dev", "super-dev-seeai"):
                 old_dir = mirror_base / old_name
                 if old_dir.exists():
                     shutil.rmtree(old_dir, ignore_errors=True)

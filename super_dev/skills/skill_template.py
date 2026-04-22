@@ -23,7 +23,7 @@ from ..seeai_design_system import (
     get_seeai_design_packs,
 )
 
-SUPER_DEV_VERSION = "2.3.9"
+SUPER_DEV_VERSION = "2.4.0"
 SEEAI_SKILL_NAME = "super-dev-seeai"
 
 
@@ -100,7 +100,7 @@ class SkillFrontmatter:
                 '\\""'
             )
             lines.append("          timeout: 5")
-        elif host == "codex-cli":
+        elif host in {"codex", "codex-cli"}:
             lines.append(f"when_to_use: {self.when_to_use}")
             lines.append(f"version: {self.version}")
         else:
@@ -147,10 +147,10 @@ class SuperDevSkillContent:
     def render_body(self) -> str:
         """Return the full Markdown body (everything below the frontmatter)."""
         if self.skill_name == SEEAI_SKILL_NAME:
-            if self.host == "codex-cli":
+            if self.host in {"codex", "codex-cli"}:
                 return self._render_seeai_codex_body()
             return self._render_seeai_generic_body()
-        if self.host == "codex-cli":
+        if self.host in {"codex", "codex-cli"}:
             return self._render_codex_body()
         return self._render_generic_body()
 
@@ -321,8 +321,8 @@ class SuperDevSkillContent:
             " `output/*-architecture.md`, then realign Spec/tasks"
             " and implementation before continuing.\n"
             "10. If the user says quality or security is not acceptable,"
-            " first fix the issues, rerun quality gate"
-            " and `super-dev release proof-pack`,"
+            " first fix the issues, rerun the quality gate,"
+            " refresh any delivery evidence the reports ask for,"
             " and only then continue."
         )
 
@@ -431,49 +431,41 @@ class SuperDevSkillContent:
         return (
             "## 触发方式与命令路由（强制）\n"
             "\n"
-            "用户只需在宿主中输入 `/super-dev <参数>`。\n"
-            "宿主通过 Bash 工具自动执行对应的 CLI 命令，用户无需打开终端。\n"
-            "唯一需要用户在终端手动执行的命令是 `pip install super-dev`（安装/升级）。\n"
+            "普通用户只需要记住 3 个终端命令：`super-dev`、`super-dev update`、`super-dev uninstall`。\n"
+            "真正的开发交互都应回到宿主里完成。\n"
+            "\n"
+            "宿主公开交互面只有 5 个：\n"
+            "\n"
+            "```\n"
+            "/super-dev <goal>\n"
+            "/super-dev-seeai <goal>\n"
+            "继续当前流程\n"
+            "现在下一步是什么\n"
+            "```\n"
+            "\n"
+            "非 slash 宿主优先回退为：`super-dev:`、`super-dev-seeai:`，恢复与查询优先直接说“继续当前流程”“现在下一步是什么”。\n"
+            "\n"
+            "维护/治理场景才显式进入：`/super-dev-work`、`/super-dev-run`、`/super-dev-review`。\n"
             "\n"
             "### 路由规则\n"
             "\n"
-            "**规则 1 — 已知子命令 → 用 Bash 工具执行 `super-dev <完整参数>`**\n"
+            "**规则 1 — 默认主入口**：`/super-dev <goal>` 或 `super-dev: <goal>`\n"
             "\n"
-            "已知子命令完整列表：\n"
-            "```\n"
-            "init, bootstrap, setup, install, start, onboard, detect, doctor, migrate,\n"
-            "run, status, next, continue, resume, jump, confirm,\n"
-            "review, release, quality, enforce,\n"
-            "spec, task, config, policy, governance, knowledge,\n"
-            "memory, hooks, experts, compact,\n"
-            "analyze, repo-map, impact, regression-guard, dependency-graph,\n"
-            "feature-checklist, product-audit,\n"
-            "create, pipeline, fix, wizard,\n"
-            "generate, design, deploy, preview, expert, metrics,\n"
-            "skill, integrate, update, clean, completion, feedback\n"
-            "```\n"
+            "系统应自动判断当前是 `new / evolve / patch / variant / resume`。\n"
             "\n"
-            "示例：\n"
-            "- `/super-dev init` → Bash: `super-dev init`\n"
-            "- `/super-dev status` → Bash: `super-dev status`\n"
-            "- `/super-dev run research` → Bash: `super-dev run research`\n"
-            "- `/super-dev enforce validate` → Bash: `super-dev enforce validate`\n"
-            "- `/super-dev quality` → Bash: `super-dev quality`\n"
-            "- `/super-dev review docs --status confirmed` → Bash: `super-dev review docs --status confirmed`\n"
-            "- `/super-dev release proof-pack` → Bash: `super-dev release proof-pack`\n"
-            "- `/super-dev detect --auto` → Bash: `super-dev detect --auto`\n"
-            "- `/super-dev setup claude-code` → Bash: `super-dev setup claude-code`\n"
-            "- `/super-dev doctor --fix` → Bash: `super-dev doctor --fix`\n"
+            "**规则 2 — 显式工作模式（维护/治理面）**：`/super-dev-work <mode> <goal>`\n"
             "\n"
-            "**规则 2 — 自然语言（中文/英文描述）→ 进入 pipeline 模式**\n"
+            "用于自动判断不准或用户明确要求时，支持 `new / evolve / patch / variant`。\n"
             "\n"
-            "示例：\n"
-            "- `/super-dev 做一个电商系统`\n"
-            "- `/super-dev Build a user auth system`\n"
-            "- `super-dev: 做一个电商系统`（冒号触发，等效）\n"
-            "- `super-dev：做一个电商系统`（中文冒号也识别）\n"
+            "**规则 3 — 阶段与恢复（维护/治理面）**：`/super-dev-run <stage|resume|status|next>`\n"
             "\n"
-            "**规则 3 — 无参数 → 运行 `super-dev` 查看当前状态并继续**"
+            "公开执行阶段只推荐：`research / docs / spec / frontend / backend / quality / delivery`。\n"
+            "\n"
+            "**规则 4 — gate / 返工（维护/治理面）**：`/super-dev-review <target> <action>`\n"
+            "\n"
+            "推荐 target：`docs / preview / ui / architecture / quality`。\n"
+            "\n"
+            "**规则 5 — 无参数**：如果用户只输入 `/super-dev` 或 `super-dev:`，默认返回当前恢复卡片与推荐下一句。"
         )
 
     def _section_seeai_trigger_generic(self) -> str:
@@ -523,50 +515,22 @@ class SuperDevSkillContent:
 
     def _section_cli_command_guide(self) -> str:
         return (
-            "## Super Dev CLI 命令速查\n"
+            "## Super Dev CLI 命令边界\n"
             "\n"
-            "以下所有命令均在宿主内通过 `/super-dev <command>` 输入。\n"
-            "宿主会通过 Bash 工具自动执行，无需打开终端。\n"
+            "终端公开命令只有：\n"
             "\n"
             "```bash\n"
-            "# 项目初始化与宿主接入\n"
-            "super-dev init                          # 初始化项目配置\n"
-            "super-dev detect --auto                 # 探测已安装宿主\n"
-            "super-dev setup <host>                  # 一步接入指定宿主\n"
-            "super-dev doctor --fix                  # 诊断并修复接入问题\n"
-            "super-dev migrate                       # 迁移到最新版本\n"
-            "\n"
-            "# 流水线控制\n"
-            "super-dev run <phase>                   # 跳转到指定阶段\n"
-            "super-dev status                        # 查看当前流程状态\n"
-            "super-dev next                          # 推荐下一步\n"
-            "super-dev continue                      # 继续当前流程\n"
-            "super-dev confirm <phase>               # 确认指定阶段\n"
-            "\n"
-            "# 治理与质量\n"
-            "super-dev enforce install               # 安装 enforcement hooks\n"
-            "super-dev enforce validate              # 运行验证检查\n"
-            "super-dev quality                       # 运行质量门禁\n"
-            "super-dev review docs                   # 查看三文档确认状态\n"
-            "super-dev review ui                     # 查看 UI 审查状态\n"
-            "super-dev review preview                # 查看预览确认状态\n"
-            "\n"
-            "# 交付\n"
-            "super-dev release proof-pack            # 生成交付证据包\n"
-            "super-dev release readiness             # 发布就绪度检查\n"
-            "\n"
-            "# 查询\n"
-            "super-dev memory list                   # 查看记忆条目\n"
-            "super-dev experts list                  # 查看专家角色\n"
-            "super-dev hooks list                    # 查看 hook 事件\n"
-            "super-dev hooks history                 # 查看最近 hook 历史\n"
-            "super-dev harness status                # 查看 workflow/framework/hook harness\n"
-            "super-dev compact list                  # 查看压缩摘要\n"
-            "super-dev config list                   # 查看项目配置\n"
-            "super-dev spec list                     # 查看规范与变更\n"
+            "super-dev\n"
+            "super-dev update\n"
+            "super-dev uninstall\n"
             "```\n"
             "\n"
-            "**重要**: 这些命令是治理执行层，宿主自身能力无法替代。"
+            "其余 CLI 能力允许保留，但属于：\n"
+            "- 宿主接入维护面\n"
+            "- 治理内核\n"
+            "- 高级调试面\n"
+            "\n"
+            "不要再把它们包装成普通用户的第一层心智。"
         )
 
     # ------------------------------------------------------------------
@@ -607,8 +571,8 @@ class SuperDevSkillContent:
             "\n"
             "### research 双引擎\n"
             "\n"
-            "**引擎 1: CLI 知识推送** — `super-dev run research`"
-            " 触发本地知识发现，读取 `knowledge/` 和 knowledge-bundle.json。\n"
+            "**引擎 1: 本地知识发现** — 优先读取 `knowledge/`"
+            " 和 knowledge-bundle.json，并把结论沉入 `output/*-research.md`。\n"
             "\n"
             "**引擎 2: 宿主联网研究** — WebFetch/WebSearch 搜索同类产品、"
             "竞品和官方文档，写入 `output/*-research.md`。\n"
@@ -1444,8 +1408,8 @@ class SuperDevSkillContent:
             "- 读取 output/*-architecture.md 中的 API 定义\n"
             "- 读取 output/*-uiux.md 中的设计 token\n"
             "\n"
-            "### 第 5 步：生成脚手架并验证构建\n"
-            "- `super-dev generate components` + `super-dev generate types`\n"
+            "### 第 5 步：建立页面结构与共享类型并验证构建\n"
+            "- 根据 architecture / UIUX 产出页面结构、组件实现参考与共享类型\n"
             "- 运行构建命令确认零错误后才开始写业务代码\n"
         )
 
@@ -1569,7 +1533,7 @@ class SuperDevSkillContent:
             "\n"
             "**阶段 3 -- 暴露错误（无法恢复）**\n"
             "- 提供: 什么失败了 + 为什么 + 下一步建议\n"
-            "- 运行 `super-dev doctor --fix` 尝试自动修复\n"
+            "- 回到终端重新运行 `super-dev` 校验宿主接入；若本地版本或注入面不一致，再执行 `super-dev update`\n"
             "\n"
             "永远不要在尝试阶段 1-2 之前就暴露错误给用户。"
         )
@@ -1618,6 +1582,7 @@ class SuperDevSkillContent:
 
     def _host_display_name(self) -> str:
         display_map = {
+            "codex": "Codex",
             "codex-cli": "Codex",
             "claude-code": "Claude Code",
             "cursor": "Cursor",
@@ -1649,7 +1614,7 @@ class SkillTemplate:
     def for_builtin(cls, skill_name: str, host: str) -> SkillTemplate:
         """Factory: create a template pre-configured for the built-in skill."""
         if skill_name == SEEAI_SKILL_NAME:
-            if host == "codex-cli":
+            if host in {"codex", "codex-cli"}:
                 fm = SkillFrontmatter(
                     name=skill_name,
                     description="Activate the Super Dev SEEAI competition mode inside Codex CLI.",
@@ -1674,7 +1639,7 @@ class SkillTemplate:
                 )
             content = SuperDevSkillContent(skill_name=skill_name, host=host)
             return cls(frontmatter=fm, content=content)
-        if host == "codex-cli":
+        if host in {"codex", "codex-cli"}:
             fm = SkillFrontmatter(
                 name=skill_name,
                 description="Activate the Super Dev pipeline inside Codex CLI.",

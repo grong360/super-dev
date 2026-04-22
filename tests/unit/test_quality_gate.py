@@ -2,9 +2,17 @@
 质量门禁检查器测试
 """
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
-from super_dev.reviewers.quality_gate import CheckStatus, QualityCheck, QualityGateChecker
+from super_dev.review_state import save_host_runtime_validation, save_workflow_state
+from super_dev.reviewers.quality_gate import (
+    CheckStatus,
+    QualityCheck,
+    QualityGateChecker,
+    QualityGateResult,
+)
 
 
 class TestQualityGateChecker:
@@ -184,6 +192,198 @@ class TestQualityGateChecker:
             tech_stack={"frontend": "react", "backend": "python"},
         )
         assert checker._read_coverage_percent() == 76
+
+    def test_quality_gate_runs_compliance_checks_proactively(self, temp_project_dir: Path, monkeypatch):
+        checker = QualityGateChecker(
+            project_dir=temp_project_dir,
+            name="demo",
+            tech_stack={"frontend": "react", "backend": "python"},
+            scenario_override="1-N+1",
+        )
+
+        monkeypatch.setattr(checker, "_check_documentation", lambda: [])
+        monkeypatch.setattr(checker, "_check_security", lambda _r: [])
+        monkeypatch.setattr(checker, "_check_performance", lambda _r: [])
+        monkeypatch.setattr(checker, "_check_testing", lambda: [])
+        monkeypatch.setattr(checker, "_check_code_quality", lambda: [])
+        monkeypatch.setattr(checker, "_check_accessibility", lambda: [])
+        monkeypatch.setattr(checker, "_check_performance_budget", lambda: [])
+        monkeypatch.setattr(
+            checker,
+            "_check_ui_contract_execution",
+            lambda: QualityCheck(
+                name="UI 契约执行",
+                category="ui_quality",
+                description="ok",
+                status=CheckStatus.PASSED,
+                score=100,
+            ),
+        )
+        monkeypatch.setattr(
+            checker,
+            "_check_ui_review",
+            lambda: QualityCheck(
+                name="UI 审查",
+                category="ui_quality",
+                description="ok",
+                status=CheckStatus.PASSED,
+                score=100,
+            ),
+        )
+        monkeypatch.setattr(checker, "_generate_recommendations", lambda _c: [])
+
+        monkeypatch.setattr(
+            "super_dev.reviewers.spec_compliance.run_spec_compliance",
+            lambda project_dir, output_dir=None: SimpleNamespace(
+                total_requirements=3,
+                coverage_percent=66.7,
+                score=67,
+            ),
+        )
+        monkeypatch.setattr(
+            "super_dev.reviewers.architecture_drift.run_architecture_drift",
+            lambda project_dir, output_dir=None: SimpleNamespace(
+                total_drifts=1,
+                critical_count=0,
+                declared_tech_stack=["FastAPI"],
+                score=78,
+            ),
+        )
+        monkeypatch.setattr(
+            "super_dev.reviewers.uiux_compliance.run_uiux_compliance",
+            lambda project_dir, output_dir=None: SimpleNamespace(
+                total_violations=2,
+                files_scanned=4,
+                score=82,
+            ),
+        )
+
+        result = checker.check(None)
+        categories = {check.category for check in result.checks}
+
+        assert {"spec_compliance", "architecture_drift", "uiux_compliance"} <= categories
+
+    def test_quality_gate_executive_summary_explains_layered_host_runtime_gap(
+        self, temp_project_dir: Path, monkeypatch
+    ):
+        save_workflow_state(
+            temp_project_dir,
+            {
+                "status": "missing_frontend",
+                "workflow_mode": "continue",
+                "current_step_label": "先做前端与运行验证",
+                "recommended_command": "继续当前流程，进入前端实现与运行验证",
+            },
+        )
+        save_host_runtime_validation(
+            temp_project_dir,
+            {
+                "hosts": {
+                    "codex-cli": {
+                        "status": "passed",
+                        "comment": "manual accepted",
+                        "actor": "pytest",
+                    }
+                }
+            },
+        )
+
+        checker = QualityGateChecker(
+            project_dir=temp_project_dir,
+            name="demo",
+            tech_stack={"frontend": "react", "backend": "python"},
+            scenario_override="1-N+1",
+        )
+
+        monkeypatch.setattr(checker, "_check_documentation", lambda: [])
+        monkeypatch.setattr(checker, "_check_security", lambda _r: [])
+        monkeypatch.setattr(checker, "_check_performance", lambda _r: [])
+        monkeypatch.setattr(checker, "_check_testing", lambda: [])
+        monkeypatch.setattr(checker, "_check_code_quality", lambda: [])
+        monkeypatch.setattr(checker, "_check_accessibility", lambda: [])
+        monkeypatch.setattr(checker, "_check_performance_budget", lambda: [])
+        monkeypatch.setattr(checker, "_check_compliance_artifacts", lambda: [])
+        monkeypatch.setattr(
+            checker,
+            "_check_host_compatibility",
+            lambda: QualityCheck(
+                name="宿主兼容性",
+                category="code_quality",
+                description="AI Coding 宿主接入兼容性报告",
+                status=CheckStatus.PASSED,
+                score=100,
+            ),
+        )
+        monkeypatch.setattr(
+            checker,
+            "_check_ui_contract_execution",
+            lambda: QualityCheck(
+                name="UI 契约执行",
+                category="ui_quality",
+                description="UI 契约执行",
+                status=CheckStatus.PASSED,
+                score=100,
+            ),
+        )
+        monkeypatch.setattr(
+            checker,
+            "_check_ui_review",
+            lambda: QualityCheck(
+                name="UI 审查",
+                category="ui_quality",
+                description="UI 审查",
+                status=CheckStatus.PASSED,
+                score=100,
+            ),
+        )
+        monkeypatch.setattr(checker, "_generate_recommendations", lambda _c: [])
+
+        result = checker.check(None)
+
+        assert "codex-cli 已人工通过" in result.executive_summary
+        assert "continuity / harness / runtime 证据仍未闭环" in result.executive_summary
+        markdown = result.to_markdown()
+        assert "## 执行摘要" in markdown
+        assert "codex-cli 已人工通过" in markdown
+
+    def test_quality_gate_executive_summary_explains_compliance_artifact_gap(self):
+        result = QualityGateResult(
+            passed=False,
+            total_score=72,
+            weighted_score=72.0,
+            checks=[
+                QualityCheck(
+                    name="Spec Compliance (Requirement Traceability)",
+                    category="spec_compliance",
+                    description="Source: missing; Coverage: 0.0% (1 requirements)",
+                    status=CheckStatus.FAILED,
+                    score=0,
+                )
+            ],
+            critical_failures=[],
+            recommendations=[],
+            scenario="1-N+1",
+            summary_context={"compliance_signal_summary": " 合规链当前优先卡在证据状态：Spec Compliance (Requirement Traceability)=missing。"},
+        )
+        assert "合规链当前优先卡在证据状态" in result.executive_summary
+        assert "Requirement Traceability)=missing" in result.executive_summary
+
+    def test_quality_gate_executive_summary_exposes_workflow_and_baseline_context(self):
+        result = QualityGateResult(
+            passed=False,
+            total_score=72,
+            weighted_score=72.0,
+            checks=[],
+            critical_failures=[],
+            recommendations=[],
+            scenario="1-N+1",
+            summary_context={
+                "workflow_signal_summary": " 当前流程状态为 waiting_baseline_confirmation，入口 gate=waiting_baseline_confirmation。 下一步：/super-dev-review baseline confirm。",
+                "baseline_signal_summary": " 当前是已有项目模式，但 baseline 还没确认。 下一步：/super-dev-review baseline confirm。",
+            },
+        )
+        assert "当前流程状态为 waiting_baseline_confirmation" in result.executive_summary
+        assert "baseline 还没确认" in result.executive_summary
 
     def test_has_pytest_config_requires_real_marker(self, temp_project_dir: Path):
         (temp_project_dir / "pyproject.toml").write_text(
@@ -788,7 +988,11 @@ class TestQualityGateChecker:
                 '  "icon_system": "lucide-react",\n'
                 '  "emoji_policy": {"allowed_in_ui": false, "allowed_as_icon": false, "allowed_during_development": false},\n'
                 '  "ui_library_preference": {"final_selected": "shadcn/ui + Radix + Tailwind"},\n'
-                '  "design_tokens": {"color": {"primary": "#0f172a"}}\n'
+                '  "design_tokens": {"color": {"primary": "#0f172a"}},\n'
+                '  "screen_recipes": [{"label": "North Star Hero", "section_order": ["hero"], "trust_modules": ["案例"], "required_states": ["loading"]}],\n'
+                '  "design_context_protocol": {"preferred_import_order": ["tokens"], "github_import_targets": ["theme.ts"], "single_source_rule": "single source"},\n'
+                '  "tweak_strategy": {"mode": "single-source prototype", "default_controls": ["信息密度"], "persistence_rule": "persist edits"},\n'
+                '  "verification_handoff": {"verification_order": ["preview"], "required_artifacts": ["output/frontend/index.html"], "acceptance_checks": ["no emoji"]}\n'
                 "}\n"
             ),
             encoding="utf-8",
@@ -824,7 +1028,11 @@ class TestQualityGateChecker:
                 '    "ui_component_imports": true,\n'
                 '    "ui_banned_patterns": true,\n'
                 '    "ui_framework_playbook": true,\n'
-                '    "ui_framework_execution": true\n'
+                '    "ui_framework_execution": true,\n'
+                '    "ui_screen_recipes": true,\n'
+                '    "ui_design_context_protocol": true,\n'
+                '    "ui_tweak_strategy": true,\n'
+                '    "ui_verification_handoff": true\n'
                 "  }\n"
                 "}\n"
             ),
@@ -853,7 +1061,11 @@ class TestQualityGateChecker:
                 '  "icon_system": "lucide-react",\n'
                 '  "emoji_policy": {"allowed_in_ui": false, "allowed_as_icon": false, "allowed_during_development": false},\n'
                 '  "ui_library_preference": {"final_selected": "shadcn/ui + Radix + Tailwind"},\n'
-                '  "design_tokens": {"color": {"primary": "#0f172a"}}\n'
+                '  "design_tokens": {"color": {"primary": "#0f172a"}},\n'
+                '  "screen_recipes": [{"label": "North Star Hero", "section_order": ["hero"], "trust_modules": ["案例"], "required_states": ["loading"]}],\n'
+                '  "design_context_protocol": {"preferred_import_order": ["tokens"], "github_import_targets": ["theme.ts"], "single_source_rule": "single source"},\n'
+                '  "tweak_strategy": {"mode": "single-source prototype", "default_controls": ["信息密度"], "persistence_rule": "persist edits"},\n'
+                '  "verification_handoff": {"verification_order": ["preview"], "required_artifacts": ["output/frontend/index.html"], "acceptance_checks": ["no emoji"]}\n'
                 "}\n"
             ),
             encoding="utf-8",
@@ -907,7 +1119,11 @@ class TestQualityGateChecker:
                 '  "typography": {"heading": "Space Grotesk", "body": "Inter"},\n'
                 '  "icon_system": "lucide-react",\n'
                 '  "ui_library_preference": {"final_selected": "shadcn/ui + Radix + Tailwind"},\n'
-                '  "design_tokens": {"color": {"primary": "#0f172a"}}\n'
+                '  "design_tokens": {"color": {"primary": "#0f172a"}},\n'
+                '  "screen_recipes": [{"label": "North Star Hero", "section_order": ["hero"], "trust_modules": ["案例"], "required_states": ["loading"]}],\n'
+                '  "design_context_protocol": {"preferred_import_order": ["tokens"], "github_import_targets": ["theme.ts"], "single_source_rule": "single source"},\n'
+                '  "tweak_strategy": {"mode": "single-source prototype", "default_controls": ["信息密度"], "persistence_rule": "persist edits"},\n'
+                '  "verification_handoff": {"verification_order": ["preview"], "required_artifacts": ["output/frontend/index.html"], "acceptance_checks": ["no emoji"]}\n'
                 "}\n"
             ),
             encoding="utf-8",
@@ -938,6 +1154,297 @@ class TestQualityGateChecker:
         assert check.status.value == "failed"
         assert "emoji_policy" in check.details
 
+    def test_ui_contract_execution_failed_when_claude_design_protocol_missing(
+        self, temp_project_dir: Path
+    ):
+        output_dir = temp_project_dir / "output"
+        frontend_dir = output_dir / "frontend"
+        frontend_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-ui-contract.json").write_text(
+            (
+                "{\n"
+                '  "style_direction": "Editorial workspace",\n'
+                '  "typography": {"heading": "Space Grotesk", "body": "Inter"},\n'
+                '  "icon_system": "lucide-react",\n'
+                '  "emoji_policy": {"allowed_in_ui": false, "allowed_as_icon": false, "allowed_during_development": false},\n'
+                '  "ui_library_preference": {"final_selected": "shadcn/ui + Radix + Tailwind"},\n'
+                '  "design_tokens": {"color": {"primary": "#0f172a"}}\n'
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        (frontend_dir / "design-tokens.css").write_text(":root { --color-primary: #0f172a; }\n", encoding="utf-8")
+        (output_dir / "demo-frontend-runtime.json").write_text(
+            (
+                "{\n"
+                '  "passed": true,\n'
+                '  "checks": {\n'
+                '    "ui_contract_json": true,\n'
+                '    "output_frontend_design_tokens": true,\n'
+                '    "ui_contract_alignment": true,\n'
+                '    "ui_theme_entry": true,\n'
+                '    "ui_navigation_shell": true,\n'
+                '    "ui_component_imports": true,\n'
+                '    "ui_banned_patterns": true\n'
+                "  }\n"
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+
+        checker = QualityGateChecker(
+            project_dir=temp_project_dir,
+            name="demo",
+            tech_stack={"frontend": "react", "backend": "python"},
+            scenario_override="1-N+1",
+        )
+        check = checker._check_ui_contract_execution()
+        assert check.status.value == "failed"
+        assert "screen_recipes" in check.details
+
+    def test_ui_contract_execution_failed_when_ui_review_runtime_protocol_mismatches(
+        self, temp_project_dir: Path
+    ):
+        output_dir = temp_project_dir / "output"
+        frontend_dir = output_dir / "frontend"
+        frontend_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-ui-contract.json").write_text(
+            (
+                "{\n"
+                '  "style_direction": "Editorial workspace",\n'
+                '  "typography": {"heading": "Space Grotesk", "body": "Inter"},\n'
+                '  "icon_system": "lucide-react",\n'
+                '  "emoji_policy": {"allowed_in_ui": false, "allowed_as_icon": false, "allowed_during_development": false},\n'
+                '  "ui_library_preference": {"final_selected": "shadcn/ui + Radix + Tailwind"},\n'
+                '  "design_tokens": {"color": {"primary": "#0f172a"}},\n'
+                '  "screen_recipes": [{"label": "North Star Hero", "section_order": ["hero"], "trust_modules": ["案例"], "required_states": ["loading"]}],\n'
+                '  "design_context_protocol": {"preferred_import_order": ["tokens"], "github_import_targets": ["theme.ts"], "single_source_rule": "single source"},\n'
+                '  "tweak_strategy": {"mode": "single-source prototype", "default_controls": ["信息密度"], "persistence_rule": "persist edits"},\n'
+                '  "verification_handoff": {"verification_order": ["preview"], "required_artifacts": ["output/frontend/index.html"], "acceptance_checks": ["no emoji"]}\n'
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        (frontend_dir / "design-tokens.css").write_text(":root { --color-primary: #0f172a; }\n", encoding="utf-8")
+        (output_dir / "demo-ui-contract-alignment.json").write_text(
+            json.dumps({"theme_entry": {"passed": True}}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-frontend-runtime.json").write_text(
+            (
+                "{\n"
+                '  "passed": true,\n'
+                '  "checks": {\n'
+                '    "ui_contract_json": true,\n'
+                '    "output_frontend_design_tokens": true,\n'
+                '    "ui_contract_alignment": true,\n'
+                '    "ui_theme_entry": true,\n'
+                '    "ui_navigation_shell": true,\n'
+                '    "ui_component_imports": true,\n'
+                '    "ui_banned_patterns": true,\n'
+                '    "ui_screen_recipes": true,\n'
+                '    "ui_design_context_protocol": true,\n'
+                '    "ui_tweak_strategy": true,\n'
+                '    "ui_verification_handoff": true\n'
+                "  }\n"
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-review.json").write_text(
+            json.dumps(
+                {
+                    "alignment_summary": {
+                        "runtime_claude_design_protocol": {
+                            "passed": False,
+                            "observed": "mismatch=screen_recipes, verification_handoff",
+                        },
+                        "source_claude_design_protocol": {
+                            "passed": True,
+                            "observed": "screen_recipes, design_context_protocol, tweak_strategy, verification_handoff",
+                        },
+                    }
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        checker = QualityGateChecker(
+            project_dir=temp_project_dir,
+            name="demo",
+            tech_stack={"frontend": "react", "backend": "python"},
+            scenario_override="1-N+1",
+        )
+        check = checker._check_ui_contract_execution()
+        assert check.status.value == "failed"
+        assert "UI review 与 frontend runtime 的 Claude-Design 协议证据未闭环" in check.details
+
+    def test_ui_contract_execution_failed_when_ui_review_source_protocol_missing(
+        self, temp_project_dir: Path
+    ):
+        output_dir = temp_project_dir / "output"
+        frontend_dir = output_dir / "frontend"
+        frontend_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-ui-contract.json").write_text(
+            (
+                "{\n"
+                '  "style_direction": "Editorial workspace",\n'
+                '  "typography": {"heading": "Space Grotesk", "body": "Inter"},\n'
+                '  "icon_system": "lucide-react",\n'
+                '  "emoji_policy": {"allowed_in_ui": false, "allowed_as_icon": false, "allowed_during_development": false},\n'
+                '  "ui_library_preference": {"final_selected": "shadcn/ui + Radix + Tailwind"},\n'
+                '  "design_tokens": {"color": {"primary": "#0f172a"}},\n'
+                '  "screen_recipes": [{"label": "North Star Hero", "section_order": ["hero"], "trust_modules": ["案例"], "required_states": ["loading"]}],\n'
+                '  "design_context_protocol": {"preferred_import_order": ["tokens"], "github_import_targets": ["theme.ts"], "single_source_rule": "single source"},\n'
+                '  "tweak_strategy": {"mode": "single-source prototype", "default_controls": ["信息密度"], "persistence_rule": "persist edits"},\n'
+                '  "verification_handoff": {"verification_order": ["preview"], "required_artifacts": ["output/frontend/index.html"], "acceptance_checks": ["no emoji"]}\n'
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        (frontend_dir / "design-tokens.css").write_text(":root { --color-primary: #0f172a; }\n", encoding="utf-8")
+        (output_dir / "demo-ui-contract-alignment.json").write_text(
+            json.dumps({"theme_entry": {"passed": True}}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-frontend-runtime.json").write_text(
+            (
+                "{\n"
+                '  "passed": true,\n'
+                '  "checks": {\n'
+                '    "ui_contract_json": true,\n'
+                '    "output_frontend_design_tokens": true,\n'
+                '    "ui_contract_alignment": true,\n'
+                '    "ui_theme_entry": true,\n'
+                '    "ui_navigation_shell": true,\n'
+                '    "ui_component_imports": true,\n'
+                '    "ui_banned_patterns": true,\n'
+                '    "ui_screen_recipes": true,\n'
+                '    "ui_design_context_protocol": true,\n'
+                '    "ui_tweak_strategy": true,\n'
+                '    "ui_verification_handoff": true\n'
+                "  }\n"
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-review.json").write_text(
+            json.dumps(
+                {
+                    "alignment_summary": {
+                        "runtime_claude_design_protocol": {
+                            "passed": True,
+                            "observed": "aligned with frontend-runtime",
+                        },
+                        "source_claude_design_protocol": {
+                            "passed": False,
+                            "observed": "design_context_protocol",
+                        },
+                    }
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        checker = QualityGateChecker(
+            project_dir=temp_project_dir,
+            name="demo",
+            tech_stack={"frontend": "react", "backend": "python"},
+            scenario_override="1-N+1",
+        )
+        check = checker._check_ui_contract_execution()
+        assert check.status.value == "failed"
+        assert "UI review 未在源码/预览中看到 Claude-Design 协议落地信号" in check.details
+
+    def test_ui_contract_execution_failed_when_screenshot_visual_judge_fails(
+        self, temp_project_dir: Path
+    ):
+        output_dir = temp_project_dir / "output"
+        frontend_dir = output_dir / "frontend"
+        frontend_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-ui-contract.json").write_text(
+            (
+                "{\n"
+                '  "style_direction": "Editorial workspace",\n'
+                '  "typography": {"heading": "Space Grotesk", "body": "Inter"},\n'
+                '  "icon_system": "lucide-react",\n'
+                '  "emoji_policy": {"allowed_in_ui": false, "allowed_as_icon": false, "allowed_during_development": false},\n'
+                '  "ui_library_preference": {"final_selected": "shadcn/ui + Radix + Tailwind"},\n'
+                '  "design_tokens": {"color": {"primary": "#0f172a"}},\n'
+                '  "screen_recipes": [{"label": "North Star Hero", "section_order": ["hero"], "trust_modules": ["案例"], "required_states": ["loading"]}],\n'
+                '  "design_context_protocol": {"preferred_import_order": ["tokens"], "github_import_targets": ["theme.ts"], "single_source_rule": "single source"},\n'
+                '  "tweak_strategy": {"mode": "single-source prototype", "default_controls": ["信息密度"], "persistence_rule": "persist edits"},\n'
+                '  "verification_handoff": {"verification_order": ["preview"], "required_artifacts": ["output/frontend/index.html"], "acceptance_checks": ["no emoji"]}\n'
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        (frontend_dir / "design-tokens.css").write_text(
+            ":root { --color-primary: #0f172a; }\n", encoding="utf-8"
+        )
+        (output_dir / "demo-ui-contract-alignment.json").write_text(
+            json.dumps({"theme_entry": {"passed": True}}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-frontend-runtime.json").write_text(
+            (
+                "{\n"
+                '  "passed": true,\n'
+                '  "checks": {\n'
+                '    "ui_contract_json": true,\n'
+                '    "output_frontend_design_tokens": true,\n'
+                '    "ui_contract_alignment": true,\n'
+                '    "ui_theme_entry": true,\n'
+                '    "ui_navigation_shell": true,\n'
+                '    "ui_component_imports": true,\n'
+                '    "ui_banned_patterns": true,\n'
+                '    "ui_screen_recipes": true,\n'
+                '    "ui_design_context_protocol": true,\n'
+                '    "ui_tweak_strategy": true,\n'
+                '    "ui_verification_handoff": true\n'
+                "  }\n"
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-review.json").write_text(
+            json.dumps(
+                {
+                    "alignment_summary": {
+                        "runtime_claude_design_protocol": {
+                            "passed": True,
+                            "observed": "aligned with frontend-runtime",
+                        },
+                        "source_claude_design_protocol": {
+                            "passed": True,
+                            "observed": "screen_recipes, design_context_protocol, tweak_strategy, verification_handoff",
+                        },
+                        "screenshot_visual_judge": {
+                            "passed": False,
+                            "observed": "blank=0.82, contrast=0.09, dominant=0.91",
+                        },
+                    }
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        checker = QualityGateChecker(
+            project_dir=temp_project_dir,
+            name="demo",
+            tech_stack={"frontend": "react", "backend": "python"},
+            scenario_override="1-N+1",
+        )
+        check = checker._check_ui_contract_execution()
+        assert check.status.value == "failed"
+        assert "UI review 截图级视觉验收未通过" in check.details
+
     def test_ui_contract_execution_failed_when_cross_platform_contract_missing_framework_playbook(
         self, temp_project_dir: Path
     ):
@@ -953,7 +1460,11 @@ class TestQualityGateChecker:
                 '  "icon_system": "lucide-react",\n'
                 '  "emoji_policy": {"allowed_in_ui": false, "allowed_as_icon": false, "allowed_during_development": false},\n'
                 '  "ui_library_preference": {"final_selected": "TDesign 小程序 + Taro / UniApp + Tailwind(TW 适配)"},\n'
-                '  "design_tokens": {"color": {"primary": "#0f172a"}}\n'
+                '  "design_tokens": {"color": {"primary": "#0f172a"}},\n'
+                '  "screen_recipes": [{"label": "Miniapp Entry", "section_order": ["navigation", "hero"], "trust_modules": ["案例"], "required_states": ["loading"]}],\n'
+                '  "design_context_protocol": {"preferred_import_order": ["tokens"], "github_import_targets": ["pages.json"], "single_source_rule": "single source"},\n'
+                '  "tweak_strategy": {"mode": "single-source prototype", "default_controls": ["导航密度"], "persistence_rule": "persist edits"},\n'
+                '  "verification_handoff": {"verification_order": ["preview"], "required_artifacts": ["output/frontend/index.html"], "acceptance_checks": ["platform proof"]}\n'
                 "}\n"
             ),
             encoding="utf-8",
@@ -1000,6 +1511,10 @@ class TestQualityGateChecker:
                 '  "emoji_policy": {"allowed_in_ui": false, "allowed_as_icon": false, "allowed_during_development": false},\n'
                 '  "ui_library_preference": {"final_selected": "TDesign 小程序 + Taro / UniApp"},\n'
                 '  "design_tokens": {"color": {"primary": "#0f172a"}},\n'
+                '  "screen_recipes": [{"label": "Miniapp Entry", "section_order": ["navigation", "hero"], "trust_modules": ["案例"], "required_states": ["loading"]}],\n'
+                '  "design_context_protocol": {"preferred_import_order": ["tokens"], "github_import_targets": ["pages.json"], "single_source_rule": "single source"},\n'
+                '  "tweak_strategy": {"mode": "single-source prototype", "default_controls": ["导航密度"], "persistence_rule": "persist edits"},\n'
+                '  "verification_handoff": {"verification_order": ["preview"], "required_artifacts": ["output/frontend/index.html"], "acceptance_checks": ["platform proof"]},\n'
                 '  "framework_playbook": {\n'
                 '    "framework": "uni-app",\n'
                 '    "implementation_modules": ["自定义导航栏高度"],\n'

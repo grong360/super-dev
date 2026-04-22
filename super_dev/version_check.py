@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 from . import __version__
 
@@ -65,8 +66,11 @@ def _fetch_latest() -> str | None:
     try:
         import urllib.request
 
+        parsed = urlparse(_PYPI_URL)
+        if parsed.scheme != "https" or not parsed.netloc:
+            return None
         req = urllib.request.Request(_PYPI_URL, headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:  # nosec B310
             data = json.loads(resp.read())
             return data.get("info", {}).get("version")
     except Exception:

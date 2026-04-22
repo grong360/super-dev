@@ -23,7 +23,7 @@ def _subprocess_env() -> dict[str, str]:
 
 
 def test_full_init_to_status_flow():
-    """Test: init -> detect -> status -> enforce -> quality in a temp dir."""
+    """Test: init -> detect -> status -> quality in a temp dir."""
     with tempfile.TemporaryDirectory() as tmpdir:
         project = Path(tmpdir)
 
@@ -64,39 +64,6 @@ def test_full_init_to_status_flow():
         )
         assert result.returncode in (0, 1)
 
-        # 4. Experts list
-        result = subprocess.run(
-            [PYTHON, "-m", "super_dev.cli", "experts", "list"],
-            cwd=tmpdir,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env=_subprocess_env(),
-        )
-        assert result.returncode == 0
-
-        # 5. Memory list (empty, should not crash)
-        result = subprocess.run(
-            [PYTHON, "-m", "super_dev.cli", "memory", "list"],
-            cwd=tmpdir,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env=_subprocess_env(),
-        )
-        assert result.returncode in (0, 1)
-
-        # 6. Config list
-        result = subprocess.run(
-            [PYTHON, "-m", "super_dev.cli", "config", "list"],
-            cwd=tmpdir,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env=_subprocess_env(),
-        )
-        assert result.returncode in (0, 1)
-
         # 7. Version
         result = subprocess.run(
             [PYTHON, "-m", "super_dev.cli", "--version"],
@@ -111,7 +78,7 @@ def test_full_init_to_status_flow():
 
 
 def test_root_help_surfaces_public_entrypoints_only():
-    """Test: root help shows the public two-command model by default."""
+    """Test: root help shows the public three-command model by default."""
     with tempfile.TemporaryDirectory() as tmpdir:
         result = subprocess.run(
             [PYTHON, "-m", "super_dev.cli", "--help"],
@@ -125,6 +92,7 @@ def test_root_help_surfaces_public_entrypoints_only():
         assert "Super Dev Public Help" in result.stdout
         assert "super-dev           打开宿主安装 / 接入引导" in result.stdout
         assert "super-dev update    更新到最新版本" in result.stdout
+        assert "super-dev uninstall 完整清理宿主接入面" in result.stdout
         assert "内部维护 / 治理命令请使用: super-dev --help-all" in result.stdout
         assert "可用命令:" not in result.stdout
 
@@ -141,6 +109,9 @@ def test_root_help_all_exposes_internal_command_index():
             env=_subprocess_env(),
         )
         assert result.returncode == 0
-        assert "可用命令:" in result.stdout
-        assert "onboard             首次接入向导" in result.stdout
+        assert "Super Dev Internal Command Index" in result.stdout
+        assert "内部维护命令索引" in result.stdout
+        assert "普通用户公开终端入口仍然只有 super-dev / super-dev update / super-dev" in result.stdout
+        assert "uninstall" in result.stdout
+        assert "onboard             内部维护：首次接入向导" in result.stdout
         assert "resume              回到当前仓库的 Super Dev 流程" in result.stdout

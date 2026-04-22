@@ -215,8 +215,8 @@ class RegressionGuardBuilder:
 
     @staticmethod
     def _recommended_commands(impact: ImpactAnalysisReport) -> list[str]:
-        commands = ["super-dev impact --json"]
+        commands = ["super-dev product-audit"]
         if impact.risk_level in {"medium", "high"}:
             commands.append("super-dev quality --type all")
-        commands.append("super-dev release proof-pack")
+        commands.append("查看最新 proof-pack / release readiness 报告，确认交付证据是否仍然成立")
         return commands

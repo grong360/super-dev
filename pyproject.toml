@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "super-dev"
-version = "2.3.8"
+version = "2.4.0"
 description = "Super Dev - Pipeline AI Coding Assistant"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,20 +45,28 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "pillow>=10.0.0",
+    "pip-audit>=2.7.0",
     "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
+    "types-PyYAML>=6.0.12",
 ]
 
 [dependency-groups]
 dev = [
+    "pillow>=10.0.0",
+    "pip-audit>=2.7.0",
     "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
+    "types-PyYAML>=6.0.12",
 ]
 
 [project.urls]
@@ -94,6 +102,19 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "super_dev.cli_analysis_mixin",
+    "super_dev.cli_design_mixin",
+    "super_dev.cli_governance_mixin",
+    "super_dev.cli_host_ops_mixin",
+    "super_dev.cli_release_quality_mixin",
+    "super_dev.cli_spec_mixin",
+    "super_dev.creators.document_generator_content_mixin",
+    "super_dev.integrations.manager_content_mixin",
+]
+disable_error_code = ["attr-defined"]
 
 [tool.pytest.ini_options]
 filterwarnings = [

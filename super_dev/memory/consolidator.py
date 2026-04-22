@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from .store import MAX_INDEX_BYTES, MAX_INDEX_LINES, MemoryEntry, MemoryStore
 
@@ -181,17 +182,18 @@ class MemoryConsolidator:
         result.duration_ms = (time.monotonic() - start) * 1000
         return result
 
-    def _load_state(self) -> dict:
+    def _load_state(self) -> dict[str, Any]:
         """加载整合状态"""
         state_path = self.memory_dir / self.STATE_FILE
         if not state_path.exists():
             return {}
         try:
-            return json.loads(state_path.read_text(encoding="utf-8"))
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
         except (json.JSONDecodeError, OSError):
             return {}
 
-    def _save_state(self, state: dict) -> None:
+    def _save_state(self, state: dict[str, Any]) -> None:
         """保存整合状态"""
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         state_path = self.memory_dir / self.STATE_FILE

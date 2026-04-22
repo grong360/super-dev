@@ -19,8 +19,16 @@ from typing import Optional, TypedDict
 import yaml  # type: ignore[import-untyped]
 from defusedxml import ElementTree
 
+from ..artifact_utils import resolve_project_artifact_prefix
+from ..baseline_governance import inspect_baseline_governance
 from ..config import ConfigManager
 from ..frameworks import framework_playbook_complete, is_cross_platform_frontend
+from ..host_runtime_governance import collect_layered_runtime_governance_gap
+from ..host_workflow_context import build_host_workflow_context
+from ..ui_contract_governance import (
+    CLAUDE_DESIGN_RUNTIME_CHECKS,
+    required_claude_design_runtime_checks,
+)
 from .redteam import RedTeamReport
 from .validation_rules import ValidationRuleEngine
 
@@ -64,6 +72,7 @@ class QualityGateResult:
     critical_failures: list[str] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
     scenario: str = "1-N+1"  # 场景类型: "0-1" 或 "1-N+1"
+    summary_context: dict[str, str] = field(default_factory=dict)
 
     @property
     def passed_checks(self) -> list[QualityCheck]:
@@ -76,6 +85,23 @@ class QualityGateResult:
     @property
     def warning_checks(self) -> list[QualityCheck]:
         return [c for c in self.checks if c.status == CheckStatus.WARNING]
+
+    @property
+    def executive_summary(self) -> str:
+        layered_runtime_text = str(self.summary_context.get("host_runtime_layered_gap", "")).strip()
+        compliance_text = str(self.summary_context.get("compliance_signal_summary", "")).strip()
+        workflow_text = str(self.summary_context.get("workflow_signal_summary", "")).strip()
+        baseline_text = str(self.summary_context.get("baseline_signal_summary", "")).strip()
+        if self.passed:
+            return (
+                f"质量门禁已通过，当前得分 {self.total_score}/100，加权分 {self.weighted_score:.1f}/100。"
+                f"{workflow_text}{baseline_text}{layered_runtime_text}{compliance_text}"
+            )
+        failed_names = "、".join(check.name for check in self.failed_checks[:3]) or "关键检查"
+        return (
+            f"质量门禁未通过，当前得分 {self.total_score}/100，加权分 {self.weighted_score:.1f}/100。"
+            f"优先修复：{failed_names}。{workflow_text}{baseline_text}{layered_runtime_text}{compliance_text}"
+        )
 
     @property
     def expert_summary(self) -> dict[str, dict]:
@@ -131,6 +157,10 @@ class QualityGateResult:
             f"**加权分**: {self.weighted_score:.1f}/100",
             "",
             "---",
+            "",
+            "## 执行摘要",
+            "",
+            self.executive_summary,
             "",
             "## 检查结果摘要",
             "",
@@ -342,6 +372,32 @@ class QualityGateResult:
 
         return "\n".join(lines)
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "passed": self.passed,
+            "total_score": self.total_score,
+            "weighted_score": self.weighted_score,
+            "critical_failures": list(self.critical_failures),
+            "recommendations": list(self.recommendations),
+            "scenario": self.scenario,
+            "summary": {
+                "executive_summary": self.executive_summary,
+                "summary_context": dict(self.summary_context),
+            },
+            "checks": [
+                {
+                    "name": check.name,
+                    "category": check.category,
+                    "description": check.description,
+                    "status": check.status.value,
+                    "score": check.score,
+                    "weight": check.weight,
+                    "details": check.details,
+                }
+                for check in self.checks
+            ],
+        }
+
 
 class HostProfileMetrics(TypedDict):
     label: str
@@ -421,7 +477,11 @@ class QualityGateChecker:
         host_compatibility_min_ready_hosts_override: int | None = None,
     ):
         self.project_dir = Path(project_dir).resolve()
-        self.name = name
+        self.name = resolve_project_artifact_prefix(
+            self.project_dir,
+            configured_name=name,
+            fallback_name=self.project_dir.name,
+        )
         self.tech_stack = tech_stack
         self.latest_ui_review_report = None
         self.threshold_override = threshold_override
@@ -754,82 +814,8 @@ class QualityGateChecker:
         except Exception:
             pass
 
-        # 12. Spec compliance checks (only if compliance reports already exist)
-        try:
-            output_dir = self.project_dir / "output"
-            spec_compliance_path = output_dir / "spec-compliance.json"
-            if spec_compliance_path.exists():
-                compliance_data = json.loads(spec_compliance_path.read_text(encoding="utf-8"))
-                score = compliance_data.get("score", 0)
-                coverage = compliance_data.get("coverage_percent", 0)
-                total_reqs = compliance_data.get("total_requirements", 0)
-                if total_reqs > 0:
-                    status = CheckStatus.PASSED if score >= 80 else (
-                        CheckStatus.WARNING if score >= 50 else CheckStatus.FAILED
-                    )
-                    checks.append(
-                        QualityCheck(
-                            name="Spec Compliance (Requirement Traceability)",
-                            category="spec_compliance",
-                            description=f"Coverage: {coverage}% ({total_reqs} requirements)",
-                            status=status,
-                            score=score,
-                            weight=2.0,
-                        )
-                    )
-        except Exception:
-            pass
-
-        try:
-            output_dir = self.project_dir / "output"
-            drift_path = output_dir / "architecture-drift.json"
-            if drift_path.exists():
-                drift_data = json.loads(drift_path.read_text(encoding="utf-8"))
-                score = drift_data.get("score", 0)
-                total_drifts = drift_data.get("total_drifts", 0)
-                critical_count = sum(
-                    1 for d in drift_data.get("drifts", []) if d.get("severity") == "critical"
-                )
-                status = CheckStatus.PASSED if score >= 80 else (
-                    CheckStatus.WARNING if score >= 50 else CheckStatus.FAILED
-                )
-                checks.append(
-                    QualityCheck(
-                        name="Architecture Drift Detection",
-                        category="architecture_drift",
-                        description=f"Drifts: {total_drifts} (Critical: {critical_count})",
-                        status=status,
-                        score=score,
-                        weight=2.5,
-                    )
-                )
-        except Exception:
-            pass
-
-        try:
-            output_dir = self.project_dir / "output"
-            uiux_path = output_dir / "uiux-compliance.json"
-            if uiux_path.exists():
-                uiux_data = json.loads(uiux_path.read_text(encoding="utf-8"))
-                score = uiux_data.get("score", 0)
-                violations = uiux_data.get("total_violations", 0)
-                files_scanned = uiux_data.get("files_scanned", 0)
-                if files_scanned > 0:
-                    status = CheckStatus.PASSED if score >= 80 else (
-                        CheckStatus.WARNING if score >= 50 else CheckStatus.FAILED
-                    )
-                    checks.append(
-                        QualityCheck(
-                            name="UIUX Compliance (Icon/Token/Typography)",
-                            category="uiux_compliance",
-                            description=f"Violations: {violations} across {files_scanned} files",
-                            status=status,
-                            score=score,
-                            weight=2.0,
-                        )
-                    )
-        except Exception:
-            pass
+        # 12. 规范/架构/UIUX 合规检查
+        checks.extend(self._check_compliance_artifacts())
 
         # 计算总分和加权分
         total_score = self._calculate_total_score(checks)
@@ -872,6 +858,9 @@ class QualityGateChecker:
 
         # 生成改进建议
         recommendations = self._generate_recommendations(checks)
+        host_runtime_layered_gap = self._host_runtime_layered_gap_summary()
+        workflow_signal_summary = self._workflow_signal_summary()
+        baseline_signal_summary = self._baseline_signal_summary()
 
         # 确定场景类型
         scenario = "0-1" if self.is_zero_to_one else "1-N+1"
@@ -884,7 +873,164 @@ class QualityGateChecker:
             critical_failures=critical_failures,
             recommendations=recommendations,
             scenario=scenario,
+            summary_context={
+                "workflow_signal_summary": workflow_signal_summary,
+                "baseline_signal_summary": baseline_signal_summary,
+                "host_runtime_layered_gap": host_runtime_layered_gap,
+                "compliance_signal_summary": self._compliance_signal_summary(checks),
+            },
         )
+
+    def _workflow_signal_summary(self) -> str:
+        context = build_host_workflow_context(self.project_dir)
+        status = str(context.get("workflow_status", "")).strip()
+        gate = str(context.get("blocking_gate", "")).strip()
+        next_action = str(context.get("recommended_host_action", "")).strip()
+        if not status:
+            return ""
+        if gate:
+            action_text = f" 下一步：{next_action}。" if next_action else ""
+            return f" 当前流程状态为 {status}，入口 gate={gate}。{action_text}"
+        return f" 当前流程状态为 {status}，主入口 gate 已闭环。"
+
+    def _baseline_signal_summary(self) -> str:
+        baseline = inspect_baseline_governance(self.project_dir)
+        status = str(baseline.get("status", "")).strip()
+        entry_gate = str(baseline.get("entry_gate", "")).strip()
+        next_action = str(baseline.get("next_host_action", "")).strip()
+        if status == "missing_audit":
+            return " 当前是已有项目模式，但 baseline audit 还没生成。"
+        if entry_gate == "waiting_baseline_confirmation":
+            action_text = f" 下一步：{next_action}。" if next_action else ""
+            return " 当前是已有项目模式，但 baseline 还没确认。" + action_text
+        if entry_gate == "waiting_resume_gate":
+            action_text = f" 下一步：{next_action}。" if next_action else ""
+            return " 当前先处理 resume gate，再继续已有项目差量链路。" + action_text
+        return ""
+
+    def _host_runtime_layered_gap_summary(self) -> str:
+        governance_gap = collect_layered_runtime_governance_gap(self.project_dir)
+        summary = str(governance_gap.get("summary", "")).strip() if governance_gap else ""
+        if not summary:
+            return ""
+        impacted_hosts = governance_gap.get("impacted_hosts", [])
+        if isinstance(impacted_hosts, list) and impacted_hosts:
+            return (
+                " 宿主验收存在分层差异："
+                + "、".join(str(item) for item in impacted_hosts[:3])
+                + " 已人工通过，但仓库级 continuity / harness / runtime 证据仍未闭环。"
+            )
+        return f" {summary}。"
+
+    def _compliance_signal_summary(self, checks: list[QualityCheck]) -> str:
+        compliance_checks = [
+            check
+            for check in checks
+            if check.category in {"spec_compliance", "architecture_drift", "uiux_compliance"}
+        ]
+        if not compliance_checks:
+            return ""
+        source_issues: list[str] = []
+        content_issues: list[str] = []
+        for check in compliance_checks:
+            match = re.search(r"Source:\s*([a-z_]+)", check.description)
+            source_state = match.group(1) if match else ""
+            if source_state and source_state != "ready":
+                source_issues.append(f"{check.name}={source_state}")
+            if check.status != CheckStatus.PASSED:
+                content_issues.append(check.name)
+        if source_issues:
+            return " 合规链当前优先卡在证据状态：" + "、".join(source_issues[:3]) + "。"
+        if content_issues:
+            return " 合规链证据已齐，但内容仍未达标：" + "、".join(content_issues[:3]) + "。"
+        return " 合规链证据与内容检查当前均已闭环。"
+
+    def _check_compliance_artifacts(self) -> list[QualityCheck]:
+        checks: list[QualityCheck] = []
+        output_dir = self.project_dir / "output"
+
+        try:
+            from .spec_compliance import inspect_spec_compliance_artifact, run_spec_compliance
+
+            inspection = inspect_spec_compliance_artifact(self.project_dir, output_dir)
+            report = run_spec_compliance(self.project_dir, output_dir)
+            if report.total_requirements > 0:
+                score = report.score
+                status = CheckStatus.PASSED if score >= 80 else (
+                    CheckStatus.WARNING if score >= 50 else CheckStatus.FAILED
+                )
+                checks.append(
+                    QualityCheck(
+                        name="Spec Compliance (Requirement Traceability)",
+                        category="spec_compliance",
+                        description=(
+                            f"Source: {inspection['status']}; Coverage: {report.coverage_percent}% "
+                            f"({report.total_requirements} requirements)"
+                        ),
+                        status=status,
+                        score=score,
+                        weight=2.0,
+                    )
+                )
+        except Exception:
+            pass
+
+        try:
+            from .architecture_drift import (
+                inspect_architecture_drift_artifact,
+                run_architecture_drift,
+            )
+
+            inspection = inspect_architecture_drift_artifact(self.project_dir, output_dir)
+            report = run_architecture_drift(self.project_dir, output_dir)
+            if report.total_drifts > 0 or report.declared_tech_stack:
+                score = report.score
+                status = CheckStatus.PASSED if score >= 80 else (
+                    CheckStatus.WARNING if score >= 50 else CheckStatus.FAILED
+                )
+                checks.append(
+                    QualityCheck(
+                        name="Architecture Drift Detection",
+                        category="architecture_drift",
+                        description=(
+                            f"Source: {inspection['status']}; Drifts: {report.total_drifts} "
+                            f"(Critical: {report.critical_count})"
+                        ),
+                        status=status,
+                        score=score,
+                        weight=2.5,
+                    )
+                )
+        except Exception:
+            pass
+
+        try:
+            from .uiux_compliance import inspect_uiux_compliance_artifact, run_uiux_compliance
+
+            inspection = inspect_uiux_compliance_artifact(self.project_dir, output_dir)
+            report = run_uiux_compliance(self.project_dir, output_dir)
+            if report.files_scanned > 0:
+                score = report.score
+                status = CheckStatus.PASSED if score >= 80 else (
+                    CheckStatus.WARNING if score >= 50 else CheckStatus.FAILED
+                )
+                checks.append(
+                    QualityCheck(
+                        name="UIUX Compliance (Icon/Token/Typography)",
+                        category="uiux_compliance",
+                        description=(
+                            f"Source: {inspection['status']}; Violations: {report.total_violations} "
+                            f"across {report.files_scanned} files"
+                        ),
+                        status=status,
+                        score=score,
+                        weight=2.0,
+                    )
+                )
+        except Exception:
+            pass
+
+        return checks
 
     # ------------------------------------------------------------------
     # 文档内容深度检查（防止空壳文档自动满分）
@@ -1445,6 +1591,7 @@ class QualityGateChecker:
         design_tokens_path = frontend_dir / "design-tokens.css"
         runtime_path = output_dir / f"{self.name}-frontend-runtime.json"
         alignment_path = output_dir / f"{self.name}-ui-contract-alignment.json"
+        ui_review_path = output_dir / f"{self.name}-ui-review.json"
 
         if (
             not ui_contract_path.exists()
@@ -1513,11 +1660,49 @@ class QualityGateChecker:
             if isinstance(payload.get("framework_playbook"), dict)
             else {}
         )
+        screen_recipes = payload.get("screen_recipes") if isinstance(payload.get("screen_recipes"), list) else []
+        design_context_protocol = (
+            payload.get("design_context_protocol")
+            if isinstance(payload.get("design_context_protocol"), dict)
+            else {}
+        )
+        tweak_strategy = (
+            payload.get("tweak_strategy")
+            if isinstance(payload.get("tweak_strategy"), dict)
+            else {}
+        )
+        verification_handoff = (
+            payload.get("verification_handoff")
+            if isinstance(payload.get("verification_handoff"), dict)
+            else {}
+        )
         icon_system = (
             payload.get("icon_system")
             or component_stack.get("icon")
             or component_stack.get("icons")
             or ""
+        )
+        screen_recipe_ready = bool(screen_recipes) and all(
+            isinstance(item, dict)
+            and bool(item.get("section_order"))
+            and bool(item.get("trust_modules"))
+            and bool(item.get("required_states"))
+            for item in screen_recipes
+        )
+        design_context_ready = (
+            bool(design_context_protocol.get("preferred_import_order"))
+            and bool(design_context_protocol.get("github_import_targets"))
+            and bool(design_context_protocol.get("single_source_rule"))
+        )
+        tweak_strategy_ready = (
+            bool(tweak_strategy.get("mode"))
+            and bool(tweak_strategy.get("default_controls"))
+            and bool(tweak_strategy.get("persistence_rule"))
+        )
+        verification_handoff_ready = (
+            bool(verification_handoff.get("verification_order"))
+            and bool(verification_handoff.get("required_artifacts"))
+            and bool(verification_handoff.get("acceptance_checks"))
         )
         required_sections = {
             "style_direction": bool(payload.get("style_direction")),
@@ -1539,6 +1724,10 @@ class QualityGateChecker:
             and bool(payload.get("ui_library_preference")),
             "design_tokens": isinstance(payload.get("design_tokens"), dict)
             and bool(payload.get("design_tokens")),
+            "screen_recipes": screen_recipe_ready,
+            "design_context_protocol": design_context_ready,
+            "tweak_strategy": tweak_strategy_ready,
+            "verification_handoff": verification_handoff_ready,
         }
         if cross_platform_frontend:
             required_sections["framework_playbook"] = framework_playbook_complete(
@@ -1652,6 +1841,7 @@ class QualityGateChecker:
             )
 
         checks = runtime_payload.get("checks", {})
+        required_runtime_checks = required_claude_design_runtime_checks(payload)
         runtime_ready = (
             isinstance(checks, dict)
             and bool(runtime_payload.get("passed", False))
@@ -1664,8 +1854,14 @@ class QualityGateChecker:
             and bool(checks.get("ui_banned_patterns", False))
             and bool(checks.get("ui_framework_playbook", True))
             and bool(checks.get("ui_framework_execution", True))
+            and all(bool(checks.get(name, False)) for name in required_runtime_checks)
         )
         if not runtime_ready:
+            missing_protocol_checks = [
+                CLAUDE_DESIGN_RUNTIME_CHECKS.get(name, name)
+                for name in required_runtime_checks
+                if not bool(checks.get(name, False))
+            ]
             if cross_platform_frontend:
                 framework_name = str(
                     framework_playbook.get("framework") or frontend_value or "cross-platform"
@@ -1679,6 +1875,11 @@ class QualityGateChecker:
                     weight=self.CHECKS_CONFIG["ui_quality"]["weight"],
                     details=(
                         f"frontend runtime 未证明 {framework_name} 跨平台框架 playbook 与专项执行已真实接入前端"
+                        + (
+                            f"；Claude-Design 协议缺口: {', '.join(missing_protocol_checks)}"
+                            if missing_protocol_checks
+                            else ""
+                        )
                     ),
                 )
             return QualityCheck(
@@ -1688,8 +1889,114 @@ class QualityGateChecker:
                 status=CheckStatus.FAILED,
                 score=35,
                 weight=self.CHECKS_CONFIG["ui_quality"]["weight"],
-                details="frontend runtime 未证明 UI 契约文件、Design Token 与跨平台框架 playbook 已真实接入前端",
+                details=(
+                    "frontend runtime 未证明 UI 契约文件、Design Token 与跨平台框架 playbook 已真实接入前端"
+                    + (
+                        f"；Claude-Design 协议缺口: {', '.join(missing_protocol_checks)}"
+                        if missing_protocol_checks
+                        else ""
+                    )
+                ),
             )
+
+        ui_review_payload: dict[str, object] = {}
+        if ui_review_path.exists():
+            try:
+                loaded_ui_review = json.loads(ui_review_path.read_text(encoding="utf-8"))
+                if isinstance(loaded_ui_review, dict):
+                    ui_review_payload = loaded_ui_review
+            except Exception:
+                ui_review_payload = {}
+        alignment_summary = (
+            ui_review_payload.get("alignment_summary", {})
+            if isinstance(ui_review_payload.get("alignment_summary"), dict)
+            else {}
+        )
+        runtime_protocol_alignment = (
+            alignment_summary.get("runtime_claude_design_protocol", {})
+            if isinstance(alignment_summary.get("runtime_claude_design_protocol"), dict)
+            else {}
+        )
+        source_protocol_alignment = (
+            alignment_summary.get("source_claude_design_protocol", {})
+            if isinstance(alignment_summary.get("source_claude_design_protocol"), dict)
+            else {}
+        )
+        screenshot_visual_judge = (
+            alignment_summary.get("screenshot_visual_judge", {})
+            if isinstance(alignment_summary.get("screenshot_visual_judge"), dict)
+            else {}
+        )
+        premium_ui_contract_keys = [
+            ("brand_signal_manifest", "品牌信号与权威感"),
+            ("proof_composition_rules", "证明构图规则"),
+            ("component_craft_requirements", "组件工艺要求"),
+            ("layout_tension_rules", "布局张力纪律"),
+        ]
+        if required_runtime_checks and ui_review_payload:
+            if runtime_protocol_alignment and not bool(runtime_protocol_alignment.get("passed", False)):
+                observed = str(runtime_protocol_alignment.get("observed", "")).strip()
+                return QualityCheck(
+                    name="UI 契约执行",
+                    category="ui_quality",
+                    description="UI 契约、Design Token 与运行时验证闭环",
+                    status=CheckStatus.FAILED,
+                    score=35,
+                    weight=self.CHECKS_CONFIG["ui_quality"]["weight"],
+                    details=(
+                        "UI review 与 frontend runtime 的 Claude-Design 协议证据未闭环"
+                        + (f"；{observed}" if observed else "")
+                    ),
+                )
+            if source_protocol_alignment and not bool(source_protocol_alignment.get("passed", False)):
+                observed = str(source_protocol_alignment.get("observed", "")).strip()
+                return QualityCheck(
+                    name="UI 契约执行",
+                    category="ui_quality",
+                    description="UI 契约、Design Token 与运行时验证闭环",
+                    status=CheckStatus.FAILED,
+                    score=35,
+                    weight=self.CHECKS_CONFIG["ui_quality"]["weight"],
+                    details=(
+                        "UI review 未在源码/预览中看到 Claude-Design 协议落地信号"
+                        + (f"；observed={observed}" if observed else "")
+                    ),
+                )
+            if screenshot_visual_judge and not bool(screenshot_visual_judge.get("passed", False)):
+                observed = str(screenshot_visual_judge.get("observed", "")).strip()
+                return QualityCheck(
+                    name="UI 契约执行",
+                    category="ui_quality",
+                    description="UI 契约、Design Token 与运行时验证闭环",
+                    status=CheckStatus.FAILED,
+                    score=40,
+                    weight=self.CHECKS_CONFIG["ui_quality"]["weight"],
+                    details=(
+                        "UI review 截图级视觉验收未通过，页面仍然过平、过空或过于单一"
+                        + (f"；{observed}" if observed else "")
+                    ),
+                )
+        if ui_review_payload:
+            failed_premium_contracts = [
+                label
+                for key, label in premium_ui_contract_keys
+                if isinstance(alignment_summary.get(key), dict)
+                and alignment_summary[key].get("passed") is False
+            ]
+            if failed_premium_contracts:
+                return QualityCheck(
+                    name="UI 契约执行",
+                    category="ui_quality",
+                    description="UI 契约、Design Token 与运行时验证闭环",
+                    status=CheckStatus.FAILED,
+                    score=42,
+                    weight=self.CHECKS_CONFIG["ui_quality"]["weight"],
+                    details=(
+                        "UI review 已指出高阶设计合同仍未冻结："
+                        + "、".join(failed_premium_contracts)
+                        + "；宿主还没有拿到足够强的品牌/证明/工艺/布局图纸。"
+                    ),
+                )
 
         library = payload.get("ui_library_preference", {}).get("final_selected", "-")
         return QualityCheck(
@@ -2970,7 +3277,7 @@ class QualityGateChecker:
             ("UI/UX 文档", "运行 `super-dev run` 生成文档"),
             ("安全", "运行 `super-dev quality --type security` 查看详情"),
             ("测试", "运行 `pytest` 执行测试"),
-            ("Spec 任务", "运行 `super-dev spec list` 查看任务状态"),
+            ("Spec 任务", "查看当前 change 的 `tasks.md` 与 Spec 状态，确认待实现任务是否仍未闭环"),
             ("宿主兼容性", "运行 `super-dev doctor --repair` 修复"),
             ("演练", "运行 `super-dev release readiness` 检查"),
             ("UI 质量", "运行 `super-dev review ui` 查看 UI 审查报告"),

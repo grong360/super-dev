@@ -7,7 +7,9 @@ from typing import Any
 
 _WORKFLOW_EVENT_LABELS = {
     "workflow_state_saved": "流程状态已保存",
+    "baseline_confirmation_saved": "基线确认状态已更新",
     "docs_confirmation_saved": "三文档确认状态已更新",
+    "resume_gate_saved": "恢复门状态已更新",
     "ui_revision_saved": "UI 改版状态已更新",
     "preview_confirmation_saved": "前端预览确认状态已更新",
     "architecture_revision_saved": "架构改版状态已更新",
@@ -26,6 +28,14 @@ def review_state_dir(project_dir: Path) -> Path:
 
 def docs_confirmation_file(project_dir: Path) -> Path:
     return review_state_dir(project_dir) / "document-confirmation.json"
+
+
+def baseline_confirmation_file(project_dir: Path) -> Path:
+    return review_state_dir(project_dir) / "baseline-confirmation.json"
+
+
+def resume_gate_file(project_dir: Path) -> Path:
+    return review_state_dir(project_dir) / "resume-gate.json"
 
 
 def ui_revision_file(project_dir: Path) -> Path:
@@ -240,8 +250,8 @@ def load_recent_operational_timeline(
         hook_items = HookManager.load_recent_history(project_dir, limit=max_items)
     except Exception:
         hook_items = []
-    for item in hook_items:
-        payload = item.to_dict()
+    for hook_item in hook_items:
+        payload = hook_item.to_dict()
         timestamp = str(payload.get("timestamp", "")).strip() or _utc_now()
         timeline.append(
             {
@@ -259,6 +269,28 @@ def load_recent_operational_timeline(
 
 def load_docs_confirmation(project_dir: Path) -> dict[str, Any] | None:
     file_path = docs_confirmation_file(project_dir)
+    if not file_path.exists():
+        return None
+    try:
+        payload = json.loads(file_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def load_baseline_confirmation(project_dir: Path) -> dict[str, Any] | None:
+    file_path = baseline_confirmation_file(project_dir)
+    if not file_path.exists():
+        return None
+    try:
+        payload = json.loads(file_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def load_resume_gate(project_dir: Path) -> dict[str, Any] | None:
+    file_path = resume_gate_file(project_dir)
     if not file_path.exists():
         return None
     try:
@@ -355,6 +387,40 @@ def save_docs_confirmation(project_dir: Path, payload: dict[str, Any]) -> Path:
         payload=normalized,
         source_path=file_path,
         extra={"review_type": "docs_confirmation"},
+    )
+    return file_path
+
+
+def save_baseline_confirmation(project_dir: Path, payload: dict[str, Any]) -> Path:
+    state_dir = review_state_dir(project_dir)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    normalized = dict(payload)
+    normalized["updated_at"] = _utc_now()
+    file_path = baseline_confirmation_file(project_dir)
+    file_path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
+    _append_workflow_event(
+        project_dir,
+        event="baseline_confirmation_saved",
+        payload=normalized,
+        source_path=file_path,
+        extra={"review_type": "baseline_confirmation"},
+    )
+    return file_path
+
+
+def save_resume_gate(project_dir: Path, payload: dict[str, Any]) -> Path:
+    state_dir = review_state_dir(project_dir)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    normalized = dict(payload)
+    normalized["updated_at"] = _utc_now()
+    file_path = resume_gate_file(project_dir)
+    file_path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
+    _append_workflow_event(
+        project_dir,
+        event="resume_gate_saved",
+        payload=normalized,
+        source_path=file_path,
+        extra={"review_type": "resume_gate"},
     )
     return file_path
 

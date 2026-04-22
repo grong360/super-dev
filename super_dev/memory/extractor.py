@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -347,13 +348,7 @@ def _extract_delivery_memories(phase: str, context: dict[str, Any]) -> list[Memo
 
 _PHASE_EXTRACTORS: dict[
     str,
-    list[
-        tuple[
-            str,  # label for logging
-            type,  # expected memory type (unused, for docs)
-            Any,  # callable(phase, context) -> list[MemoryEntry]
-        ]
-    ],
+    list[tuple[str, str, ExtractorFn]],
 ] = {
     "discovery": [("project", "project", _extract_discovery_memories)],
     "intelligence": [("reference", "reference", _extract_intelligence_memories)],
@@ -449,3 +444,4 @@ class MemoryExtractor:
             if label == "reference":
                 entries.extend(fn(phase, context))
         return entries
+ExtractorFn = Callable[[str, dict[str, Any]], list[MemoryEntry]]

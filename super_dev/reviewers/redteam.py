@@ -12,8 +12,10 @@ import os
 import re
 import shutil
 import subprocess  # nosec B404
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Protocol, cast
 
 try:
     from .review_agents import (
@@ -24,6 +26,34 @@ try:
     REVIEW_AGENTS_AVAILABLE = True
 except ImportError:
     REVIEW_AGENTS_AVAILABLE = False
+
+
+def _coerce_optional_int(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _coerce_int(value: object, default: int) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
+class _IssueLike(Protocol):
+    severity: str
+    description: str
+    recommendation: str
 
 
 @dataclass
@@ -60,7 +90,7 @@ class SecurityIssue:
             file_path=(
                 str(payload.get("file_path")) if payload.get("file_path") is not None else None
             ),
-            line=int(payload.get("line")) if payload.get("line") is not None else None,
+            line=_coerce_optional_int(payload.get("line")),
         )
 
 
@@ -98,7 +128,7 @@ class PerformanceIssue:
             file_path=(
                 str(payload.get("file_path")) if payload.get("file_path") is not None else None
             ),
-            line=int(payload.get("line")) if payload.get("line") is not None else None,
+            line=_coerce_optional_int(payload.get("line")),
         )
 
 
@@ -136,7 +166,7 @@ class ArchitectureIssue:
             file_path=(
                 str(payload.get("file_path")) if payload.get("file_path") is not None else None
             ),
-            line=int(payload.get("line")) if payload.get("line") is not None else None,
+            line=_coerce_optional_int(payload.get("line")),
         )
 
 
@@ -320,11 +350,23 @@ class RedTeamReport:
         lines.extend(["", "---", ""])
 
         # 声明式规则检测结果
-        decl_issues: list[SecurityIssue | PerformanceIssue | ArchitectureIssue] = [
-            i
-            for i in self.security_issues + self.performance_issues + self.architecture_issues
-            if i.description.startswith("[RT-")
-        ]
+        def _collect_decl_issues(
+            source: Sequence[_IssueLike],
+            target: list[_IssueLike],
+        ) -> None:
+            for issue in source:
+                if issue.description.startswith("[RT-"):
+                    target.append(issue)
+
+        all_issues = cast(list[_IssueLike], [])
+        all_issues.extend(self.security_issues)
+        all_issues.extend(self.performance_issues)
+        all_issues.extend(self.architecture_issues)
+
+        decl_issues = cast(list[_IssueLike], [])
+        _collect_decl_issues(self.security_issues, decl_issues)
+        _collect_decl_issues(self.performance_issues, decl_issues)
+        _collect_decl_issues(self.architecture_issues, decl_issues)
         lines.extend(
             [
                 "## 4. 声明式规则检测结果",
@@ -338,7 +380,7 @@ class RedTeamReport:
             lines.append("")
             lines.append("| 规则 ID | 严重性 | 描述 | 文件 | 建议 |")
             lines.append("|:---|:---|:---|:---|:---|")
-            for issue in decl_issues:
+            for issue in cast(Sequence[_IssueLike], decl_issues):  # type: ignore[assignment]
                 # 从 description 中提取规则 ID，格式为 [RT-XXX-NNN]
                 rule_id_match = re.match(r"\[(RT-[A-Z]+-\d+)\]", issue.description)
                 rule_id = rule_id_match.group(1) if rule_id_match else "-"
@@ -364,11 +406,10 @@ class RedTeamReport:
             ]
         )
 
-        p0_issues: list[SecurityIssue | PerformanceIssue | ArchitectureIssue] = [
-            i
-            for i in self.security_issues + self.performance_issues + self.architecture_issues
-            if i.severity in ("critical", "high")
-        ]
+        p0_issues = cast(list[_IssueLike], [])
+        for issue in cast(Sequence[_IssueLike], all_issues):  # type: ignore[assignment]
+            if issue.severity in ("critical", "high"):
+                p0_issues.append(issue)
 
         if not p0_issues:
             lines.append("无 P0 级别问题。")
@@ -390,11 +431,10 @@ class RedTeamReport:
             ]
         )
 
-        p1_issues: list[SecurityIssue | PerformanceIssue | ArchitectureIssue] = [
-            i
-            for i in self.security_issues + self.performance_issues + self.architecture_issues
-            if i.severity == "medium"
-        ]
+        p1_issues = cast(list[_IssueLike], [])
+        for issue in cast(Sequence[_IssueLike], all_issues):  # type: ignore[assignment]
+            if issue.severity == "medium":
+                p1_issues.append(issue)
 
         if not p1_issues:
             lines.append("无 P1 级别问题。")
@@ -428,25 +468,34 @@ class RedTeamReport:
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "RedTeamReport":
+        security_payload = payload.get("security_issues")
+        performance_payload = payload.get("performance_issues")
+        architecture_payload = payload.get("architecture_issues")
         return cls(
             project_name=str(payload.get("project_name", "")),
-            pass_threshold=int(payload.get("pass_threshold", 70)),
-            scanned_files_count=int(payload.get("scanned_files_count", -1)),
+            pass_threshold=_coerce_int(payload.get("pass_threshold"), 70),
+            scanned_files_count=_coerce_int(payload.get("scanned_files_count"), -1),
             security_issues=[
                 SecurityIssue.from_dict(item)
-                for item in payload.get("security_issues", [])
+                for item in security_payload
                 if isinstance(item, dict)
-            ],
+            ]
+            if isinstance(security_payload, list)
+            else [],
             performance_issues=[
                 PerformanceIssue.from_dict(item)
-                for item in payload.get("performance_issues", [])
+                for item in performance_payload
                 if isinstance(item, dict)
-            ],
+            ]
+            if isinstance(performance_payload, list)
+            else [],
             architecture_issues=[
                 ArchitectureIssue.from_dict(item)
-                for item in payload.get("architecture_issues", [])
+                for item in architecture_payload
                 if isinstance(item, dict)
-            ],
+            ]
+            if isinstance(architecture_payload, list)
+            else [],
         )
 
 
@@ -593,7 +642,7 @@ class RedTeamReviewer:
         self._redteam_rules = self._load_redteam_rules()
         self._expert_rules = self._load_expert_rules()
 
-    def _load_redteam_rules(self) -> list[dict]:
+    def _load_redteam_rules(self) -> list[dict[str, Any]]:
         """从 YAML 加载声明式红队规则"""
         rules_path = Path(__file__).parent / "rules" / "redteam_rules.yaml"
         if rules_path.exists():
@@ -601,9 +650,11 @@ class RedTeamReviewer:
                 import yaml
 
                 with open(rules_path, encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
+                    data: object = yaml.safe_load(f)
                     if isinstance(data, dict):
-                        return data.get("redteam_rules", [])
+                        rules = data.get("redteam_rules")
+                        if isinstance(rules, list):
+                            return cast(list[dict[str, Any]], rules)
             except Exception:
                 pass
         return []
@@ -1787,7 +1838,7 @@ class RedTeamReviewer:
                 )
 
             # 检查 Python 依赖版本是否过于宽松
-            version_spec = dep_info.get("version", "")
+            version_spec = dep_info["version"] or ""
             if version_spec and (">=" in version_spec and "," not in version_spec):
                 issues.append(
                     SecurityIssue(

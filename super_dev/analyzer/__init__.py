@@ -4,6 +4,7 @@ Super Dev 项目分析器
 """
 
 from .analyzer import ArchitectureReport, ProjectAnalyzer
+from .baseline_audit import BaselineAuditBuilder, BaselineAuditReport
 from .dependency_graph import (
     CriticalPath,
     DependencyEdge,
@@ -30,6 +31,8 @@ from .repo_map import RepoMapBuilder, RepoMapItem, RepoMapReport
 
 __all__ = [
     "ProjectAnalyzer",
+    "BaselineAuditBuilder",
+    "BaselineAuditReport",
     "ProjectCategory",
     "ProjectType",
     "ArchitectureReport",

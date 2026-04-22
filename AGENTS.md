@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Super Dev is a Python CLI tool (v2.3.8) that orchestrates AI-driven development pipelines inside host environments (e.g., Claude Code). It provides governance, quality gates, and audit artifacts for commercial-grade software delivery. It is NOT an independent AI agent — it's a governance layer that runs inside a host's coding environment.
+Super Dev is a Python CLI tool (v2.4.0) that orchestrates AI-driven development pipelines inside host environments (e.g., Claude Code). It provides governance, quality gates, and audit artifacts for commercial-grade software delivery. It is NOT an independent AI agent — it's a governance layer that runs inside a host's coding environment.
 
 ## Project Structure & Module Organization
 
@@ -51,13 +51,13 @@ super_dev/
     document_generator.py        # PRD, architecture, UIUX document generation
     document_generator_content_mixin.py  # document content generation mixin
     prompt_generator.py / prompt_templates.py / prompt_sections.py  # LLM prompts
-    frontend_builder.py          # frontend scaffolding
-    implementation_builder.py    # backend implementation scaffolding
+    frontend_builder.py          # frontend implementation playbooks
+    implementation_builder.py    # backend implementation references
     spec_builder.py              # spec generation from documents
     adr_generator.py             # Architecture Decision Record generation
     api_contract.py              # API contract generation
-    component_scaffold.py        # component scaffolding
-    nextjs_scaffold.py           # Next.js project scaffolding
+    component_scaffold.py        # component implementation references
+    nextjs_scaffold.py           # Next.js implementation references
     requirement_parser.py        # requirement parsing utilities
     task_executor.py             # task execution within creator pipeline
     creator.py                   # base creator class
@@ -137,8 +137,7 @@ scripts/                         # Build/release/utility scripts
 output/                          # Generated pipeline artifacts (PRD, specs, research)
 .super-dev/                      # Session state and workflow tracking
 super-dev-website/               # Project website source
-super-dev-openclaw/              # OpenClaw plugin package
-templates/                       # Project templates for scaffolding
+templates/                       # Project implementation/reference templates
 ```
 
 ## Build, Test, and Development Commands
@@ -209,7 +208,7 @@ chore: description              # maintenance
 release: description            # version release
 ```
 
-Common scopes: `orchestrator`, `enforcement`, `website`, `openclaw`, `design`. Keep messages concise, focused on "why." PRs should link to relevant issues; squash-merge is used for feature branches.
+Common scopes: `orchestrator`, `enforcement`, `website`, `hosts`, `design`. Keep messages concise, focused on "why." PRs should link to relevant issues; squash-merge is used for feature branches.
 
 ## Architecture & Pipeline
 
@@ -275,7 +274,7 @@ If the repository already contains active Super Dev workflow context, the first 
 - Do not start coding directly after `/super-dev` skill entry, `$super-dev`, `super-dev:`, or `super-dev：`.
 - Do not create Spec before document confirmation.
 - If the user requests architecture changes, first update `output/*-architecture.md`, then realign Spec/tasks and implementation.
-- If the user requests quality or security remediation, first fix the issues, rerun quality gate and `super-dev release proof-pack`, and only then continue.
+- If the user requests quality or security remediation, first fix the issues, rerun quality gate, refresh delivery evidence, and only then continue.
 - 开始任何 UI 实现前，必须先锁定 `output/*-uiux.md` 中冻结的图标库、字体系统、design token system、组件生态和页面骨架。
 - Before any UI implementation, first lock the icon library, typography, design token system, component ecosystem, and page skeleton from `output/*-uiux.md`.
 - Do not use emoji as functional icons or placeholders.
@@ -345,8 +344,7 @@ Use Super Dev generated artifacts as source of truth.
 ## Trigger
 - Preferred: `/super-dev "<需求描述>"`
 - SEEAI competition mode: `/super-dev-seeai "<需求描述>"`
-- Terminal entry (local orchestration only): `super-dev "<需求描述>"`
-- Terminal entry does not directly talk to the host model session.
+- Local terminal only handles install / update / uninstall; normal development should return to the host session.
 
 ## Required Context
 - output/*-prd.md
@@ -364,7 +362,7 @@ Use Super Dev generated artifacts as source of truth.
 6. Implement backend APIs and data layer, then run tests, quality gate, and release preparation
 7. If the user says the UI is unsatisfactory, asks for a redesign, or says the page looks AI-generated, first update `output/*-uiux.md`, then redo frontend implementation, rerun frontend runtime and UI review, and only then continue.
 8. If the user says the architecture is wrong or the technical plan must change, first update `output/*-architecture.md`, then realign tasks and implementation before continuing.
-9. If the user says quality or security is not acceptable, first fix the issues, rerun quality gate and `super-dev release proof-pack`, and only then continue.
+9. If the user says quality or security is not acceptable, first fix the issues, rerun quality gate, refresh delivery evidence, and only then continue.
 10. Before any UI implementation, first lock the icon library, typography, token system, component ecosystem, and page skeleton according to `output/*-uiux.md`.
 11. Do not use emoji as functional icons or placeholders, and do not leave icon decisions for later.
 12. For non-conversational AI products, default to avoiding Claude / ChatGPT-style sidebar chat shells, narrow-center conversation layouts, and the same neutral chat color shell unless the UI plan explicitly justifies it.
@@ -447,7 +445,7 @@ These rules apply every time you write or edit a file:
 - If the user requests revisions, update the documents first and ask again; do not create Spec or code before confirmation.
 - If the user requests a UI redesign or says the UI is unsatisfactory, first update `output/*-uiux.md`, then redo the frontend, and rerun frontend runtime + UI review before continuing.
 - If the user requests architecture changes, first update `output/*-architecture.md`, then realign tasks and implementation before continuing.
-- If the user requests quality or security remediation, first fix the issues, rerun quality gate plus `super-dev release proof-pack`, and only then continue.
+- If the user requests quality or security remediation, first fix the issues, rerun quality gate, refresh delivery evidence, and only then continue.
 - Respect Spec tasks sequence.
 - Implement and run the frontend before moving into backend-heavy work.
 - Keep architecture and UIUX consistency.
@@ -492,10 +490,6 @@ These rules apply every time you write or edit a file:
 - PREVIEW_CONFIRM_GATE: required
 - HOST_PARITY: required
 <!-- END SUPER DEV QODER -->
-
-
-
-
 
 
 

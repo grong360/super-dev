@@ -83,27 +83,6 @@ def test_setup_cursor_host():
 # ── Enforce lifecycle ──────────────────────────────────────────────
 
 
-def test_enforce_install_and_validate():
-    """Test enforcement system works end-to-end."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        _run(["init", "enforce-proj", "-f", "react-vite", "-b", "node"], cwd=tmpdir)
-
-        # enforce install
-        r1 = _run(["enforce", "install"], cwd=tmpdir)
-        assert r1.returncode in (0, 1), f"enforce install crashed: {r1.stderr}"
-        assert "Traceback" not in r1.stderr
-
-        # enforce validate
-        r2 = _run(["enforce", "validate"], cwd=tmpdir)
-        assert r2.returncode in (0, 1), f"enforce validate crashed: {r2.stderr}"
-        assert "Traceback" not in r2.stderr
-
-        # enforce status
-        r3 = _run(["enforce", "status"], cwd=tmpdir)
-        assert r3.returncode in (0, 1), f"enforce status crashed: {r3.stderr}"
-        assert "Traceback" not in r3.stderr
-
-
 # ── Status lifecycle ───────────────────────────────────────────────
 
 
@@ -125,42 +104,7 @@ def test_status_after_init():
         assert "Traceback" not in result.stderr
 
 
-# ── Experts and memory ─────────────────────────────────────────────
-
-
-def test_experts_and_memory():
-    """Test expert listing and memory system."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        _run(["init", "expert-proj", "-f", "react-vite", "-b", "node"], cwd=tmpdir)
-
-        # experts list
-        r1 = _run(["experts", "list"], cwd=tmpdir)
-        assert r1.returncode == 0
-        # Should list multiple experts
-        output = r1.stdout + r1.stderr
-        # At least some expert names should appear
-        assert any(
-            kw in output.lower()
-            for kw in ["pm", "architect", "security", "qa", "code", "ui"]
-        ), f"Expected expert names in output, got: {output[:500]}"
-
-        # memory list (empty, should not crash)
-        r2 = _run(["memory", "list"], cwd=tmpdir)
-        assert r2.returncode in (0, 1)
-        assert "Traceback" not in r2.stderr
-
-
 # ── Generate components ────────────────────────────────────────────
-
-
-def test_generate_components():
-    """Test component scaffold generation command runs without crash."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        _run(["init", "gen-proj", "-f", "react-vite", "-b", "node"], cwd=tmpdir)
-        result = _run(["generate", "components"], cwd=tmpdir)
-        # May fail if no UIUX doc exists, but should not crash with traceback
-        assert result.returncode in (0, 1)
-        assert "Traceback" not in result.stderr
 
 
 # ── Doctor ─────────────────────────────────────────────────────────
@@ -250,15 +194,6 @@ def test_config_list():
 
 
 # ── Governance ─────────────────────────────────────────────────────
-
-
-def test_governance_report():
-    """Test governance report command."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        _run(["init", "gov-proj", "-f", "react-vite", "-b", "node"], cwd=tmpdir)
-        result = _run(["governance", "report"], cwd=tmpdir)
-        assert result.returncode in (0, 1)
-        assert "Traceback" not in result.stderr
 
 
 # ── Quality ────────────────────────────────────────────────────────

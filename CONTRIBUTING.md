@@ -49,7 +49,7 @@ ci: description             # CI/CD
 chore: description          # 维护
 ```
 
-常用 scope：`orchestrator`、`enforcement`、`cli`、`website`、`openclaw`。
+常用 scope：`orchestrator`、`enforcement`、`cli`、`website`、`hosts`。
 
 ## PR 要求 | PR Requirements
 

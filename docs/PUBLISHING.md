@@ -1,95 +1,45 @@
-# 发布指南（2.3.8）
+# 发布指南（入口页）
 
-> 面向 Super Dev 2.x 的标准发布流程。
+> 维护者专用。普通用户不需要阅读这份文档。
+>
+> 这份文档只保留最短发布路径。完整步骤、回滚策略和紧急处理统一以 [`docs/RELEASE_RUNBOOK.md`](./RELEASE_RUNBOOK.md) 为准。
 
-## 1. 发布前检查
+## 正式发布标准
 
-1. 更新版本号（`pyproject.toml` 与 `super_dev/__init__.py`）。
-2. 更新 `docs/releases/2.3.8.md` 或准备本次 GitHub Release Notes。
-3. 确认本地预检全部通过。
+只有同时满足下面 4 条，才算真正达到发布标准：
 
-执行强制预检：
+1. 版本号和本次版本说明已更新
+2. 工作树干净
+3. `./scripts/preflight.sh` 在不带 `--allow-dirty` 的情况下通过
+4. 再执行正式发布动作
+
+## 最短发布路径
+
+1. 更新版本号：
+   - `pyproject.toml`
+   - `super_dev/__init__.py`
+2. 更新本次版本说明：
+   - `docs/releases/<version>.md`
+3. 在干净工作树下运行正式预检：
 
 ```bash
 ./scripts/preflight.sh
 ```
 
-预检覆盖：
-
-- `ruff check super_dev tests`
-- `mypy super_dev`
-- `pytest -q`
-- `python3 scripts/check_delivery_ready.py --smoke`
-- `bandit -ll -r super_dev`
-- `pip-audit .`
-- `python3 tests/benchmark.py`
-- `uv build` 或 `python3 -m build`
-- `uv publish --check-url` 前的产物校验
-
-## 2. 构建与发布
-
-推荐使用 `uv`：
-
-```bash
-export UV_PUBLISH_TOKEN="<your-token>"
-uv build
-uv publish
-```
-
-也可使用脚本：
+4. 预检通过后执行发布：
 
 ```bash
 export PYPI_API_TOKEN="<your-token>"
-./scripts/publish.sh --repository pypi --yes
+./scripts/release.sh --repository pypi --yes
 ```
 
-`publish.sh` 会执行：
+## 重要规则
 
-- 预检（默认执行，可用 `--skip-preflight` 跳过）
-- 自动优先使用 `uv build + uv publish`
-- 未检测到 `uv` 时回退为 `python -m build + twine upload`
+- `./scripts/preflight.sh --allow-dirty` 只用于本地调试或并行改动阶段的验收，不作为正式发版凭据。
+- 正式发版前必须整理工作树，并在干净状态下重新跑一次预检。
+- GitHub Release、Tag、回滚和补丁发布都统一看 [`docs/RELEASE_RUNBOOK.md`](./RELEASE_RUNBOOK.md)。
 
-## 3. Git Tag 与 GitHub Release
+## 详细文档
 
-```bash
-./scripts/release.sh --repository pypi --push-tag --github-release --generate-notes --yes
-```
-
-如果包已经上传、tag 也已存在，只是漏了 GitHub Release，可以直接补发：
-
-```bash
-./scripts/release.sh --skip-publish --github-release --generate-notes --yes
-```
-
-如需自定义 Release Notes：
-
-```bash
-./scripts/release.sh --skip-publish --github-release \
-  --notes-file docs/releases/2.3.8.md \
-  --title "v2.3.8 - Super Dev" \
-  --yes
-```
-
-当前仓库采用本地脚本发布，不依赖 GitHub Actions 自动发布。
-
-## 4. 发布后验证
-
-```bash
-uv tool install super-dev==2.3.8
-super-dev --help
-
-# 或 pip
-pip install --no-cache-dir super-dev==2.3.8
-super-dev --help
-super-dev "构建一个包含登录和订单的系统"
-```
-
-## 5. 回滚/应急策略
-
-PyPI 不支持删除已发布版本，建议：
-
-1. 对有问题版本执行 `yank`。
-2. 发布补丁版本（如 `2.1.1` 的后续补丁）。
-3. 在 `docs/releases/2.3.8.md` 和 GitHub Release 明确影响范围与修复建议。
-
-参考：[`docs/RELEASE_RUNBOOK.md`](./RELEASE_RUNBOOK.md)
+- 发布作战手册：[`docs/RELEASE_RUNBOOK.md`](./RELEASE_RUNBOOK.md)
+- 当前版本说明：[`docs/releases/2.4.0.md`](./releases/2.4.0.md)

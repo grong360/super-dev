@@ -16,21 +16,21 @@ const TerminalWindow = dynamic(
 const COPY = {
   zh: {
     openSource: 'MIT 开源',
-    title: 'AI 能写代码，Super Dev 让项目能交付。',
-    body: '终端只负责接入和升级，真正的 research、三文档、确认门、Spec、实现和交付都留在宿主里。Super Dev 把这些宿主上的能力重新组织成一条可审计的商业交付流水线。',
-    points: ['终端只保留 super-dev / super-dev update', '宿主内统一使用 /super-dev 或 super-dev:', '接入完成度与运行成熟度分开展示'],
+    title: 'AI 能写代码，Super Dev 把宿主带成交付团队。',
+    body: '终端只负责接入和升级，真正的 research、三文档、确认门、Spec、实现和交付都留在宿主里。Super Dev 不是另一个代码生成器，它把宿主拉回一条能研究、能审查、能交付的商业开发主路径。',
+    points: ['终端只记住 super-dev / super-dev update / super-dev uninstall', '安装后复制宿主第一句，回宿主里直接开工', '第一轮先 research，再写三文档并等你确认'],
     docs: '查看文档',
-    installNote: '支持 pip 或 uv 安装。安装后终端输入 super-dev 进入宿主接入引导；日常使用回到宿主里的 /super-dev 或 super-dev:。',
-    releaseNote: 'v2.3.8: SEEAI 比赛验收升级为四段结构化证据 + 内容质量校验封堵假通过；附 WorkBuddy doctor / Skill 重装 / super-dev-core 清理修复',
+    installNote: '首页默认只讲 uv 安装和 super-dev 引导。安装器会直接告诉你推荐宿主、标准流第一句、比赛流第一句和接入后先验；终端到这里就该退场，日常开发回宿主里的 /super-dev、$super-dev 或 super-dev:。',
+    releaseNote: 'v2.4.0: 统一宿主矩阵、项目优先接入、宿主首句与恢复剧本、双模式准备度，以及更严格的 UI 视觉门都已经前推到安装器和交付链。',
   },
   en: {
     openSource: 'MIT Open Source',
-    title: 'AI can write code. Super Dev helps teams ship it properly.',
-    body: 'The terminal only handles onboarding and upgrade. The real research, three core docs, approval gates, spec, implementation, and delivery stay inside the host. Super Dev turns those host capabilities into one governed delivery pipeline.',
-    points: ['The terminal only exposes super-dev and super-dev update', 'Inside the host, use /super-dev or super-dev:', 'Integration readiness and runtime maturity are shown separately'],
+    title: 'AI can write code. Super Dev turns hosts into delivery teams.',
+    body: 'The terminal only handles onboarding and upgrade. The real research, the three core docs, approval gates, spec, implementation, and delivery stay inside the host. Super Dev is not another code generator. It pushes the host back onto a commercial path that can be researched, reviewed, and shipped.',
+    points: ['Only remember super-dev, super-dev update, and super-dev uninstall', 'After install, copy the host first prompt and go back into the host', 'The first pass is research first, then the three core docs, then approval'],
     docs: 'Read Docs',
-    installNote: 'Install with pip or uv, then run super-dev in the terminal to open host onboarding. Daily use moves back into /super-dev or super-dev: inside the host.',
-    releaseNote: 'v2.3.8: SEEAI competition acceptance upgraded to four-section structured evidence with content-quality gates that block fake passes; bundles the WorkBuddy doctor / skill reinstall / super-dev-core cleanup fixes.',
+    installNote: 'The homepage now teaches uv install and the super-dev onboarding path. The installer prints the recommended host, the standard-flow first prompt, the competition-flow first prompt, and the post-onboard self-check. After that, the terminal should get out of the way and daily work moves back into /super-dev, $super-dev, or super-dev: inside the host.',
+    releaseNote: 'v2.4.0 brings the unified host matrix, project-first onboarding, host-specific first prompts and resume playbooks, dual-mode readiness, and a stricter screenshot-grade UI gate forward into onboarding and delivery.',
   },
 } as const;
 
@@ -48,7 +48,7 @@ export function HeroSection({ locale = 'zh' }: { locale?: SiteLocale }) {
       <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-14 px-4 pb-20 sm:px-6 lg:grid lg:grid-cols-[minmax(0,1fr)_520px] lg:items-center lg:gap-16 lg:pb-24">
         <div className="flex flex-col gap-7">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="version">v2.3.8</Badge>
+            <Badge variant="version">v2.4.0</Badge>
             <Badge variant="certified">{copy.openSource}</Badge>
             <a
               href={GITHUB_REPO_URL}
@@ -85,7 +85,7 @@ export function HeroSection({ locale = 'zh' }: { locale?: SiteLocale }) {
           </ul>
 
           <div id="get-started" className="flex flex-col gap-3 pt-1 sm:flex-row sm:flex-wrap sm:items-center">
-            <CopyCommand command="pip install -U super-dev" className="sm:w-auto" />
+            <CopyCommand command="uv tool install super-dev" className="sm:w-auto" />
             <Link
               href={localizedPath(locale, '/docs')}
               className="inline-flex items-center justify-center gap-2 rounded-lg border border-border-default px-4 py-3 text-sm font-medium text-text-secondary transition-all duration-150 hover:border-border-emphasis hover:text-text-primary"

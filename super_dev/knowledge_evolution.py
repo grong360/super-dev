@@ -665,7 +665,7 @@ class KnowledgeStatsDB:
             row = conn.execute(
                 "SELECT COUNT(DISTINCT run_id) AS cnt FROM pipeline_knowledge_usage"
             ).fetchone()
-            return row["cnt"] if row else 0
+            return int(row["cnt"]) if row else 0
         except Exception as exc:
             _logger.debug("获取 pipeline 执行次数失败: %s", exc)
             return 0
@@ -679,7 +679,7 @@ class KnowledgeStatsDB:
             row = conn.execute(
                 "SELECT COUNT(*) AS cnt FROM knowledge_stats WHERE total_references > 0"
             ).fetchone()
-            return row["cnt"] if row else 0
+            return int(row["cnt"]) if row else 0
         except Exception as exc:
             _logger.debug("获取追踪文件数失败: %s", exc)
             return 0

@@ -10,6 +10,15 @@ from super_dev.skills import SkillManager
 
 
 class TestSkillManager:
+    def test_managed_builtin_skill_names_exclude_legacy_aliases(self):
+        legacy_names = SkillManager.legacy_cleanup_skill_names()
+        assert SkillManager.managed_builtin_skill_names("codex-cli") == [
+            "super-dev",
+            "super-dev-seeai",
+        ]
+        assert legacy_names[0] not in SkillManager.managed_builtin_skill_names("claude-code")
+        assert legacy_names == [f"{SkillManager.DEFAULT_SKILL_NAME}-core"]
+
     def test_coverage_gaps_are_empty(self):
         gaps = SkillManager.coverage_gaps()
         assert gaps["missing_in_skill_targets"] == []
@@ -20,16 +29,24 @@ class TestSkillManager:
         assert SkillManager.target_path_kind("claude-code") == "official-user-surface"
         assert SkillManager.target_path_kind("cline") == "official-user-surface"
         assert SkillManager.target_path_kind("qoder-cli") == "official-user-surface"
+        assert SkillManager.target_path_kind("kimi-code") == "official-user-surface"
+        assert SkillManager.target_path_kind("trae-solocn") == "official-user-surface"
         assert SkillManager.target_path_kind("trae") == "observed-compatibility-surface"
+        assert SkillManager.target_path_kind("trae-solo") == "observed-compatibility-surface"
         assert SkillManager.TARGET_PATHS["antigravity"] == "~/.gemini/skills"
         assert SkillManager.TARGET_PATHS["claude-code"] == "~/.claude/skills"
         assert SkillManager.TARGET_PATHS["cline"] == "~/.cline/skills"
         assert SkillManager.TARGET_PATHS["codex-cli"] == "~/.agents/skills"
-        assert SkillManager.COMPATIBILITY_MIRROR_PATHS == {}
+        assert SkillManager.COMPATIBILITY_MIRROR_PATHS["kimi-code"] == [
+            "~/.config/agents/skills",
+            "~/.agents/skills",
+        ]
         assert SkillManager.TARGET_PATHS["qoder"] == "~/.qoder/skills"
         assert SkillManager.TARGET_PATHS["kiro"] == "~/.kiro/skills"
         assert SkillManager.TARGET_PATHS["windsurf"] == "~/.codeium/windsurf/skills"
         assert SkillManager.TARGET_PATHS["opencode"] == "~/.config/opencode/skills"
+        assert SkillManager.TARGET_PATHS["kimi-code"] == "~/.kimi/skills"
+        assert SkillManager.TARGET_PATHS["trae-solocn"] == "~/.trae-cn/skills"
 
     def test_install_from_directory_and_uninstall(self, temp_project_dir: Path, monkeypatch):
         fake_home = temp_project_dir / "fake-home"
@@ -92,6 +109,7 @@ class TestSkillManager:
         monkeypatch.setenv("HOME", str(fake_home))
         manager = SkillManager(temp_project_dir)
 
+        legacy_name = SkillManager.legacy_cleanup_skill_names()[0]
         result = manager.install(source="super-dev", target="codex-cli", name="super-dev")
 
         primary_skill = result.path / "SKILL.md"
@@ -100,11 +118,11 @@ class TestSkillManager:
         assert metadata_file.exists()
         # No mirrors should exist in ~/.codex/skills/
         codex_mirror = fake_home / ".codex" / "skills" / "super-dev" / "SKILL.md"
-        codex_legacy_mirror = fake_home / ".codex" / "skills" / "super-dev-core" / "SKILL.md"
+        codex_legacy_mirror = fake_home / ".codex" / "skills" / legacy_name / "SKILL.md"
         assert not codex_mirror.exists()
         assert not codex_legacy_mirror.exists()
-        # Legacy super-dev-core should not exist in ~/.agents/skills/
-        agents_legacy = fake_home / ".agents" / "skills" / "super-dev-core" / "SKILL.md"
+        # Legacy skill alias should not exist in ~/.agents/skills/
+        agents_legacy = fake_home / ".agents" / "skills" / legacy_name / "SKILL.md"
         assert not agents_legacy.exists()
         primary_content = primary_skill.read_text(encoding="utf-8")
         metadata_content = metadata_file.read_text(encoding="utf-8")
@@ -171,7 +189,26 @@ class TestSkillManager:
 
         result = manager.install(source="super-dev", target="codex-cli", name="super-dev")
 
+        legacy_name = SkillManager.legacy_cleanup_skill_names()[0]
         assert (result.path / "SKILL.md").exists()
         # No mirror should be created in CODEX_HOME since we removed codex-cli mirrors
         assert not (codex_home / "skills" / "super-dev" / "SKILL.md").exists()
-        assert not (codex_home / "skills" / "super-dev-core" / "SKILL.md").exists()
+        assert not (codex_home / "skills" / legacy_name / "SKILL.md").exists()
+
+    def test_cleanup_legacy_skill_aliases_removes_legacy_alias(
+        self, temp_project_dir: Path, monkeypatch
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        manager = SkillManager(temp_project_dir)
+
+        legacy_name = SkillManager.legacy_cleanup_skill_names()[0]
+        legacy_dir = fake_home / ".agents" / "skills" / legacy_name
+        legacy_dir.mkdir(parents=True, exist_ok=True)
+        (legacy_dir / "SKILL.md").write_text("# legacy", encoding="utf-8")
+
+        removed = manager.cleanup_legacy_skill_aliases("codex-cli")
+
+        assert removed == [legacy_name]
+        assert not legacy_dir.exists()

@@ -2,7 +2,7 @@
 name: super-dev-seeai
 description: Activate the Super Dev SEEAI competition mode inside Codex CLI.
 when_to_use: Use when the user says /super-dev-seeai, super-dev-seeai:, or super-dev-seeai： followed by a requirement. Activate the fast competition delivery mode.
-version: 2.3.8
+version: 2.4.0
 ---
 # Super Dev SEEAI - 赛事极速版 (Codex)
 

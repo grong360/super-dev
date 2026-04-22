@@ -42,7 +42,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
     "mobile": {
         "description": "移动应用",
         "platform": "mobile",
-        "frontend": "react",
+        "frontend": "expo",
         "backend": "node",
         "database": "postgresql",
         "domain": "",
@@ -78,7 +78,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
     "miniapp": {
         "description": "微信小程序",
         "platform": "wechat",
-        "frontend": "vue",
+        "frontend": "uni-app",
         "backend": "node",
         "database": "postgresql",
         "domain": "",

@@ -2,12 +2,28 @@
 Super Dev 工作流引擎单元测试
 """
 
+import json
 from pathlib import Path
 
 import pytest
 
 from super_dev.config import ConfigManager, ProjectConfig
 from super_dev.orchestrator import Phase, PhaseResult, WorkflowContext, WorkflowEngine
+from super_dev.workflow_guard import save_bound_docs_confirmation, save_bound_preview_confirmation
+
+
+def _prepare_confirmed_workflow_gates(project_dir: Path) -> None:
+    output_dir = project_dir / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / f"{project_dir.name}-prd.md").write_text("# prd\n", encoding="utf-8")
+    (output_dir / f"{project_dir.name}-architecture.md").write_text("# arch\n", encoding="utf-8")
+    (output_dir / f"{project_dir.name}-uiux.md").write_text("# uiux\n", encoding="utf-8")
+    (output_dir / f"{project_dir.name}-frontend-runtime.json").write_text(
+        json.dumps({"passed": True}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    save_bound_docs_confirmation(project_dir, {"status": "confirmed"})
+    save_bound_preview_confirmation(project_dir, {"status": "confirmed"})
 
 
 class TestPhase:
@@ -114,6 +130,27 @@ class TestWorkflowEngine:
         assert Phase.INTELLIGENCE in phases
         assert Phase.DRAFTING in phases
 
+    def test_get_phases_from_config_accepts_canonical_stage_names(self, temp_project_dir: Path):
+        """测试从 canonical 阶段名展开 engine phases"""
+        config_manager = ConfigManager(temp_project_dir)
+        config_manager.create(
+            name="test",
+            phases=["research", "docs", "quality", "delivery_full"],
+        )
+
+        engine = WorkflowEngine(temp_project_dir)
+        phases = engine._get_phases_from_config()
+
+        assert phases == [
+            Phase.DISCOVERY,
+            Phase.INTELLIGENCE,
+            Phase.DRAFTING,
+            Phase.REDTEAM,
+            Phase.QA,
+            Phase.DELIVERY,
+            Phase.DEPLOYMENT,
+        ]
+
     def test_register_custom_handler(self, temp_project_dir: Path):
         """测试注册自定义处理器"""
         engine = WorkflowEngine(temp_project_dir)
@@ -173,6 +210,7 @@ class TestWorkflowEngine:
         """测试关键阶段失败停止工作流"""
         config_manager = ConfigManager(temp_project_dir)
         config_manager.create(name="test", quality_gate=80)
+        _prepare_confirmed_workflow_gates(temp_project_dir)
 
         engine = WorkflowEngine(temp_project_dir)
 
@@ -238,6 +276,7 @@ class TestWorkflowEngine:
         """测试质量门禁检查"""
         config_manager = ConfigManager(temp_project_dir)
         config_manager.create(name="test", quality_gate=90)
+        _prepare_confirmed_workflow_gates(temp_project_dir)
 
         engine = WorkflowEngine(temp_project_dir)
         context = WorkflowContext(
@@ -289,6 +328,7 @@ class TestWorkflowEngine:
         """测试红队不通过时工作流停止"""
         config_manager = ConfigManager(temp_project_dir)
         config_manager.create(name="test", quality_gate=80)
+        _prepare_confirmed_workflow_gates(temp_project_dir)
 
         engine = WorkflowEngine(temp_project_dir)
         context = WorkflowContext(
@@ -325,6 +365,7 @@ class TestWorkflowEngine:
         """测试部署阶段会落盘生成的 CI/CD 与迁移文件"""
         config_manager = ConfigManager(temp_project_dir)
         config_manager.create(name="test", quality_gate=80)
+        _prepare_confirmed_workflow_gates(temp_project_dir)
 
         engine = WorkflowEngine(temp_project_dir)
         context = WorkflowContext(

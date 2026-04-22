@@ -299,7 +299,6 @@ This project uses Super Dev's Spec-Driven Development (SDD) workflow.
 
 ## Commands
 
-- `super-dev spec list` - List all changes
 - `super-dev spec show <id>` - Show change details
 - `super-dev spec propose <id>` - Create new change proposal
 - `super-dev spec apply <id>` - Start implementing a change

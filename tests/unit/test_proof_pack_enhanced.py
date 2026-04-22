@@ -8,8 +8,15 @@
 import json
 from pathlib import Path
 
+from super_dev.evidence_identity import build_evidence_identity
 from super_dev.proof_pack import ProofPackArtifact, ProofPackBuilder, ProofPackReport
-from super_dev.review_state import save_workflow_state, workflow_event_log_file
+from super_dev.review_state import (
+    save_baseline_confirmation,
+    save_host_runtime_validation,
+    save_workflow_state,
+    workflow_event_log_file,
+)
+from super_dev.workflow_guard import record_stage_progress, save_bound_docs_confirmation
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +280,106 @@ class TestProofPackReportStatusCombinations:
         assert "Operational Harness" in report.executive_summary
         assert "Workflow Continuity" in report.executive_summary
 
+    def test_executive_summary_explains_layered_host_runtime_gap(self):
+        report = ProofPackReport(
+            project_name="ops",
+            artifacts=[
+                ProofPackArtifact(
+                    name="Host Runtime Validation",
+                    status="pending",
+                    summary="host runtime validation gaps: repo_probe_failed=codex-cli",
+                    details={
+                        "hosts": {"codex-cli": {"status": "passed"}},
+                        "repo_probes": {"codex-cli": {"status": "failed"}},
+                    },
+                )
+            ],
+        )
+        assert "codex-cli 已人工通过" in report.executive_summary
+        assert "仓库级 continuity / harness / runtime 证据仍未闭环" in report.executive_summary
+
+    def test_executive_summary_explains_compliance_artifact_gap(self):
+        report = ProofPackReport(
+            project_name="ops",
+            artifacts=[
+                ProofPackArtifact(
+                    name="Spec Compliance",
+                    status="pending",
+                    summary="spec compliance artifact missing",
+                )
+            ],
+        )
+        assert "合规链当前优先卡在证据状态" in report.executive_summary
+        assert "Spec Compliance=missing" in report.executive_summary
+        assert "管理侧现在还不该做最终验收签字" in report.executive_summary
+
+    def test_executive_summary_exposes_workflow_and_baseline_context(self):
+        report = ProofPackReport(
+            project_name="ops",
+            artifacts=[],
+            workflow_context={
+                "workflow_status": "waiting_baseline_confirmation",
+                "blocking_gate": "waiting_baseline_confirmation",
+                "recommended_host_action": "/super-dev-review baseline confirm",
+            },
+            baseline_governance={
+                "status": "pending_confirmation",
+                "entry_gate": "waiting_baseline_confirmation",
+                "next_host_action": "/super-dev-review baseline confirm",
+            },
+        )
+        assert "当前流程状态为 waiting_baseline_confirmation" in report.executive_summary
+        assert "baseline 还没确认" in report.executive_summary
+        assert "还停在正式确认门之前" in report.executive_summary
+
+    def test_executive_summary_explains_framework_harness_gap(self):
+        report = ProofPackReport(
+            project_name="ops",
+            artifacts=[
+                ProofPackArtifact(
+                    name="Framework Harness",
+                    status="pending",
+                    summary="uni-app framework harness gaps: implementation modules missing；delivery evidence missing",
+                    details={"framework": "uni-app"},
+                )
+            ],
+        )
+
+        assert "跨平台框架专项当前卡在 uni-app playbook/执行闭环" in report.executive_summary
+        assert "跨端体验稳定性、专项验收效率和上线节奏" in report.executive_summary
+        assert "uni-app framework harness gaps" in report.executive_summary
+
+    def test_executive_summary_explains_screenshot_visual_gate_gap(self):
+        report = ProofPackReport(
+            project_name="ops",
+            artifacts=[
+                ProofPackArtifact(
+                    name="Frontend Runtime",
+                    status="pending",
+                    summary="frontend runtime screenshot visual gate failed: blank=0.82, contrast=0.09, dominant=0.91",
+                )
+            ],
+        )
+
+        assert "截图级视觉验收未通过" in report.executive_summary
+        assert "商业质感不足或像半成品" in report.executive_summary
+        assert "blank=0.82, contrast=0.09, dominant=0.91" in report.executive_summary
+
+    def test_executive_summary_uses_delivery_language_for_blocked_pack(self):
+        report = ProofPackReport(
+            project_name="ops",
+            artifacts=[
+                ProofPackArtifact(
+                    name="Release Readiness",
+                    status="pending",
+                    summary="score=82/100, passed=False",
+                )
+            ],
+        )
+
+        assert "从交付视角看" in report.executive_summary
+        assert "不适合做最终客户演示、正式验收或对外交付" in report.executive_summary
+
     def test_empty_summary(self):
         artifact = ProofPackArtifact(name="empty-summary", status="ready", summary="")
         d = artifact.to_dict()
@@ -331,6 +438,45 @@ class TestProofPackReportStatusCombinations:
             ],
         )
         assert report.completion_percent == 67
+
+
+def test_builder_marks_expert_stage_governance_pending_when_visible_stage_evidence_missing(
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "demo"
+    output_dir = project_dir / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "demo-research.md").write_text("research", encoding="utf-8")
+    (output_dir / "demo-prd.md").write_text("prd", encoding="utf-8")
+    (output_dir / "demo-architecture.md").write_text("arch", encoding="utf-8")
+    (output_dir / "demo-uiux.md").write_text("uiux", encoding="utf-8")
+
+    artifact = ProofPackBuilder(project_dir)._expert_stage_governance_artifact()
+
+    assert artifact.status == "pending"
+    assert "research" in artifact.summary
+    assert "docs" in artifact.summary
+
+
+def test_builder_marks_expert_stage_governance_ready_when_stage_evidence_recorded(
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "demo"
+    output_dir = project_dir / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "demo-research.md").write_text("research", encoding="utf-8")
+    (output_dir / "demo-prd.md").write_text("prd", encoding="utf-8")
+    (output_dir / "demo-architecture.md").write_text("arch", encoding="utf-8")
+    (output_dir / "demo-uiux.md").write_text("uiux", encoding="utf-8")
+
+    record_stage_progress(project_dir, stage="research", status="completed")
+    record_stage_progress(project_dir, stage="docs", status="completed")
+    save_bound_docs_confirmation(project_dir, {"status": "confirmed", "actor": "pytest"})
+
+    artifact = ProofPackBuilder(project_dir)._expert_stage_governance_artifact()
+
+    assert artifact.status == "ready"
+    assert "3/3" in artifact.summary
 
     def test_next_actions_prioritize_framework_playbook_when_ui_contract_missing_it(self):
         report = ProofPackReport(
@@ -512,7 +658,7 @@ class TestProofPackReportStatusCombinations:
                 "status": "waiting_docs_confirmation",
                 "workflow_mode": "continue",
                 "current_step_label": "等待三文档确认",
-                "recommended_command": "super-dev review docs --status confirmed",
+                "recommended_command": "文档确认，可以继续",
             },
         )
 
@@ -533,7 +679,7 @@ class TestProofPackReportStatusCombinations:
                 "status": "waiting_docs_confirmation",
                 "workflow_mode": "continue",
                 "current_step_label": "等待三文档确认",
-                "recommended_command": "super-dev review docs --status confirmed",
+                "recommended_command": "文档确认，可以继续",
             },
         )
 
@@ -544,6 +690,37 @@ class TestProofPackReportStatusCombinations:
         assert artifact.details["recent_events"]
         assert artifact.details["recent_timeline"]
 
+    def test_builder_marks_host_runtime_validation_pending_when_repo_probe_fails(self, tmp_path):
+        project_dir = tmp_path / "demo"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / ".super-dev").mkdir(parents=True, exist_ok=True)
+        save_workflow_state(
+            project_dir,
+            {
+                "status": "missing_frontend",
+                "workflow_mode": "continue",
+                "current_step_label": "先做前端与运行验证",
+                "recommended_command": "继续当前流程，进入前端实现与运行验证",
+            },
+        )
+        save_host_runtime_validation(
+            project_dir,
+            {
+                "hosts": {
+                    "codex-cli": {
+                        "status": "passed",
+                        "comment": "manual accepted",
+                        "actor": "pytest",
+                    }
+                }
+            },
+        )
+
+        artifact = ProofPackBuilder(project_dir)._host_runtime_validation_artifact()
+        assert artifact.name == "Host Runtime Validation"
+        assert artifact.status == "pending"
+        assert "repo_probe_failed=codex-cli" in artifact.summary
+
     def test_builder_marks_workflow_continuity_pending_when_event_log_missing(self, tmp_path):
         project_dir = tmp_path / "demo"
         project_dir.mkdir(parents=True, exist_ok=True)
@@ -553,7 +730,7 @@ class TestProofPackReportStatusCombinations:
                 "status": "waiting_docs_confirmation",
                 "workflow_mode": "continue",
                 "current_step_label": "等待三文档确认",
-                "recommended_command": "super-dev review docs --status confirmed",
+                "recommended_command": "文档确认，可以继续",
             },
         )
         workflow_event_log_file(project_dir).unlink()
@@ -561,6 +738,560 @@ class TestProofPackReportStatusCombinations:
         artifact = ProofPackBuilder(project_dir)._workflow_continuity_artifact()
         assert artifact.status == "pending"
         assert "incomplete" in artifact.summary
+
+    def test_builder_marks_quality_gate_pending_when_evidence_identity_mismatches(self, tmp_path):
+        project_dir = tmp_path / "demo"
+        output_dir = project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-quality-gate.md").write_text("# 质量门禁报告\n\n通过\n", encoding="utf-8")
+        (output_dir / "demo-uiux.md").write_text("# uiux", encoding="utf-8")
+        (output_dir / "demo-ui-review.json").write_text(
+            json.dumps({"passed": True}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-contract-alignment.json").write_text(
+            json.dumps({"aligned": True}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        identity = build_evidence_identity(
+            project_dir,
+            artifact_name="quality-gate",
+            dependencies=[
+                output_dir / "demo-ui-review.json",
+                output_dir / "demo-ui-contract-alignment.json",
+                output_dir / "demo-uiux.md",
+            ],
+        )
+        (output_dir / "demo-quality-gate.json").write_text(
+            json.dumps(
+                {
+                    "passed": True,
+                    "total_score": 90,
+                    "evidence_identity": identity,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        (output_dir / "demo-uiux.md").write_text("# uiux v2", encoding="utf-8")
+
+        artifact = ProofPackBuilder(project_dir)._quality_gate_artifact()
+        assert artifact.status == "pending"
+        assert "evidence identity" in artifact.summary
+
+    def test_builder_marks_frontend_runtime_pending_when_evidence_identity_mismatches(self, tmp_path):
+        project_dir = tmp_path / "demo"
+        output_dir = project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-ui-contract.json").write_text(
+            json.dumps({"style_direction": "editorial"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-contract-alignment.json").write_text(
+            json.dumps({"theme_entry": {"passed": True}}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        identity = build_evidence_identity(
+            project_dir,
+            artifact_name="frontend-runtime",
+            dependencies=[
+                output_dir / "demo-ui-contract.json",
+                output_dir / "demo-ui-contract-alignment.json",
+            ],
+        )
+        (output_dir / "demo-frontend-runtime.json").write_text(
+            json.dumps(
+                {
+                    "passed": True,
+                    "checks": {
+                        "ui_contract_json": True,
+                        "output_frontend_design_tokens": True,
+                        "ui_contract_alignment": True,
+                        "ui_theme_entry": True,
+                        "ui_navigation_shell": True,
+                        "ui_component_imports": True,
+                        "ui_banned_patterns": True,
+                        "ui_framework_playbook": True,
+                        "ui_framework_execution": True,
+                    },
+                    "evidence_identity": identity,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-contract.json").write_text(
+            json.dumps({"style_direction": "editorial v2"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        artifact = ProofPackBuilder(project_dir)._frontend_runtime_artifact()
+        assert artifact.status == "pending"
+        assert "evidence identity" in artifact.summary
+
+    def test_builder_marks_frontend_runtime_pending_when_claude_design_protocol_is_missing(
+        self, tmp_path
+    ):
+        project_dir = tmp_path / "demo"
+        output_dir = project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-ui-contract.json").write_text(
+            json.dumps(
+                {
+                    "style_direction": "editorial",
+                    "screen_recipes": [
+                        {
+                            "label": "North Star Hero",
+                            "section_order": ["hero"],
+                            "trust_modules": ["案例"],
+                            "required_states": ["loading"],
+                        }
+                    ],
+                    "design_context_protocol": {
+                        "preferred_import_order": ["tokens"],
+                        "github_import_targets": ["theme.ts"],
+                        "single_source_rule": "single source",
+                    },
+                    "tweak_strategy": {
+                        "mode": "single-source prototype",
+                        "default_controls": ["信息密度"],
+                        "persistence_rule": "persist edits",
+                    },
+                    "verification_handoff": {
+                        "verification_order": ["preview"],
+                        "required_artifacts": ["output/frontend/index.html"],
+                        "acceptance_checks": ["no emoji"],
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-contract-alignment.json").write_text(
+            json.dumps({"screen_recipes": {"passed": True}}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        identity = build_evidence_identity(
+            project_dir,
+            artifact_name="frontend-runtime",
+            dependencies=[
+                output_dir / "demo-ui-contract.json",
+                output_dir / "demo-ui-contract-alignment.json",
+            ],
+        )
+        (output_dir / "demo-frontend-runtime.json").write_text(
+            json.dumps(
+                {
+                    "passed": True,
+                    "checks": {
+                        "ui_contract_json": True,
+                        "output_frontend_design_tokens": True,
+                        "ui_contract_alignment": True,
+                        "ui_theme_entry": True,
+                        "ui_navigation_shell": True,
+                        "ui_component_imports": True,
+                        "ui_banned_patterns": True,
+                        "ui_framework_playbook": True,
+                        "ui_framework_execution": True,
+                        "ui_design_context_protocol": True,
+                        "ui_tweak_strategy": True,
+                    },
+                    "evidence_identity": identity,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        artifact = ProofPackBuilder(project_dir)._frontend_runtime_artifact()
+        assert artifact.status == "pending"
+        assert "Claude-Design execution protocol" in artifact.summary
+        assert "ui_screen_recipes" in artifact.summary
+
+    def test_builder_marks_frontend_runtime_pending_when_ui_review_runtime_protocol_drifts(
+        self, tmp_path
+    ):
+        project_dir = tmp_path / "demo"
+        output_dir = project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-ui-contract.json").write_text(
+            json.dumps(
+                {
+                    "style_direction": "editorial",
+                    "screen_recipes": [
+                        {
+                            "label": "North Star Hero",
+                            "section_order": ["hero"],
+                            "trust_modules": ["案例"],
+                            "required_states": ["loading"],
+                        }
+                    ],
+                    "design_context_protocol": {
+                        "preferred_import_order": ["tokens"],
+                        "github_import_targets": ["theme.ts"],
+                        "single_source_rule": "single source",
+                    },
+                    "tweak_strategy": {
+                        "mode": "single-source prototype",
+                        "default_controls": ["信息密度"],
+                        "persistence_rule": "persist edits",
+                    },
+                    "verification_handoff": {
+                        "verification_order": ["preview"],
+                        "required_artifacts": ["output/frontend/index.html"],
+                        "acceptance_checks": ["no emoji"],
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-contract-alignment.json").write_text(
+            json.dumps({"screen_recipes": {"passed": True}}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-review.json").write_text(
+            json.dumps(
+                {
+                    "alignment_summary": {
+                        "runtime_claude_design_protocol": {
+                            "passed": False,
+                            "observed": "mismatch=screen_recipes, verification_handoff",
+                        }
+                    }
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        identity = build_evidence_identity(
+            project_dir,
+            artifact_name="frontend-runtime",
+            dependencies=[
+                output_dir / "demo-ui-contract.json",
+                output_dir / "demo-ui-contract-alignment.json",
+            ],
+        )
+        (output_dir / "demo-frontend-runtime.json").write_text(
+            json.dumps(
+                {
+                    "passed": True,
+                    "checks": {
+                        "ui_contract_json": True,
+                        "output_frontend_design_tokens": True,
+                        "ui_contract_alignment": True,
+                        "ui_theme_entry": True,
+                        "ui_navigation_shell": True,
+                        "ui_component_imports": True,
+                        "ui_banned_patterns": True,
+                        "ui_framework_playbook": True,
+                        "ui_framework_execution": True,
+                        "ui_screen_recipes": True,
+                        "ui_design_context_protocol": True,
+                        "ui_tweak_strategy": True,
+                        "ui_verification_handoff": True,
+                    },
+                    "evidence_identity": identity,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        artifact = ProofPackBuilder(project_dir)._frontend_runtime_artifact()
+        assert artifact.status == "pending"
+        assert "source/runtime evidence drift" in artifact.summary
+        assert "screen_recipes" in artifact.summary
+
+    def test_frontend_runtime_artifact_pending_when_screenshot_visual_judge_fails(self, tmp_path):
+        project_dir = tmp_path / "demo"
+        output_dir = project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-ui-contract.json").write_text(
+            json.dumps(
+                {
+                    "style_direction": "editorial",
+                    "typography": {"heading": "IBM Plex Sans", "body": "IBM Plex Sans"},
+                    "icon_system": "Lucide",
+                    "emoji_policy": {
+                        "allowed_in_ui": False,
+                        "allowed_as_icon": False,
+                        "allowed_during_development": False,
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-contract-alignment.json").write_text(
+            json.dumps({"screen_recipes": {"passed": True}}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-review.json").write_text(
+            json.dumps(
+                {
+                    "alignment_summary": {
+                        "runtime_claude_design_protocol": {
+                            "passed": True,
+                            "observed": "aligned with frontend-runtime",
+                        },
+                        "source_claude_design_protocol": {
+                            "passed": True,
+                            "observed": "screen_recipes, design_context_protocol, tweak_strategy, verification_handoff",
+                        },
+                        "screenshot_visual_judge": {
+                            "passed": False,
+                            "observed": "blank=0.82, contrast=0.09, dominant=0.91",
+                        },
+                    }
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        identity = build_evidence_identity(
+            project_dir,
+            artifact_name="frontend-runtime",
+            dependencies=[
+                output_dir / "demo-ui-contract.json",
+                output_dir / "demo-ui-contract-alignment.json",
+            ],
+        )
+        (output_dir / "demo-frontend-runtime.json").write_text(
+            json.dumps(
+                {
+                    "passed": True,
+                    "checks": {
+                        "ui_contract_json": True,
+                        "output_frontend_design_tokens": True,
+                        "ui_contract_alignment": True,
+                        "ui_theme_entry": True,
+                        "ui_navigation_shell": True,
+                        "ui_component_imports": True,
+                        "ui_banned_patterns": True,
+                        "ui_framework_playbook": True,
+                        "ui_framework_execution": True,
+                        "ui_screen_recipes": True,
+                        "ui_design_context_protocol": True,
+                        "ui_tweak_strategy": True,
+                        "ui_verification_handoff": True,
+                    },
+                    "evidence_identity": identity,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        artifact = ProofPackBuilder(project_dir)._frontend_runtime_artifact()
+        assert artifact.status == "pending"
+        assert "screenshot visual gate failed" in artifact.summary
+
+    def test_proof_pack_executive_summary_explains_frontend_runtime_governance_gap(self, tmp_path):
+        project_dir = tmp_path / "demo"
+        output_dir = project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-ui-contract.json").write_text(
+            json.dumps(
+                {
+                    "style_direction": "editorial",
+                    "typography": {"heading": "IBM Plex Sans", "body": "IBM Plex Sans"},
+                    "icon_system": "Lucide",
+                    "emoji_policy": {
+                        "allowed_in_ui": False,
+                        "allowed_as_icon": False,
+                        "allowed_during_development": False,
+                    },
+                    "ui_library_preference": {"final_selected": "shadcn/ui"},
+                    "design_tokens": {"color": {"primary": "#111827"}},
+                    "screen_recipes": [
+                        {
+                            "label": "North Star Hero",
+                            "section_order": ["hero"],
+                            "trust_modules": ["proof"],
+                            "required_states": ["loading"],
+                        }
+                    ],
+                    "design_context_protocol": {
+                        "preferred_import_order": ["tokens"],
+                        "github_import_targets": ["theme.ts"],
+                        "single_source_rule": "single source",
+                    },
+                    "tweak_strategy": {
+                        "mode": "single-source prototype",
+                        "default_controls": ["density"],
+                        "persistence_rule": "persist edits",
+                    },
+                    "verification_handoff": {
+                        "verification_order": ["preview"],
+                        "required_artifacts": ["output/frontend/index.html"],
+                        "acceptance_checks": ["no emoji"],
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-contract-alignment.json").write_text(
+            json.dumps({"theme_entry": {"passed": True}}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-review.json").write_text(
+            json.dumps(
+                {
+                    "alignment_summary": {
+                        "runtime_claude_design_protocol": {
+                            "passed": False,
+                            "observed": "mismatch=screen_recipes",
+                        }
+                    }
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        identity = build_evidence_identity(
+            project_dir,
+            artifact_name="frontend-runtime",
+            dependencies=[
+                output_dir / "demo-ui-contract.json",
+                output_dir / "demo-ui-contract-alignment.json",
+            ],
+        )
+        (output_dir / "demo-frontend-runtime.json").write_text(
+            json.dumps(
+                {
+                    "passed": True,
+                    "checks": {
+                        "ui_contract_json": True,
+                        "output_frontend_design_tokens": True,
+                        "ui_contract_alignment": True,
+                        "ui_theme_entry": True,
+                        "ui_navigation_shell": True,
+                        "ui_component_imports": True,
+                        "ui_banned_patterns": True,
+                        "ui_framework_playbook": True,
+                        "ui_framework_execution": True,
+                        "ui_screen_recipes": True,
+                        "ui_design_context_protocol": True,
+                        "ui_tweak_strategy": True,
+                        "ui_verification_handoff": True,
+                    },
+                    "evidence_identity": identity,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        report = ProofPackBuilder(project_dir).build()
+        assert "source/runtime 证据漂移" in report.executive_summary
+
+    def test_proof_pack_marks_baseline_confirmation_gap_as_pending_and_next_action(self, tmp_path):
+        project_dir = tmp_path / "demo"
+        output_dir = project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-baseline-audit.md").write_text("# baseline\n", encoding="utf-8")
+        save_workflow_state(
+            project_dir,
+            {
+                "status": "waiting_baseline_confirmation",
+                "workflow_mode": "continue",
+                "work_mode": "evolve",
+                "current_step_label": "等待 baseline 确认",
+                "recommended_command": "先确认 baseline，再继续当前流程",
+            },
+        )
+        save_baseline_confirmation(
+            project_dir,
+            {
+                "status": "pending_review",
+                "comment": "先确认当前项目边界和差量计划",
+                "actor": "pytest",
+            },
+        )
+
+        report = ProofPackBuilder(project_dir).build()
+
+        baseline_artifact = next(
+            artifact for artifact in report.artifacts if artifact.name == "Baseline Confirmation"
+        )
+        assert baseline_artifact.status == "pending"
+        assert baseline_artifact.summary == "status=pending_review"
+        workflow_artifact = next(
+            artifact for artifact in report.artifacts if artifact.name == "Workflow Continuity"
+        )
+        assert workflow_artifact.status == "pending"
+        assert "waiting_baseline_confirmation" in str(workflow_artifact.details)
+        assert any("baseline" in action and "确认" in action for action in report.next_actions)
+
+    def test_builder_marks_spec_compliance_pending_when_artifact_missing(self, tmp_path):
+        project_dir = tmp_path / "demo"
+        output_dir = project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-prd.md").write_text(
+            "# PRD\n\n## Requirements\n\n- The system must support auditable delivery workflows.\n",
+            encoding="utf-8",
+        )
+        artifact = ProofPackBuilder(project_dir)._spec_compliance_artifact()
+        assert artifact.status == "pending"
+        assert artifact.summary == "spec compliance artifact missing"
+
+    def test_builder_marks_uiux_compliance_pending_when_artifact_identity_mismatches(self, tmp_path):
+        project_dir = tmp_path / "demo"
+        output_dir = project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-uiux.md").write_text("# UIUX\n\nicon_library: lucide\n", encoding="utf-8")
+        frontend_file = project_dir / "frontend" / "src" / "page.tsx"
+        frontend_file.parent.mkdir(parents=True, exist_ok=True)
+        frontend_file.write_text(
+            "import { Home } from 'lucide-react';\nexport function Page(){ return <Home /> }\n",
+            encoding="utf-8",
+        )
+        identity = build_evidence_identity(
+            project_dir,
+            artifact_name="uiux-compliance",
+            dependencies=[output_dir / "demo-uiux.md", frontend_file],
+        )
+        (output_dir / "demo-uiux-compliance.json").write_text(
+            json.dumps(
+                {
+                    "project_name": "demo",
+                    "generated_at": "2026-04-18T00:00:00+00:00",
+                    "declared_icon_library": "lucide",
+                    "declared_typography": [],
+                    "declared_tokens": [],
+                    "violations": [],
+                    "score": 100,
+                    "files_scanned": 1,
+                    "evidence_identity": identity,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        frontend_file.write_text(
+            "import { House } from 'lucide-react';\nexport function Page(){ return <House /> }\n",
+            encoding="utf-8",
+        )
+
+        artifact = ProofPackBuilder(project_dir)._uiux_compliance_artifact()
+        assert artifact.status == "pending"
+        assert artifact.summary == "uiux compliance artifact identity_mismatch"
 
     def test_builder_emits_hook_audit_artifact_when_history_exists(self, tmp_path):
         project_dir = tmp_path / "demo"

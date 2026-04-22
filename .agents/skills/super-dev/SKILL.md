@@ -2,7 +2,7 @@
 name: super-dev
 description: Activate the Super Dev pipeline inside Codex CLI.
 when_to_use: Use when the user says /super-dev, super-dev:, or super-dev： followed by a requirement. Activate the Super Dev pipeline for research-first, commercial-grade project delivery.
-version: 2.3.8
+version: 2.4.0
 ---
 # super-dev for Codex CLI
 
@@ -44,50 +44,62 @@ version: 2.3.8
 - 需要研究、设计、编码、运行、调试时，优先使用 Codex 自身的 web/search/terminal/edit 能力。
 - 需要做治理动作时，才使用本地 `super-dev` CLI。
 
-## Super Dev CLI 命令速查
+## 宿主交互边界
 
-以下所有命令均在宿主内通过 `/super-dev <command>` 输入。
-宿主会通过 Bash 工具自动执行，无需打开终端。
+普通用户只需要记住 3 个终端命令：
 
 ```bash
-# 项目初始化与宿主接入
-super-dev init                          # 初始化项目配置
-super-dev detect --auto                 # 探测已安装宿主
-super-dev setup <host>                  # 一步接入指定宿主
-super-dev doctor --fix                  # 诊断并修复接入问题
-super-dev migrate                       # 迁移到最新版本
-
-# 流水线控制
-super-dev run <phase>                   # 跳转到指定阶段
-super-dev status                        # 查看当前流程状态
-super-dev next                          # 推荐下一步
-super-dev continue                      # 继续当前流程
-super-dev confirm <phase>               # 确认指定阶段
-
-# 治理与质量
-super-dev enforce install               # 安装 enforcement hooks
-super-dev enforce validate              # 运行验证检查
-super-dev quality                       # 运行质量门禁
-super-dev review docs                   # 查看三文档确认状态
-super-dev review ui                     # 查看 UI 审查状态
-super-dev review preview                # 查看预览确认状态
-
-# 交付
-super-dev release proof-pack            # 生成交付证据包
-super-dev release readiness             # 发布就绪度检查
-
-# 查询
-super-dev memory list                   # 查看记忆条目
-super-dev experts list                  # 查看专家角色
-super-dev hooks list                    # 查看 hook 事件
-super-dev hooks history                 # 查看最近 hook 历史
-super-dev harness status                # 查看 workflow/framework/hook harness
-super-dev compact list                  # 查看压缩摘要
-super-dev config list                   # 查看项目配置
-super-dev spec list                     # 查看规范与变更
+super-dev
+super-dev update
+super-dev uninstall
 ```
 
-**重要**: 这些命令是治理执行层，宿主自身能力无法替代。
+普通用户优先只记住这些宿主表达：
+
+```text
+/super-dev <goal>
+/super-dev-seeai <goal>
+继续当前流程
+现在下一步是什么
+```
+
+文本回退宿主优先使用：
+
+```text
+super-dev: <goal>
+super-dev-seeai: <goal>
+```
+
+维护/治理场景才显式进入：
+
+```text
+/super-dev-work <mode> <goal>
+/super-dev-run <stage|resume|status|next>
+/super-dev-review <target> <action>
+```
+
+工作模式固定为：
+
+- `new`：从 0 到 1
+- `evolve`：已有项目增量迭代
+- `variant`：从现有项目派生新版本
+- `patch`：在现有项目上修 bug / 做整改
+- `resume`：继续当前中断流程
+
+硬规则：
+
+- `new` 才能直接从 `research -> docs` 开始
+- `evolve / variant / patch` 必须先 `baseline`
+- baseline 必须先分析现有功能、架构、代码、路由/API、UI 与约束，再进入差量 research 和三文档
+- `resume` 是默认场景，不是异常场景
+
+恢复是默认场景，不是补充场景。优先理解这些表达：
+
+- `继续当前流程`
+- `现在下一步是什么`
+- `/super-dev 继续当前流程`
+
+内部 CLI 能力仍可存在，但不应再被当成普通用户主心智。
 
 ## 首轮响应契约（强制）
 
@@ -98,7 +110,7 @@ super-dev spec list                     # 查看规范与变更
 
 ### research 双引擎
 
-**引擎 1: CLI 知识推送** — `super-dev run research` 触发本地知识发现，读取 `knowledge/` 和 knowledge-bundle.json。
+**引擎 1: 本地知识发现** — 优先读取 `knowledge/` 和 knowledge-bundle.json，并在当前宿主里把结论沉入 `output/*-research.md`。
 
 **引擎 2: 宿主联网研究** — WebFetch/WebSearch 搜索同类产品、竞品和官方文档，写入 `output/*-research.md`。
 
@@ -134,9 +146,9 @@ super-dev spec list                     # 查看规范与变更
 - 读取 output/*-architecture.md 中的 API 定义
 - 读取 output/*-uiux.md 中的设计 token
 
-### 第 5 步：生成脚手架并验证构建
-- `super-dev generate components` + `super-dev generate types`
-- 运行构建命令确认零错误后才开始写业务代码
+### 第 5 步：在宿主里建立页面结构与共享类型并验证构建
+- 按 `output/*-architecture.md` 与 `output/*-uiux.md` 直接在宿主里生成/更新页面结构、组件实现参考与共享类型
+- 运行宿主原生构建命令确认零错误后才开始写业务代码
 
 
 ## 会话连续性契约（强制）
@@ -188,7 +200,7 @@ super-dev spec list                     # 查看规范与变更
 7. Only after confirmation, create `.super-dev/changes/*/proposal.md` and `.super-dev/changes/*/tasks.md`, then continue with frontend-first implementation.
 8. If the user says the UI is unsatisfactory, requests a redesign, or says the page looks AI-generated, first update `output/*-uiux.md`, then redo the frontend, rerun frontend runtime and UI review, and only then continue.
 9. If the user says the architecture is wrong or the technical plan must change, first update `output/*-architecture.md`, then realign Spec/tasks and implementation before continuing.
-10. If the user says quality or security is not acceptable, first fix the issues, rerun quality gate and `super-dev release proof-pack`, and only then continue.
+10. If the user says quality or security is not acceptable, first fix the issues, rerun the quality gate, refresh any delivery evidence the reports ask for, and only then continue.
 
 ## Never do this
 
@@ -233,7 +245,7 @@ super-dev spec list                     # 查看规范与变更
 
 **阶段 3 -- 暴露错误（无法恢复）**
 - 提供: 什么失败了 + 为什么 + 下一步建议
-- 运行 `super-dev doctor --fix` 尝试自动修复
+- 回到终端重新运行 `super-dev` 校验宿主接入；若本地版本或注入面不一致，再执行 `super-dev update`
 
 永远不要在尝试阶段 1-2 之前就暴露错误给用户。
 

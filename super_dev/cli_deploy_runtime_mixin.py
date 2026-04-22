@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
-from .config import ConfigManager
+from .evidence_identity import attach_evidence_identity
 from .frameworks import framework_playbook_complete, is_cross_platform_frontend
+from .ui_contract_governance import required_claude_design_runtime_checks
 
 
 class CliDeployRuntimeMixin:
@@ -31,6 +33,14 @@ class CliDeployRuntimeMixin:
             "markdown": output_dir / f"{project_name}-frontend-runtime.md",
             "json": output_dir / f"{project_name}-frontend-runtime.json",
         }
+
+    def _export_preview_from_output_frontend(self, preview_file: Path) -> bool:
+        frontend_index = preview_file.parent / "output" / "frontend" / "index.html"
+        if not frontend_index.exists():
+            return False
+        preview_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(frontend_index, preview_file)
+        return True
 
     def _runtime_ui_probe_files(
         self, *, project_dir: Path, frontend_dir: Path, preview_file: Path
@@ -274,6 +284,139 @@ class CliDeployRuntimeMixin:
             return True
         return any(keyword in combined for keyword in keywords[:24])
 
+    def _runtime_contains_any(self, combined: str, candidates: list[str]) -> bool:
+        lowered = combined.lower()
+        normalized = re.sub(r"[-_/]+", " ", lowered)
+        for candidate in candidates:
+            token = str(candidate).strip().lower()
+            if not token:
+                continue
+            if "/" in token:
+                token = Path(token).name.lower()
+            normalized_token = re.sub(r"[-_/]+", " ", token)
+            if token and (token in lowered or normalized_token in normalized):
+                return True
+        return False
+
+    def _runtime_claude_design_protocol_checks(
+        self,
+        *,
+        ui_contract: dict[str, Any],
+        source_content: str,
+        preview_content: str,
+    ) -> dict[str, bool]:
+        combined = "\n".join([source_content, preview_content])
+        checks: dict[str, bool] = {}
+        if not required_claude_design_runtime_checks(ui_contract):
+            return checks
+
+        screen_recipes = (
+            ui_contract.get("screen_recipes")
+            if isinstance(ui_contract.get("screen_recipes"), list)
+            else []
+        )
+        if screen_recipes:
+            labels = [str(item.get("label", "")).strip() for item in screen_recipes if isinstance(item, dict)]
+            sections = [
+                str(section).strip()
+                for item in screen_recipes
+                if isinstance(item, dict)
+                for section in item.get("section_order", []) or []
+            ]
+            trust_modules = [
+                str(module).strip()
+                for item in screen_recipes
+                if isinstance(item, dict)
+                for module in item.get("trust_modules", []) or []
+            ]
+            required_states = [
+                str(state).strip()
+                for item in screen_recipes
+                if isinstance(item, dict)
+                for state in item.get("required_states", []) or []
+            ]
+            checks["ui_screen_recipes"] = (
+                self._runtime_contains_any(combined, labels)
+                and self._runtime_contains_any(combined, sections)
+                and (
+                    self._runtime_contains_any(combined, trust_modules)
+                    or self._runtime_contains_any(combined, required_states)
+                )
+            )
+
+        design_context_protocol = (
+            ui_contract.get("design_context_protocol")
+            if isinstance(ui_contract.get("design_context_protocol"), dict)
+            else {}
+        )
+        if design_context_protocol:
+            checks["ui_design_context_protocol"] = (
+                self._runtime_contains_any(
+                    combined,
+                    [
+                        *(
+                            str(item).strip()
+                            for item in design_context_protocol.get("preferred_import_order", []) or []
+                        ),
+                        *(
+                            str(item).strip()
+                            for item in design_context_protocol.get("github_import_targets", []) or []
+                        ),
+                    ],
+                )
+                and self._runtime_contains_any(
+                    combined, [str(design_context_protocol.get("single_source_rule", "")).strip()]
+                )
+            )
+
+        tweak_strategy = (
+            ui_contract.get("tweak_strategy")
+            if isinstance(ui_contract.get("tweak_strategy"), dict)
+            else {}
+        )
+        if tweak_strategy:
+            checks["ui_tweak_strategy"] = (
+                self._runtime_contains_any(combined, [str(tweak_strategy.get("mode", "")).strip()])
+                and self._runtime_contains_any(
+                    combined,
+                    [str(item).strip() for item in tweak_strategy.get("default_controls", []) or []],
+                )
+                and self._runtime_contains_any(
+                    combined, [str(tweak_strategy.get("persistence_rule", "")).strip()]
+                )
+            )
+
+        verification_handoff = (
+            ui_contract.get("verification_handoff")
+            if isinstance(ui_contract.get("verification_handoff"), dict)
+            else {}
+        )
+        if verification_handoff:
+            checks["ui_verification_handoff"] = (
+                self._runtime_contains_any(
+                    combined,
+                    [
+                        str(item).strip()
+                        for item in verification_handoff.get("verification_order", []) or []
+                    ],
+                )
+                and self._runtime_contains_any(
+                    combined,
+                    [
+                        str(item).strip()
+                        for item in verification_handoff.get("required_artifacts", []) or []
+                    ],
+                )
+                and self._runtime_contains_any(
+                    combined,
+                    [
+                        str(item).strip()
+                        for item in verification_handoff.get("acceptance_checks", []) or []
+                    ],
+                )
+            )
+        return checks
+
     def _write_frontend_runtime_validation(
         self,
         *,
@@ -325,6 +468,10 @@ class CliDeployRuntimeMixin:
             "ui_component_imports": "component_imports",
             "ui_banned_patterns": "banned_patterns",
             "ui_framework_execution": "framework_execution",
+            "ui_screen_recipes": "screen_recipes",
+            "ui_design_context_protocol": "design_context_protocol",
+            "ui_tweak_strategy": "tweak_strategy",
+            "ui_verification_handoff": "verification_handoff",
         }
         banned_pattern_probe = self._probe_runtime_ui_banned_patterns(
             project_dir=project_dir,
@@ -378,10 +525,9 @@ class CliDeployRuntimeMixin:
         )
         frontend_variant = str(analysis.get("frontend") or "")
         cross_platform_frontend = self._is_cross_platform_frontend(frontend_variant)
-        framework_playbook = (
-            ui_contract.get("framework_playbook")
-            if isinstance(ui_contract.get("framework_playbook"), dict)
-            else {}
+        framework_playbook_payload = ui_contract.get("framework_playbook")
+        framework_playbook: dict[str, Any] = (
+            framework_playbook_payload if isinstance(framework_playbook_payload, dict) else {}
         )
         if ui_alignment_available and not framework_playbook:
             checks["ui_framework_execution"] = True
@@ -428,14 +574,52 @@ class CliDeployRuntimeMixin:
                         preview_content=preview_content,
                         dependency_blob=dependency_blob,
                     )
+            checks.update(
+                self._runtime_claude_design_protocol_checks(
+                    ui_contract=ui_contract,
+                    source_content=source_content,
+                    preview_content=preview_content,
+                )
+            )
             checks["ui_contract_alignment"] = all(
-                bool(checks.get(name, False)) for name in key_alignment_checks
+                bool(checks.get(name, False))
+                for name in (
+                    *(
+                        name
+                        for name in key_alignment_checks
+                        if name
+                        not in {
+                            "ui_screen_recipes",
+                            "ui_design_context_protocol",
+                            "ui_tweak_strategy",
+                            "ui_verification_handoff",
+                        }
+                    ),
+                    *required_claude_design_runtime_checks(ui_contract),
+                )
             )
         framework_playbook_ready = self._framework_playbook_complete(framework_playbook)
         checks["ui_framework_playbook"] = (
             framework_playbook_ready if cross_platform_frontend else True
         )
         passed = all(checks.values())
+        ui_alignment_key_areas: dict[str, dict[str, Any]] = {
+            key: value
+            for key, value in ui_alignment_summary.items()
+            if key
+            in {
+                "theme_entry",
+                "navigation_shell",
+                "component_imports",
+                "banned_patterns",
+                "framework_execution",
+                "screen_recipes",
+                "design_context_protocol",
+                "tweak_strategy",
+                "verification_handoff",
+            }
+            and isinstance(value, dict)
+        }
         report = {
             "project_name": project_name,
             "passed": passed,
@@ -454,25 +638,20 @@ class CliDeployRuntimeMixin:
                 "selected_library": selected_library,
             },
             "ui_alignment_summary": ui_alignment_summary,
-            "ui_alignment_key_areas": {
-                key: value
-                for key, value in ui_alignment_summary.items()
-                if key
-                in {
-                    "theme_entry",
-                    "navigation_shell",
-                    "component_imports",
-                    "banned_patterns",
-                    "framework_execution",
-                }
-            },
+            "ui_alignment_key_areas": ui_alignment_key_areas,
             "ui_banned_pattern_probe": banned_pattern_probe,
         }
         report_paths = self._frontend_runtime_report_paths(
             output_dir=output_dir, project_name=project_name
         )
+        report_with_identity = attach_evidence_identity(
+            report,
+            project_dir=project_dir,
+            artifact_name="frontend-runtime",
+            dependencies=[ui_contract_file, ui_alignment_file],
+        )
         report_paths["json"].write_text(
-            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            json.dumps(report_with_identity, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
         lines = [
@@ -540,14 +719,13 @@ class CliDeployRuntimeMixin:
                     f"- {value.get('label', key)}: {'ok' if value.get('passed') else 'gap'} | "
                     f"expected={value.get('expected', '-') or '-'} | observed={value.get('observed', '-') or '-'}"
                 )
-            key_areas = report["ui_alignment_key_areas"]
+            key_areas = ui_alignment_key_areas
             if key_areas:
                 lines.extend(["", "## Key Structural Alignment", ""])
-                for key, value in key_areas.items():
-                    if not isinstance(value, dict):
-                        continue
+                for key, alignment_value in key_areas.items():
                     lines.append(
-                        f"- {value.get('label', key)}: {'ok' if value.get('passed') else 'gap'}"
+                        f"- {alignment_value.get('label', key)}: "
+                        f"{'ok' if alignment_value.get('passed') else 'gap'}"
                     )
         if banned_pattern_probe.get("observed"):
             lines.extend(
@@ -560,115 +738,5 @@ class CliDeployRuntimeMixin:
                 ]
             )
         report_paths["markdown"].write_text("\n".join(lines) + "\n", encoding="utf-8")
-        report["report_files"] = {name: str(path) for name, path in report_paths.items()}
-        return report
-
-    def _cmd_deploy(self, args) -> int:
-        """生成部署配置"""
-        from .deployers import CICDGenerator, LaunchRehearsalGenerator, LaunchRehearsalRunner
-
-        project_dir = Path.cwd()
-        config_manager = ConfigManager(project_dir)
-        config = config_manager.load()
-
-        tech_stack = {
-            "platform": config.platform,
-            "frontend": self._normalize_pipeline_frontend(config.frontend),
-            "backend": config.backend,
-            "domain": config.domain,
-        }
-        project_name = self._sanitize_project_name(config.name or project_dir.name)
-
-        platform = self._normalize_cicd_platform(args.cicd or "github")
-        generator = CICDGenerator(
-            project_dir=project_dir,
-            name=project_name,
-            tech_stack=tech_stack,
-            platform=platform,
-        )
-        generated_files = generator.generate()
-
-        cicd_map = {
-            "github": [".github/workflows/ci.yml", ".github/workflows/cd.yml"],
-            "gitlab": [".gitlab-ci.yml"],
-            "jenkins": ["Jenkinsfile"],
-            "azure": [".azure-pipelines.yml"],
-            "bitbucket": ["bitbucket-pipelines.yml"],
-            "all": [
-                ".github/workflows/ci.yml",
-                ".github/workflows/cd.yml",
-                ".gitlab-ci.yml",
-                "Jenkinsfile",
-                ".azure-pipelines.yml",
-                "bitbucket-pipelines.yml",
-            ],
-        }
-        docker_related = [
-            "Dockerfile",
-            "docker-compose.yml",
-            ".dockerignore",
-            "k8s/deployment.yaml",
-            "k8s/service.yaml",
-            "k8s/ingress.yaml",
-            "k8s/configmap.yaml",
-            "k8s/secret.yaml",
-        ]
-
-        want_cicd = bool(args.cicd) or (not args.cicd and not args.docker)
-        want_docker = bool(args.docker) or (not args.cicd and not args.docker)
-
-        selected_keys: list[str] = []
-        if want_cicd:
-            selected_keys.extend(cicd_map.get(platform, []))
-        if want_docker:
-            selected_keys.extend(docker_related)
-
-        selected_keys = [key for key in selected_keys if key in generated_files]
-        if not selected_keys:
-            self.console.print("[yellow]没有可生成的部署配置[/yellow]")
-            if not args.rehearsal:
-                return 0
-
-        self.console.print("[cyan]生成部署配置...[/cyan]")
-        written = 0
-        for relative_path in selected_keys:
-            full_path = project_dir / relative_path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(generated_files[relative_path], encoding="utf-8")
-            self.console.print(f"  [green]✓[/green] {relative_path}")
-            written += 1
-
-        self.console.print(f"[green]✓[/green] 已生成 {written} 个部署文件")
-
-        if args.rehearsal:
-            rehearsal_generator = LaunchRehearsalGenerator(
-                project_dir=project_dir,
-                name=project_name,
-                tech_stack=tech_stack,
-            )
-            rehearsal_files = rehearsal_generator.generate(cicd_platform=args.cicd or "github")
-            self.console.print("[cyan]生成发布演练文档...[/cyan]")
-            for relative_path, content in rehearsal_files.items():
-                full_path = project_dir / relative_path
-                full_path.parent.mkdir(parents=True, exist_ok=True)
-                full_path.write_text(content, encoding="utf-8")
-                self.console.print(f"  [green]✓[/green] {relative_path}")
-
-        if args.rehearsal_verify:
-            runner = LaunchRehearsalRunner(
-                project_dir=project_dir,
-                project_name=project_name,
-                cicd_platform=args.cicd or "github",
-            )
-            rehearsal_result = runner.run()
-            report_files = runner.write(rehearsal_result)
-            status = "[green]通过[/green]" if rehearsal_result.passed else "[red]未通过[/red]"
-            self.console.print("[cyan]发布演练验证...[/cyan]")
-            self.console.print(f"  {status} 分数: {rehearsal_result.score}/100")
-            self.console.print(f"  [green]✓[/green] 报告: {report_files['markdown']}")
-            self.console.print(f"  [green]✓[/green] 数据: {report_files['json']}")
-            if not rehearsal_result.passed:
-                self.console.print("[yellow]演练未通过，请根据报告补齐缺失项后重试[/yellow]")
-                return 1
-
-        return 0
+        report_with_identity["report_files"] = {name: str(path) for name, path in report_paths.items()}
+        return report_with_identity

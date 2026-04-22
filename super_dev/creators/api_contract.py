@@ -457,9 +457,9 @@ class APIContractGenerator:
 # ======================================================================
 
 
-def _parse_field_list(block: str) -> list[dict[str, str]]:
+def _parse_field_list(block: str) -> list[dict[str, str | bool]]:
     """Parse ``- fieldName: type`` lines into a list of field dicts."""
-    fields: list[dict[str, str]] = []
+    fields: list[dict[str, str | bool]] = []
     for line in block.strip().splitlines():
         line = line.strip().lstrip("-*").strip()
         # Patterns: "id: string", "id (string)", "id - string"
@@ -473,9 +473,9 @@ def _parse_field_list(block: str) -> list[dict[str, str]]:
     return fields
 
 
-def _parse_field_table(rows: str) -> list[dict[str, str]]:
+def _parse_field_table(rows: str) -> list[dict[str, str | bool]]:
     """Parse markdown table rows into field dicts."""
-    fields: list[dict[str, str]] = []
+    fields: list[dict[str, str | bool]] = []
     for line in rows.strip().splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) >= 2:

@@ -301,8 +301,7 @@ class PlanExecutor:
             started = time.monotonic()
             try:
                 completed = subprocess.run(
-                    gate.command,
-                    shell=True,
+                    ["bash", "-lc", gate.command],
                     cwd=str(cwd),
                     capture_output=True,
                     text=True,

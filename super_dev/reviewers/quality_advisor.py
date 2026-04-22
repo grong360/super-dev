@@ -19,6 +19,9 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..compliance_governance import collect_compliance_governance_signal
+from ..host_runtime_governance import collect_layered_runtime_governance_gap
+
 
 @dataclass
 class QualityAdvice:
@@ -174,6 +177,8 @@ class QualityAdvisor:
         from datetime import datetime, timezone
 
         advices: list[QualityAdvice] = []
+        advices.extend(self._check_host_runtime_continuity_gaps())
+        advices.extend(self._check_compliance_governance_gaps())
         advices.extend(self._check_testing_gaps())
         advices.extend(self._check_security_gaps())
         advices.extend(self._check_documentation_gaps())
@@ -194,6 +199,80 @@ class QualityAdvisor:
             quality_score=score,
             advices=advices,
         )
+
+    def _check_host_runtime_continuity_gaps(self) -> list[QualityAdvice]:
+        """检查已人工通过但仓库级恢复闭环未完成的宿主。"""
+        governance_gap = collect_layered_runtime_governance_gap(self.project_dir)
+        impacted_hosts = governance_gap.get("impacted_hosts", []) if governance_gap else []
+        if not isinstance(impacted_hosts, list) or not impacted_hosts:
+            return []
+        next_actions = governance_gap.get("next_actions", []) if governance_gap else []
+        primary_action = ""
+        if isinstance(next_actions, list):
+            primary_action = next((str(item).strip() for item in next_actions if str(item).strip()), "")
+        if not primary_action:
+            primary_action = (
+                "先补齐 workflow continuity / framework harness / frontend runtime 闭环，"
+                "再补一次宿主真人验收记录。"
+            )
+        else:
+            primary_action = primary_action + "，然后补一次最新的宿主真人验收记录。"
+
+        return [
+            QualityAdvice(
+                category="governance",
+                priority="critical",
+                title="宿主 runtime 与仓库 continuity 脱节",
+                description=(
+                    "以下宿主已人工通过 runtime validation，但仓库级 repo probe 仍未通过："
+                    + "、".join(impacted_hosts[:3])
+                ),
+                action=primary_action,
+                effort="small",
+                impact="high",
+                knowledge_ref=".super-dev/review-state/host-runtime-validation.json",
+            )
+        ]
+
+    def _check_compliance_governance_gaps(self) -> list[QualityAdvice]:
+        signal = collect_compliance_governance_signal(self.project_dir)
+        source_issues = signal.get("source_issues", [])
+        if isinstance(source_issues, list) and source_issues:
+            return [
+                QualityAdvice(
+                    category="governance",
+                    priority="critical",
+                    title="合规链证据状态未闭环",
+                    description=str(signal.get("summary", "")).strip()
+                    or "spec / architecture / uiux compliance artifacts 仍缺失或失配。",
+                    action=(
+                        "先重新生成 spec / architecture / uiux compliance artifacts，"
+                        "确认 JSON 证据存在、可读且 identity 指向当前输入，然后重跑 quality gate。"
+                    ),
+                    effort="small",
+                    impact="high",
+                    knowledge_ref="output/",
+                )
+            ]
+        content_issues = signal.get("content_issues", [])
+        if isinstance(content_issues, list) and content_issues:
+            return [
+                QualityAdvice(
+                    category="governance",
+                    priority="high",
+                    title="合规链内容仍未达标",
+                    description=str(signal.get("summary", "")).strip()
+                    or "合规链证据已齐，但仍有内容检查未通过。",
+                    action=(
+                        "优先修复 PRD traceability、architecture drift 或 UIUX 违例，"
+                        "再重新执行 quality gate / proof-pack / release readiness。"
+                    ),
+                    effort="medium",
+                    impact="high",
+                    knowledge_ref="output/",
+                )
+            ]
+        return []
 
     # ------------------------------------------------------------------
     # 测试缺口检查
@@ -620,7 +699,7 @@ class QualityAdvisor:
                     priority="high",
                     title="缺少 CI/CD 配置",
                     description="未检测到任何 CI/CD 流水线配置",
-                    action="创建 .github/workflows/ci.yml 或使用 super-dev deploy 生成",
+                    action="补齐当前仓库的 CI/CD 配置（例如 .github/workflows/ci.yml）",
                     effort="medium",
                     impact="high",
                 )

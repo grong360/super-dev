@@ -1,45 +1,50 @@
 import { Badge } from '@/components/ui/Badge';
-import { HOSTS, SLASH_HOSTS, TEXT_TRIGGER_HOSTS, type HostStatus } from '@/lib/constants';
+import { HOST_MATRIX_GROUPS, HOSTS, type HostCategory, type HostStatus } from '@/lib/constants';
 import type { SiteLocale } from '@/lib/site-locale';
 
-const STATUS_BADGE_VARIANT: Record<HostStatus, 'certified' | 'compatible' | 'experimental'> = {
-  certified: 'certified',
+type DisplayStatus = 'recommended' | 'compatible';
+
+const DISPLAY_BADGE_VARIANT: Record<DisplayStatus, 'certified' | 'compatible'> = {
+  recommended: 'certified',
   compatible: 'compatible',
-  experimental: 'experimental',
+};
+
+const CATEGORY_LABELS: Record<HostCategory, string> = {
+  cli: 'CLI',
+  ide: 'IDE',
+  assistant: 'Desktop assistants',
 };
 
 const COPY = {
   zh: {
     eyebrow: 'Host Support',
-    title: '不同宿主，不同协议；触发方式只有两种。',
-    body: '先记住该输入什么。commands、AGENTS、steering、rules、skills 这些接入面放在文档里展开。',
-    slash: 'Slash 宿主',
-    text: 'Text-trigger 宿主',
-    slashBody: '这些宿主直接输入 /super-dev 你的需求。',
-    textBody: '这些宿主使用 super-dev: 你的需求。',
+    title: '26 个宿主不是一张支持列表，而是一张“接入后怎么立刻开工”的地图。',
+    body: '首页只保留用户第一眼真需要的信息：这个宿主属于哪一类、第一句怎么说、它会先读什么、最适合拿来做哪种工作。更细的接入后先验、官方工作流检查和双模式准备度，留给安装器与文档中心。',
     matrixTitle: '宿主矩阵',
-    protocol: '协议面',
-    trigger: '触发',
-    integration: '接入完成度',
-    runtime: '运行成熟度',
-    labels: { certified: '高', compatible: '中', experimental: '待验证' },
+    protocol: '会先读什么',
+    category: '分组',
+    trigger: '宿主第一句',
+    fit: '最适合',
+    readiness: '状态',
+    labels: { recommended: '推荐', compatible: '兼容' },
   },
   en: {
     eyebrow: 'Host Support',
-    title: 'Different hosts, different protocols, only two trigger styles.',
-    body: 'Start with the practical answer: what to type. Commands, AGENTS, steering, rules, and skills are documented in detail below.',
-    slash: 'Slash hosts',
-    text: 'Text-trigger hosts',
-    slashBody: 'These hosts accept /super-dev your requirement.',
-    textBody: 'These hosts use super-dev: your requirement.',
+    title: 'The unified host matrix is not just support coverage. It tells you how to start immediately after onboarding.',
+    body: 'The homepage keeps only the signals that matter first: which class a host belongs to, the first prompt to use, what Super Dev loads first, and what that host is best suited for. Detailed self-checks, official workflow checks, and dual-mode readiness stay in the installer and docs center.',
     matrixTitle: 'Host matrix',
-    protocol: 'Protocol surface',
-    trigger: 'Trigger',
-    integration: 'Integration',
-    runtime: 'Runtime',
-    labels: { certified: 'High', compatible: 'Medium', experimental: 'Pending' },
+    protocol: 'Loads first',
+    category: 'Group',
+    trigger: 'First prompt',
+    fit: 'Best for',
+    readiness: 'Status',
+    labels: { recommended: 'Recommended', compatible: 'Compatible' },
   },
 } as const;
+
+function hostDisplayStatus(host: { integration: HostStatus; runtime: HostStatus }): DisplayStatus {
+  return host.integration === 'certified' || host.runtime === 'certified' ? 'recommended' : 'compatible';
+}
 
 function HostChip({ label }: { label: string }) {
   return <span className="rounded-lg border border-border-default bg-bg-primary px-3 py-2 font-mono text-sm text-text-primary">{label}</span>;
@@ -57,40 +62,43 @@ export function HostCompatSection({ locale = 'zh' }: { locale?: SiteLocale }) {
           <p className="mt-4 text-lg leading-8 text-text-secondary">{copy.body}</p>
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-2">
-          <article className="rounded-2xl border border-border-default bg-bg-primary/70 p-6">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-xl font-semibold text-text-primary">{copy.slash}</h3>
-              <code className="rounded-md bg-bg-secondary px-2.5 py-1 font-mono text-sm text-accent-blue">/super-dev</code>
-            </div>
-            <p className="mb-5 text-sm leading-7 text-text-secondary">{copy.slashBody}</p>
-            <div className="flex flex-wrap gap-2">
-              {SLASH_HOSTS.map((host) => (
-                <HostChip key={host.name} label={host.name} />
-              ))}
-            </div>
-          </article>
-
-          <article className="rounded-2xl border border-border-default bg-bg-primary/70 p-6">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-xl font-semibold text-text-primary">{copy.text}</h3>
-              <code className="rounded-md bg-bg-secondary px-2.5 py-1 font-mono text-sm text-accent-blue">super-dev:</code>
-            </div>
-            <p className="mb-5 text-sm leading-7 text-text-secondary">{copy.textBody}</p>
-            <div className="flex flex-wrap gap-2">
-              {TEXT_TRIGGER_HOSTS.map((host) => (
-                <HostChip key={host.name} label={host.name} />
-              ))}
-            </div>
-          </article>
+        <div className="grid gap-5 lg:grid-cols-3">
+          {HOST_MATRIX_GROUPS.map((group) => (
+            <article key={group.key} className="rounded-2xl border border-border-default bg-bg-primary/70 p-6">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-xl font-semibold text-text-primary">{group.title}</h3>
+                <Badge variant="version">{group.label}</Badge>
+              </div>
+              <p className="mb-5 text-sm leading-7 text-text-secondary">
+                {group.key === 'cli' ? (
+                  locale === 'en'
+                    ? 'CLI hosts are best when you want the shortest install-to-first-prompt path and a clear terminal or app companion workflow.'
+                    : 'CLI 宿主最适合“装完就回当前会话开始做事”的路径，入口最短。'
+                ) : group.key === 'ide' ? (
+                  locale === 'en'
+                    ? 'IDE hosts keep workspace context, rules, commands, and longer-running implementation loops together.'
+                    : 'IDE 宿主更适合长时间停留在同一个工作区里做实现、返工和联调。'
+                ) : (
+                  locale === 'en'
+                    ? 'Desktop assistants are better for project instructions, knowledge-heavy work, and continuity across broader conversations.'
+                    : '桌面助手更适合 Project Instructions、知识注入和跨会话继续项目。'
+                )}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {group.hosts.map((host) => (
+                  <HostChip key={host.name} label={host.name} />
+                ))}
+              </div>
+            </article>
+          ))}
         </div>
 
         <div className="mt-12 rounded-2xl border border-border-default bg-bg-primary/70 p-6">
           <div className="mb-5 flex items-center justify-between gap-3">
             <h3 className="text-xl font-semibold text-text-primary">{copy.matrixTitle}</h3>
             <div className="flex flex-wrap gap-2">
-              {(Object.keys(copy.labels) as HostStatus[]).map((status) => (
-                <Badge key={status} variant={STATUS_BADGE_VARIANT[status]}>{copy.labels[status]}</Badge>
+              {(Object.keys(copy.labels) as DisplayStatus[]).map((status) => (
+                <Badge key={status} variant={DISPLAY_BADGE_VARIANT[status]}>{copy.labels[status]}</Badge>
               ))}
             </div>
           </div>
@@ -100,20 +108,24 @@ export function HostCompatSection({ locale = 'zh' }: { locale?: SiteLocale }) {
               <thead>
                 <tr className="text-text-muted">
                   <th className="px-3 py-2 font-medium">Host</th>
+                  <th className="px-3 py-2 font-medium">{copy.category}</th>
                   <th className="px-3 py-2 font-medium">{copy.trigger}</th>
                   <th className="px-3 py-2 font-medium">{copy.protocol}</th>
-                  <th className="px-3 py-2 font-medium">{copy.integration}</th>
-                  <th className="px-3 py-2 font-medium">{copy.runtime}</th>
+                  <th className="px-3 py-2 font-medium">{copy.fit}</th>
+                  <th className="px-3 py-2 font-medium">{copy.readiness}</th>
                 </tr>
               </thead>
               <tbody>
                 {HOSTS.map((host) => (
                   <tr key={host.name} className="rounded-xl border border-border-default bg-bg-secondary/45">
-                    <td className="rounded-l-xl px-3 py-3 font-mono text-text-primary">{host.name}</td>
-                    <td className="px-3 py-3 font-mono text-accent-blue">{host.trigger === 'slash' ? '/super-dev' : 'super-dev:'}</td>
+                    <td className="rounded-l-xl whitespace-nowrap px-3 py-3 font-mono text-text-primary">{host.name}</td>
+                    <td className="px-3 py-3"><Badge variant="default">{CATEGORY_LABELS[host.category]}</Badge></td>
+                    <td className="whitespace-nowrap px-3 py-3 font-mono text-accent-blue">{host.triggerLabel ?? host.firstPrompt}</td>
                     <td className="px-3 py-3 text-text-secondary">{host.protocol}</td>
-                    <td className="px-3 py-3"><Badge variant={STATUS_BADGE_VARIANT[host.integration]}>{copy.labels[host.integration]}</Badge></td>
-                    <td className="rounded-r-xl px-3 py-3"><Badge variant={STATUS_BADGE_VARIANT[host.runtime]}>{copy.labels[host.runtime]}</Badge></td>
+                    <td className="px-3 py-3 text-text-secondary">{host.bestFor}</td>
+                    <td className="rounded-r-xl whitespace-nowrap px-3 py-3">
+                      <Badge variant={DISPLAY_BADGE_VARIANT[hostDisplayStatus(host)]}>{copy.labels[hostDisplayStatus(host)]}</Badge>
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -61,12 +61,18 @@ class TestFrontendAliases:
     def test_electron_maps_to_desktop(self, advisor):
         assert advisor.FRONTEND_ALIASES["electron"] == "desktop"
         assert advisor.FRONTEND_ALIASES["tauri"] == "desktop"
+        assert advisor.FRONTEND_ALIASES["wails"] == "desktop"
 
     def test_react_native_preserved(self, advisor):
         assert advisor.FRONTEND_ALIASES["react-native"] == "react-native"
+        assert advisor.FRONTEND_ALIASES["expo"] == "react-native"
 
     def test_flutter_preserved(self, advisor):
         assert advisor.FRONTEND_ALIASES["flutter"] == "flutter"
+
+    def test_hybrid_mobile_aliases(self, advisor):
+        assert advisor.FRONTEND_ALIASES["ionic"] == "hybrid-mobile"
+        assert advisor.FRONTEND_ALIASES["capacitor"] == "hybrid-mobile"
 
     def test_swiftui_preserved(self, advisor):
         assert advisor.FRONTEND_ALIASES["swiftui"] == "swiftui"

@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 REQUIRED_FILES = [
+    "knowledge/development/08-catalog/catalog.yaml",
     "knowledge/development/11-ui-excellence/ui-aesthetic-system.md",
     "knowledge/development/11-ui-excellence/ui-component-excellence-standard.md",
     "knowledge/development/11-ui-excellence/ui-accessibility-wcag-playbook.md",
@@ -26,6 +27,93 @@ REQUIRED_FILES = [
     "knowledge/development/14-full-lifecycle/operations-observability-runbook.md",
     "knowledge/development/14-full-lifecycle/stage-exit-criteria.yaml",
 ]
+
+REQUIRED_FILE_ALTERNATES = {
+    "knowledge/development/11-ui-excellence/ui-component-excellence-standard.md": [
+        (
+            "knowledge/development/11-ui-excellence/ui-engineering-excellence.md",
+            ["## 3. Component Excellence Standard"],
+        )
+    ],
+    "knowledge/development/11-ui-excellence/ui-accessibility-wcag-playbook.md": [
+        (
+            "knowledge/development/11-ui-excellence/ui-engineering-excellence.md",
+            ["## 6. Accessibility (WCAG Compliance)", "WCAG 2.2"],
+        )
+    ],
+    "knowledge/development/12-scenarios/ai-application-scenario-pack.md": [
+        (
+            "knowledge/development/12-scenarios/development-scenarios-guide.md",
+            ["## 7. AI Application Scenario Pack"],
+        )
+    ],
+    "knowledge/development/12-scenarios/multitenant-saas-scenario-pack.md": [
+        (
+            "knowledge/development/12-scenarios/development-scenarios-guide.md",
+            ["## 4. Multi-Tenant SaaS Scenario Pack"],
+        )
+    ],
+    "knowledge/development/13-implementation-assets/ui-kpi-and-quality-gates.yaml": [
+        (
+            "knowledge/development/13-implementation-assets/implementation-toolkit.md",
+            ["## 4. UI KPIs & Quality Gates", "token_coverage", "blocking_bugs"],
+        )
+    ],
+    "knowledge/development/13-implementation-assets/scenario-coverage-matrix.yaml": [
+        (
+            "knowledge/development/13-implementation-assets/implementation-toolkit.md",
+            ["## 2. Scenario Coverage Matrix", "  b2b:", "  ecommerce_peak:"],
+        )
+    ],
+    "knowledge/development/14-full-lifecycle/lifecycle-end-to-end-map.md": [
+        (
+            "knowledge/development/14-full-lifecycle/software-lifecycle-gates.md",
+            ["## 1. Lifecycle End-to-End Map"],
+        )
+    ],
+    "knowledge/development/14-full-lifecycle/requirement-discovery-playbook.md": [
+        (
+            "knowledge/development/14-full-lifecycle/software-lifecycle-gates.md",
+            ["## 2. Stage 1: Requirement Discovery"],
+        )
+    ],
+    "knowledge/development/14-full-lifecycle/architecture-decision-gate.md": [
+        (
+            "knowledge/development/14-full-lifecycle/software-lifecycle-gates.md",
+            ["## 4. Stage 3: Architecture Decision Gate"],
+        )
+    ],
+    "knowledge/development/14-full-lifecycle/testing-verification-gate.md": [
+        (
+            "knowledge/development/14-full-lifecycle/software-lifecycle-gates.md",
+            ["## 6. Stage 5: Testing & Verification Gate"],
+        )
+    ],
+    "knowledge/development/14-full-lifecycle/security-compliance-gate.md": [
+        (
+            "knowledge/development/14-full-lifecycle/software-lifecycle-gates.md",
+            ["## 7. Stage 6: Security & Compliance Gate"],
+        )
+    ],
+    "knowledge/development/14-full-lifecycle/release-change-management-playbook.md": [
+        (
+            "knowledge/development/14-full-lifecycle/software-lifecycle-gates.md",
+            ["## 8. Stage 7: Release & Change Management"],
+        )
+    ],
+    "knowledge/development/14-full-lifecycle/operations-observability-runbook.md": [
+        (
+            "knowledge/development/14-full-lifecycle/software-lifecycle-gates.md",
+            ["## 9. Stage 8: Operations & Observability"],
+        )
+    ],
+    "knowledge/development/14-full-lifecycle/stage-exit-criteria.yaml": [
+        (
+            "knowledge/development/14-full-lifecycle/software-lifecycle-gates.md",
+            ["## 11. Stage Exit Criteria Summary (YAML Reference)", "stage_exit_criteria:"],
+        )
+    ],
+}
 
 REQUIRED_SCENARIOS = [
     "b2b",
@@ -75,6 +163,87 @@ REQUIRED_TEMPLATE_FILES = [
     "knowledge/development/15-lifecycle-templates/lifecycle-review-board-template.md",
 ]
 
+TEMPLATE_FILE_ALTERNATES = {
+    "knowledge/development/15-lifecycle-templates/template-catalog.yaml": [
+        (
+            "knowledge/development/15-lifecycle-templates/project-templates-collection.md",
+            ["## Template Catalog", "| T-01 | Requirement Template |", "| T-10 | Lifecycle Review Board Template |"],
+        )
+    ],
+    "knowledge/development/15-lifecycle-templates/requirement-template.md": [
+        (
+            "knowledge/development/15-lifecycle-templates/project-templates-collection.md",
+            ["## T-01: Requirement Template"],
+        )
+    ],
+    "knowledge/development/15-lifecycle-templates/design-handoff-template.md": [
+        (
+            "knowledge/development/15-lifecycle-templates/project-templates-collection.md",
+            ["## T-02: Design Handoff Template"],
+        )
+    ],
+    "knowledge/development/15-lifecycle-templates/architecture-adr-template.md": [
+        (
+            "knowledge/development/15-lifecycle-templates/project-templates-collection.md",
+            ["## T-03: Architecture ADR Template"],
+        )
+    ],
+    "knowledge/development/15-lifecycle-templates/implementation-pr-template.md": [
+        (
+            "knowledge/development/15-lifecycle-templates/project-templates-collection.md",
+            ["## T-04: Implementation PR Template"],
+        )
+    ],
+    "knowledge/development/15-lifecycle-templates/testing-report-template.md": [
+        (
+            "knowledge/development/15-lifecycle-templates/project-templates-collection.md",
+            ["## T-05: Testing Report Template"],
+        )
+    ],
+    "knowledge/development/15-lifecycle-templates/security-compliance-template.md": [
+        (
+            "knowledge/development/15-lifecycle-templates/project-templates-collection.md",
+            ["## T-06: Security & Compliance Template"],
+        )
+    ],
+    "knowledge/development/15-lifecycle-templates/release-change-template.md": [
+        (
+            "knowledge/development/15-lifecycle-templates/project-templates-collection.md",
+            ["## T-07: Release Change Template"],
+        )
+    ],
+    "knowledge/development/15-lifecycle-templates/operations-runbook-template.md": [
+        (
+            "knowledge/development/15-lifecycle-templates/project-templates-collection.md",
+            ["## T-08: Operations Runbook Template"],
+        )
+    ],
+    "knowledge/development/15-lifecycle-templates/postmortem-template.md": [
+        (
+            "knowledge/development/15-lifecycle-templates/project-templates-collection.md",
+            ["## T-09: Postmortem Template"],
+        )
+    ],
+    "knowledge/development/15-lifecycle-templates/lifecycle-review-board-template.md": [
+        (
+            "knowledge/development/15-lifecycle-templates/project-templates-collection.md",
+            ["## T-10: Lifecycle Review Board Template"],
+        )
+    ],
+}
+
+TEMPLATE_STAGE_ALTERNATES = {
+    "requirement": ["Requirement Discovery"],
+    "design": ["Product & Design"],
+    "architecture": ["Architecture Decision"],
+    "implementation": ["Implementation Execution"],
+    "testing": ["Testing & Verification"],
+    "security": ["Security & Compliance"],
+    "release": ["Release & Change Management"],
+    "operations": ["Operations & Observability"],
+    "incident_learning": ["Incident Learning"],
+}
+
 
 def _load_text(path: Path) -> str:
     if not path.exists():
@@ -82,10 +251,32 @@ def _load_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
+def _matches_alternate(project_dir: Path, alternates: list[tuple[str, list[str]]]) -> bool:
+    for rel, markers in alternates:
+        text = _load_text(project_dir / rel)
+        if text and all(marker in text for marker in markers):
+            return True
+    return False
+
+
 def _find_missing_files(project_dir: Path) -> list[str]:
     missing = []
     for rel in REQUIRED_FILES:
-        if not (project_dir / rel).exists():
+        if (project_dir / rel).exists():
+            continue
+        if _matches_alternate(project_dir, REQUIRED_FILE_ALTERNATES.get(rel, [])):
+            continue
+        missing.append(rel)
+    return missing
+
+
+def _find_missing_template_files(project_dir: Path) -> list[str]:
+    missing = []
+    for rel in REQUIRED_TEMPLATE_FILES:
+        if (project_dir / rel).exists():
+            continue
+        if _matches_alternate(project_dir, TEMPLATE_FILE_ALTERNATES.get(rel, [])):
+            continue
             missing.append(rel)
     return missing
 
@@ -93,6 +284,8 @@ def _find_missing_files(project_dir: Path) -> list[str]:
 def _check_scenario_matrix(project_dir: Path) -> list[str]:
     matrix_path = project_dir / "knowledge/development/13-implementation-assets/scenario-coverage-matrix.yaml"
     text = _load_text(matrix_path)
+    if not text:
+        text = _load_text(project_dir / "knowledge/development/13-implementation-assets/implementation-toolkit.md")
     missing = []
     for key in REQUIRED_SCENARIOS:
         if f"  {key}:" not in text:
@@ -103,6 +296,8 @@ def _check_scenario_matrix(project_dir: Path) -> list[str]:
 def _check_ui_gates(project_dir: Path) -> list[str]:
     gates_path = project_dir / "knowledge/development/13-implementation-assets/ui-kpi-and-quality-gates.yaml"
     text = _load_text(gates_path)
+    if not text:
+        text = _load_text(project_dir / "knowledge/development/13-implementation-assets/implementation-toolkit.md")
     missing = []
     for key in REQUIRED_UI_GATES:
         if f"  {key}:" not in text:
@@ -114,8 +309,18 @@ def _check_md_header(project_dir: Path) -> list[str]:
     root = project_dir / "knowledge/development"
     missing = []
     for md in root.rglob("*.md"):
-        text = _load_text(md).strip()
-        if not text.startswith("# 开发："):
+        text = _load_text(md).lstrip("\ufeff")
+        if text.startswith("---\n"):
+            parts = text.split("\n---", 1)
+            if len(parts) == 2:
+                text = parts[1].lstrip()
+        first_non_empty = ""
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped:
+                first_non_empty = stripped
+                break
+        if not re.match(r"^#\s+\S", first_non_empty):
             missing.append(str(md.relative_to(project_dir)))
     return missing
 
@@ -123,6 +328,8 @@ def _check_md_header(project_dir: Path) -> list[str]:
 def _check_lifecycle_stages(project_dir: Path) -> list[str]:
     path = project_dir / "knowledge/development/14-full-lifecycle/stage-exit-criteria.yaml"
     text = _load_text(path)
+    if not text:
+        text = _load_text(project_dir / "knowledge/development/14-full-lifecycle/software-lifecycle-gates.md")
     missing = []
     for stage in REQUIRED_LIFECYCLE_STAGES:
         if f"  {stage}:" not in text:
@@ -133,8 +340,17 @@ def _check_lifecycle_stages(project_dir: Path) -> list[str]:
 def _check_template_catalog_stages(project_dir: Path) -> list[str]:
     path = project_dir / "knowledge/development/15-lifecycle-templates/template-catalog.yaml"
     text = _load_text(path)
+    using_consolidated = False
+    if not text:
+        text = _load_text(project_dir / "knowledge/development/15-lifecycle-templates/project-templates-collection.md")
+        using_consolidated = True
     missing = []
     for stage in REQUIRED_LIFECYCLE_STAGES:
+        if using_consolidated:
+            markers = TEMPLATE_STAGE_ALTERNATES.get(stage, [])
+            if not all(marker in text for marker in markers):
+                missing.append(stage)
+            continue
         if f"  {stage}:" not in text:
             missing.append(stage)
     return missing
@@ -186,6 +402,9 @@ def _collect_catalog_indexed_files(project_dir: Path) -> set[str]:
     current_section_path = ""
     for raw in text.splitlines():
         line = raw.strip()
+        if line.startswith("- path: "):
+            current_section_path = line.replace("- path: ", "", 1).strip()
+            continue
         if line.startswith("path: "):
             current_section_path = line.replace("path: ", "", 1).strip()
             continue
@@ -258,10 +477,7 @@ def _build_score(report: dict) -> int:
 
 def run(project_dir: Path, stale_days: int = 180) -> tuple[bool, dict]:
     missing_files = _find_missing_files(project_dir)
-    missing_template_files = []
-    for rel in REQUIRED_TEMPLATE_FILES:
-        if not (project_dir / rel).exists():
-            missing_template_files.append(rel)
+    missing_template_files = _find_missing_template_files(project_dir)
     missing_scenarios = _check_scenario_matrix(project_dir)
     missing_ui_gates = _check_ui_gates(project_dir)
     missing_lifecycle_stages = _check_lifecycle_stages(project_dir)

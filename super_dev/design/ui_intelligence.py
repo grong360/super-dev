@@ -101,6 +101,7 @@ class UIIntelligenceAdvisor:
         "nextjs": "react",
         "nuxt": "vue",
         "nuxtjs": "vue",
+        "expo": "react-native",
         "react-native": "react-native",
         "flutter": "flutter",
         "swiftui": "swiftui",
@@ -114,6 +115,9 @@ class UIIntelligenceAdvisor:
         "weapp": "miniapp",
         "electron": "desktop",
         "tauri": "desktop",
+        "wails": "desktop",
+        "ionic": "hybrid-mobile",
+        "capacitor": "hybrid-mobile",
         "desktop": "desktop",
     }
 
@@ -503,6 +507,135 @@ class UIIntelligenceAdvisor:
             ],
         ),
     }
+
+    ART_DIRECTION_LIBRARY: tuple[dict[str, Any], ...] = (
+        {
+            "id": "editorial-swiss",
+            "name": "Editorial Swiss",
+            "philosophy": "用排版、网格和留白建立权威感，而不是依赖炫技特效制造高级感。",
+            "hero_treatment": "超大标题 + 精准副标题 + 一条强证据栏，首屏信息少但判断力强。",
+            "narrative_mode": "先观点、后证据、再能力模块的编辑式叙事。",
+            "visual_tension": "高对比字重、克制色彩、结构化留白。",
+            "density_tempo": "spacious-to-compressed，首屏大留白，随后进入高密度证明区。",
+            "proof_strategy": "用截图、数据、案例和注释替代装饰性图形。",
+            "palette_strategy": "黑白/象牙白基底 + 一个品牌强调色。",
+            "fit_product_types": ("landing", "saas", "content"),
+            "fit_styles": ("minimal", "professional", "modern"),
+            "fit_industries": ("general", "fintech", "legal", "developer"),
+            "anti_cliches": [
+                "不要堆彩色渐变球和玻璃拟态卡片",
+                "不要把首屏做成只有一句 slogan 的空洞海报",
+                "不要把营销页面做成聊天壳层",
+            ],
+            "tweak_axes": ["标题张力", "留白比例", "证据栏密度", "强调色强度"],
+            "source_basis": ["Pentagram", "Information Architects", "Vercel"],
+        },
+        {
+            "id": "precision-workspace",
+            "name": "Precision Workspace",
+            "philosophy": "把界面当成工作台，不把后台包装成营销页；信息必须服务任务完成。",
+            "hero_treatment": "弱 Hero、强工作区预览，先展示主要操作面和状态面。",
+            "narrative_mode": "以任务流和状态反馈驱动，而不是大段品牌叙事。",
+            "visual_tension": "压缩排版、清晰分区、少量高识别度重点色。",
+            "density_tempo": "compact-and-layered，高密度但保持扫描效率。",
+            "proof_strategy": "用表格、状态矩阵、时间线和审计信号证明成熟度。",
+            "palette_strategy": "近黑/冷灰基底 + 单一技术强调色。",
+            "fit_product_types": ("dashboard", "saas", "content"),
+            "fit_styles": ("professional", "modern", "minimal"),
+            "fit_industries": ("general", "fintech", "developer"),
+            "anti_cliches": [
+                "不要把工作台拉成大 Hero + 卡片墙",
+                "不要牺牲操作路径去换取装饰性大图",
+                "不要使用空洞的发光科幻 UI",
+            ],
+            "tweak_axes": ["信息密度", "侧栏权重", "证据强度", "重点色面积"],
+            "source_basis": ["Linear", "Raycast", "Supabase"],
+        },
+        {
+            "id": "warm-trust",
+            "name": "Warm Trust",
+            "philosophy": "用亲和而克制的品牌语言建立信任，让专业感和温度同时存在。",
+            "hero_treatment": "温暖背景 + 清晰价值陈述 + 近景产品/服务证明。",
+            "narrative_mode": "先建立安全感，再逐步展开服务流程和结果承诺。",
+            "visual_tension": "柔和色块、明确层级、图片与文字配合。",
+            "density_tempo": "balanced，阅读舒适但关键信息就近出现。",
+            "proof_strategy": "案例、评价、资质、流程说明和 FAQ 同时出现。",
+            "palette_strategy": "暖中性色 + 可信主色 + 低饱和强调。",
+            "fit_product_types": ("landing", "ecommerce", "content", "saas"),
+            "fit_styles": ("professional", "playful", "luxury", "modern"),
+            "fit_industries": ("healthcare", "beauty", "education", "general"),
+            "anti_cliches": [
+                "不要用廉价插画或库存图假装温度",
+                "不要为了亲和力牺牲专业排版",
+                "不要把信任模块放到页面尾部才出现",
+            ],
+            "tweak_axes": ["暖度", "图像比重", "评价/资质权重", "CTA 语气"],
+            "source_basis": ["Intercom", "Airbnb", "Stripe"],
+        },
+        {
+            "id": "cinematic-product",
+            "name": "Cinematic Product",
+            "philosophy": "用强叙事和高质感动态节奏表达产品势能，但不掉进赛博俗套。",
+            "hero_treatment": "大场景首屏 + 产品视觉主物 + 明确行动入口。",
+            "narrative_mode": "章节式推进，从氛围建立过渡到功能证明与结果展示。",
+            "visual_tension": "深色背景、明确高光、强对比构图。",
+            "density_tempo": "wide-to-focused，先铺开氛围，再收紧到产品证明。",
+            "proof_strategy": "用场景截图、功能特写和节奏化模块替代空洞特效。",
+            "palette_strategy": "深背景 + 控制数量的高亮 accent，不走霓虹紫粉。",
+            "fit_product_types": ("landing", "saas"),
+            "fit_styles": ("modern", "luxury", "playful"),
+            "fit_industries": ("general", "developer", "beauty"),
+            "anti_cliches": [
+                "不要用紫粉赛博霓虹和电路板意象代表 AI",
+                "不要让粒子和发光抢走内容主线",
+                "不要缺少真实产品界面证据",
+            ],
+            "tweak_axes": ["氛围强度", "截图权重", "模块节奏", "对比度"],
+            "source_basis": ["Locomotive", "Field.io", "Active Theory"],
+        },
+        {
+            "id": "quiet-luxury",
+            "name": "Quiet Luxury",
+            "philosophy": "高级感来自秩序、材质和节奏，而不是堆砌昂贵视觉元素。",
+            "hero_treatment": "精炼标题 + 精确文案 + 极少但高质量的视觉材料。",
+            "narrative_mode": "少量高价值模块，强调品牌判断力和信任门槛。",
+            "visual_tension": "细边框、深浅材质对比、克制动效。",
+            "density_tempo": "spacious-and-deliberate，节奏慢但每块内容都很重。",
+            "proof_strategy": "用案例、规格、服务细节和材料语言证明价值。",
+            "palette_strategy": "高对比中性色 + 铜色/琥珀/深绿等受控强调。",
+            "fit_product_types": ("landing", "content", "ecommerce"),
+            "fit_styles": ("luxury", "minimal", "professional"),
+            "fit_industries": ("beauty", "legal", "general"),
+            "anti_cliches": [
+                "不要把高级感误解成全黑+金色描边",
+                "不要为了奢华感堆满玻璃反射和复杂纹理",
+                "不要牺牲可读性和转化路径",
+            ],
+            "tweak_axes": ["材质感", "留白程度", "高光色比重", "文案密度"],
+            "source_basis": ["Kenya Hara", "Müller-Brockmann", "Stripe"],
+        },
+        {
+            "id": "playful-modular",
+            "name": "Playful Modular",
+            "philosophy": "活力不等于幼稚，颜色和形状必须服务模块化信息组织。",
+            "hero_treatment": "鲜明品牌入口 + 轻插图/图形点缀 + 清楚的功能分组。",
+            "narrative_mode": "模块化分块叙事，让复杂产品保持轻快但不散。",
+            "visual_tension": "活跃配色、明确网格、较圆润的组件节奏。",
+            "density_tempo": "balanced-to-brisk，信息丰富但不沉重。",
+            "proof_strategy": "用角色收益、场景模块和实际界面替代抽象插画。",
+            "palette_strategy": "高识别主色 + 低噪辅助色 + 充足中性色缓冲。",
+            "fit_product_types": ("landing", "saas", "content"),
+            "fit_styles": ("playful", "modern"),
+            "fit_industries": ("education", "general"),
+            "anti_cliches": [
+                "不要变成儿童化卡通 UI",
+                "不要用过多颜色破坏层级",
+                "不要只有图形感没有业务路径",
+            ],
+            "tweak_axes": ["色彩活跃度", "圆角语气", "插图占比", "模块密度"],
+            "source_basis": ["Figma", "Resn", "Build"],
+        },
+    )
 
     PRODUCT_PROFILES: dict[str, dict[str, Any]] = {
         "landing": {
@@ -2716,6 +2849,8 @@ class UIIntelligenceAdvisor:
             "必须具备商业信任模块（案例、指标、定价、FAQ、合规）",
             "必须通过可访问性检查（对比度、键盘、focus、reduced motion）",
             "必须通过品牌差异化检查（字体层级、配色节奏、图形语言）",
+            "必须通过反 AI 味检查（拒绝科技 cliché、聊天壳模板和无意义炫技）",
+            "关键页面必须保留至少 2 个视觉方向候选与取舍理由",
         ]
 
         style_direction = self._build_style_direction(
@@ -2757,6 +2892,50 @@ class UIIntelligenceAdvisor:
             raw_frontend=raw_frontend,
             normalized_frontend=normalized_frontend,
         )
+        art_direction_candidates = self._select_art_direction_candidates(
+            product_type=product_type,
+            industry=industry,
+            style=style,
+            frontend=normalized_frontend,
+            selected_reference_slug=selected_reference.slug if selected_reference else None,
+        )
+        design_direction_manifest = self._build_design_direction_manifest(
+            description=description,
+            density=density,
+            art_direction_candidates=art_direction_candidates,
+            selected_reference=selected_reference.to_dict() if selected_reference else None,
+        )
+        brand_signal_manifest = self._build_brand_signal_manifest(
+            product_type=product_type,
+            industry=industry,
+            style=style,
+            design_direction_manifest=design_direction_manifest,
+        )
+        proof_composition_rules = self._build_proof_composition_rules(
+            product_type=product_type,
+            density=density,
+            trust_modules=trust_modules,
+            design_direction_manifest=design_direction_manifest,
+        )
+        component_craft_requirements = self._build_component_craft_requirements(
+            density=density,
+            icon_library=icon_library,
+            primary_library=primary_library.name,
+        )
+        layout_tension_rules = self._build_layout_tension_rules(
+            density=density,
+            design_direction_manifest=design_direction_manifest,
+            product_type=product_type,
+        )
+        anti_ai_slop_guardrails = self._build_anti_ai_slop_guardrails(
+            art_direction_candidates=art_direction_candidates,
+            product_type=product_type,
+        )
+        critique_rubric = self._build_critique_rubric()
+        tweak_categories = self._build_tweak_categories(
+            art_direction_candidates=art_direction_candidates,
+            density=density,
+        )
 
         return {
             "frontend_variant": raw_frontend,
@@ -2768,6 +2947,15 @@ class UIIntelligenceAdvisor:
             "component_priorities": list(profile["component_priorities"]),
             "design_system_priorities": design_system_priorities,
             "benchmark_principles": benchmark_principles,
+            "art_direction_candidates": art_direction_candidates,
+            "design_direction_manifest": design_direction_manifest,
+            "brand_signal_manifest": brand_signal_manifest,
+            "proof_composition_rules": proof_composition_rules,
+            "component_craft_requirements": component_craft_requirements,
+            "layout_tension_rules": layout_tension_rules,
+            "anti_ai_slop_guardrails": anti_ai_slop_guardrails,
+            "critique_rubric": critique_rubric,
+            "tweak_categories": tweak_categories,
             "trust_modules": trust_modules,
             "banned_patterns": banned_patterns,
             "state_requirements": state_requirements,
@@ -2789,6 +2977,336 @@ class UIIntelligenceAdvisor:
             "framework_playbook": framework_playbook.to_dict() if framework_playbook else None,
             "pre_delivery_checklist": list(self.PRE_DELIVERY_CHECKLIST),
         }
+
+    def _select_art_direction_candidates(
+        self,
+        *,
+        product_type: str,
+        industry: str,
+        style: str,
+        frontend: str,
+        selected_reference_slug: str | None = None,
+    ) -> list[dict[str, Any]]:
+        reference_bias = {
+            "linear.app": {"precision-workspace"},
+            "raycast": {"precision-workspace"},
+            "vercel": {"editorial-swiss"},
+            "stripe": {"warm-trust", "quiet-luxury"},
+            "figma": {"playful-modular"},
+            "intercom": {"warm-trust"},
+            "airbnb": {"warm-trust"},
+            "supabase": {"precision-workspace", "cinematic-product"},
+        }
+        scored: list[tuple[int, dict[str, Any]]] = []
+        for candidate in self.ART_DIRECTION_LIBRARY:
+            score = 0
+            if product_type in candidate.get("fit_product_types", ()):
+                score += 4
+            if style in candidate.get("fit_styles", ()):
+                score += 3
+            if industry in candidate.get("fit_industries", ()):
+                score += 2
+            if frontend in {"desktop", "react-native"} and candidate["id"] == "precision-workspace":
+                score += 1
+            if frontend == "miniapp" and candidate["id"] == "warm-trust":
+                score += 1
+            if selected_reference_slug and candidate["id"] in reference_bias.get(
+                selected_reference_slug, set()
+            ):
+                score += 2
+            if style == "luxury" and candidate["id"] == "quiet-luxury":
+                score += 2
+            if product_type == "dashboard" and candidate["id"] == "precision-workspace":
+                score += 2
+            if product_type == "landing" and candidate["id"] in {
+                "editorial-swiss",
+                "warm-trust",
+                "cinematic-product",
+            }:
+                score += 1
+            scored.append((score, candidate))
+
+        ordered = [
+            dict(item)
+            for _, item in sorted(
+                scored,
+                key=lambda entry: (
+                    -entry[0],
+                    entry[1]["name"],
+                ),
+            )[:3]
+        ]
+        return ordered
+
+    def _build_design_direction_manifest(
+        self,
+        *,
+        description: str,
+        density: str,
+        art_direction_candidates: list[dict[str, Any]],
+        selected_reference: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        primary = art_direction_candidates[0] if art_direction_candidates else {}
+        alternatives = art_direction_candidates[1:3]
+        return {
+            "selected_direction": primary.get("name", "Modern Commercial"),
+            "direction_id": primary.get("id", "modern-commercial"),
+            "philosophy": primary.get(
+                "philosophy", "先锁定视觉哲学，再组织层级、证明和交互。"
+            ),
+            "hero_treatment": primary.get(
+                "hero_treatment", "首屏同时承担价值主张、证据和行动入口。"
+            ),
+            "narrative_mode": primary.get(
+                "narrative_mode", "先建立理解，再展示能力与证据。"
+            ),
+            "visual_tension": primary.get(
+                "visual_tension", "通过排版、留白和重点色建立张力，而不是依赖炫技。"
+            ),
+            "density_tempo": primary.get("density_tempo", density),
+            "proof_strategy": primary.get(
+                "proof_strategy", "优先使用截图、案例、数据和流程证明。"
+            ),
+            "palette_strategy": primary.get(
+                "palette_strategy", "先控制颜色数量，再决定强调色位置。"
+            ),
+            "reference_anchor": (selected_reference or {}).get("name", ""),
+            "reference_translation_rule": "吸收参考信号，但必须重组为原创组合，禁止 1:1 复刻。",
+            "why_this_direction": (
+                f"当前产品描述为“{description[:60]}”，所选方向需要同时兼顾商业说服力、品牌辨识度和可实现性。"
+            ),
+            "alternatives": [
+                {
+                    "name": item.get("name", ""),
+                    "why_not_primary": "可作为备选方向，但在当前业务语境下不如主方向稳定。",
+                }
+                for item in alternatives
+            ],
+        }
+
+    def _build_brand_signal_manifest(
+        self,
+        *,
+        product_type: str,
+        industry: str,
+        style: str,
+        design_direction_manifest: dict[str, Any],
+    ) -> dict[str, Any]:
+        direction = str(design_direction_manifest.get("selected_direction") or "Modern Commercial")
+        proof_strategy = str(design_direction_manifest.get("proof_strategy") or "优先使用真实截图、案例和数据证明。")
+        tone_descriptors = [
+            direction,
+            "商业可信",
+            "执行专业",
+            "不是模板页",
+        ]
+        if style == "luxury":
+            tone_descriptors.extend(["克制高级", "高单价感"])
+        if product_type in {"dashboard", "saas"}:
+            tone_descriptors.extend(["专业工作台", "效率优先"])
+        if industry in {"finance", "legal", "government"}:
+            tone_descriptors.extend(["合规权威", "风险可见"])
+        credibility_devices = [
+            "真实界面截图或高保真流程示意，而不是抽象插画占位",
+            "关键指标、客户/案例、合规/安全与能力边界要同屏出现",
+            "Hero 下方第一屏必须出现证据，而不是拖到页面底部",
+        ]
+        premium_surfaces = [
+            "Hero 价值主张与证明层同时出现",
+            "模块分区的节奏、边界、留白和标题尺度被明确设计",
+            "关键 CTA、信任条和案例区形成自然转化闭环",
+        ]
+        authority_markers = [
+            proof_strategy,
+            "标题、正文、说明文案具备明显层级和语气控制",
+            "品牌色只在关键证明和行动点上承担强调职责",
+        ]
+        return {
+            "tone_descriptors": tone_descriptors,
+            "credibility_devices": credibility_devices,
+            "premium_surfaces": premium_surfaces,
+            "authority_markers": authority_markers,
+        }
+
+    def _build_proof_composition_rules(
+        self,
+        *,
+        product_type: str,
+        density: str,
+        trust_modules: list[str],
+        design_direction_manifest: dict[str, Any],
+    ) -> dict[str, Any]:
+        default_trust_sequence = trust_modules[:4] or ["客户案例", "关键指标", "安全/合规", "FAQ"]
+        hero_proof_stack = [
+            "价值主张",
+            "一句业务结果证明",
+            default_trust_sequence[0],
+            "主 CTA",
+        ]
+        if product_type in {"dashboard", "saas"}:
+            hero_proof_stack = ["价值主张", "状态/结果截图", default_trust_sequence[0], "主 CTA"]
+        evidence_priority = [
+            str(design_direction_manifest.get("proof_strategy") or "真实截图与数据优先"),
+            "真实工作流/操作路径优先于抽象卖点",
+            "用户在首屏和次屏必须看到至少两类不同证据",
+        ]
+        return {
+            "hero_proof_stack": hero_proof_stack,
+            "trust_sequence": default_trust_sequence,
+            "evidence_priority": evidence_priority,
+            "proof_density_rule": (
+                "高密度产品每个关键页面至少出现 2 个证明模块，低密度产品至少出现 1 个强证明模块。"
+                if density == "high"
+                else "每个关键页面至少出现 1 个强证明模块，并在收尾区域补齐 FAQ / 案例 / 合规。"
+            ),
+        }
+
+    def _build_component_craft_requirements(
+        self,
+        *,
+        density: str,
+        icon_library: str,
+        primary_library: str,
+    ) -> list[str]:
+        requirements = [
+            f"图标统一来自 {icon_library}，禁止混入 emoji、插画风小图标和多套图标来源。",
+            f"核心组件必须围绕 {primary_library} 做品牌化重写，不能只保留默认视觉。",
+            "主按钮、输入框、卡片、表格、导航、空状态至少覆盖 normal/hover/focus/loading/error/disabled。",
+            "圆角、阴影、边框和间距必须服从同一套 token，不允许页面级临时发挥。",
+        ]
+        if density == "high":
+            requirements.append("高密度工作台必须控制信息噪音，优先让标题、数据、状态和动作一眼分层。")
+        else:
+            requirements.append("低密度品牌页必须用更强的标题尺度、节奏和证明层来建立高级感，不能只靠大留白。")
+        return requirements
+
+    def _build_layout_tension_rules(
+        self,
+        *,
+        density: str,
+        design_direction_manifest: dict[str, Any],
+        product_type: str,
+    ) -> list[str]:
+        rules = [
+            str(
+                design_direction_manifest.get("visual_tension")
+                or "通过排版尺度、区块边界、色彩控制和留白节奏建立张力。"
+            ),
+            "至少要有一个显式压缩区和一个显式展开区，避免整页密度完全均匀。",
+            "关键信息、证明和 CTA 之间要形成先后关系，而不是所有卡片同权平铺。",
+        ]
+        if product_type in {"dashboard", "content"}:
+            rules.append("工作台不要把所有信息塞进第一屏；要用 summary -> workspace -> detail 的层级收放。")
+        else:
+            rules.append("品牌页要把氛围、产品证明和转化动作做成连续节奏，避免只有大标题和功能列表。")
+        if density == "high":
+            rules.append("高密度页面用分区、容器和对齐建立秩序，不用大面积装饰来制造存在感。")
+        return rules
+
+    def _build_anti_ai_slop_guardrails(
+        self,
+        *,
+        art_direction_candidates: list[dict[str, Any]],
+        product_type: str,
+    ) -> dict[str, Any]:
+        forbidden_motifs = [
+            "紫粉赛博霓虹、渐变圆球、数字雨、电路板、发光脑图",
+            "只有一句 slogan 的空洞 Hero",
+            "默认灰黑聊天壳层、窄中栏对话布局、模型切换器 UI",
+            "过量玻璃拟态、模糊背景和无意义粒子动画",
+            "只有卡片墙没有清晰层级与功能路径",
+        ]
+        hierarchy_rules = [
+            "标题与正文至少建立 3 级明显层级，首屏标题与正文建议保持 2.5x 以上尺寸对比。",
+            "颜色数量保持受控，主色/辅色/强调色/中性色要有明确职责。",
+            "关键页面必须先出现证据和 CTA，再出现次级装饰。",
+        ]
+        originality_checks = [
+            "至少提供 2 个视觉方向候选，并明确写下为什么不用另一个方向。",
+            "任何设计参考都只能借信号，不能复制具体构图和组件拼法。",
+            "界面必须能说出自己的品牌语气，而不是只像某个流行 AI 产品。",
+        ]
+        craft_checks = [
+            "必须使用统一间距系统与 token，不允许随手写多个零散尺寸。",
+            "核心组件必须覆盖 hover/focus/loading/empty/error/disabled。",
+            "图标只能来自正式图标库，不允许 emoji 和混杂图标来源。",
+        ]
+        if product_type in {"dashboard", "saas"}:
+            hierarchy_rules.append("后台/工作台禁止 oversized hero 占用主要工作区。")
+        return {
+            "positioning": "先建立清晰设计哲学、结构层级和证明方式，再决定视觉特效。",
+            "forbidden_motifs": forbidden_motifs,
+            "hierarchy_rules": hierarchy_rules,
+            "originality_checks": originality_checks,
+            "craft_checks": craft_checks,
+            "candidate_anti_cliches": [
+                item
+                for candidate in art_direction_candidates
+                for item in candidate.get("anti_cliches", [])[:2]
+            ][:6],
+        }
+
+    def _build_critique_rubric(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "dimension": "philosophy_alignment",
+                "label": "哲学一致性",
+                "focus": "设计是否真正体现选定视觉哲学，而不是只停留在表面元素。",
+                "pass_threshold": 8,
+            },
+            {
+                "dimension": "visual_hierarchy",
+                "label": "视觉层级",
+                "focus": "用户是否能自然沿层级理解价值主张、证据和下一步动作。",
+                "pass_threshold": 8,
+            },
+            {
+                "dimension": "brand_authority",
+                "label": "品牌权威感",
+                "focus": "页面是否像成熟商业产品，具备可信品牌语气、证明构图与高级完成度。",
+                "pass_threshold": 8,
+            },
+            {
+                "dimension": "craft_quality",
+                "label": "细节工艺",
+                "focus": "对齐、间距、颜色、字体与状态矩阵是否足够精确、克制且统一。",
+                "pass_threshold": 8,
+            },
+            {
+                "dimension": "functionality",
+                "label": "功能性",
+                "focus": "每个模块是否服务业务路径与交互目标，而不是为了装饰存在。",
+                "pass_threshold": 8,
+            },
+            {
+                "dimension": "originality",
+                "label": "原创度",
+                "focus": "是否摆脱 AI cliché、模板化聊天壳和同质化科技视觉。",
+                "pass_threshold": 8,
+            },
+        ]
+
+    def _build_tweak_categories(
+        self, *, art_direction_candidates: list[dict[str, Any]], density: str
+    ) -> list[dict[str, Any]]:
+        primary = art_direction_candidates[0] if art_direction_candidates else {}
+        return [
+            {
+                "name": "Direction",
+                "label": "视觉方向切换",
+                "controls": [item.get("name", "") for item in art_direction_candidates[:3]],
+            },
+            {
+                "name": "Density",
+                "label": "信息密度",
+                "controls": [density, "compact", "balanced", "spacious"],
+            },
+            {
+                "name": "Emphasis",
+                "label": "重点表达",
+                "controls": primary.get("tweak_axes", ["标题张力", "CTA 强度", "证据密度"])[:4],
+            },
+        ]
 
     def list_design_references(
         self,
@@ -3602,8 +4120,12 @@ class UIIntelligenceAdvisor:
 
         def relative_luminance(r: int, g: int, b: int) -> float:
             def srgb(c: int) -> float:
-                s = c / 255.0
-                return s / 12.92 if s <= 0.04045 else ((s + 0.055) / 1.055) ** 2.4
+                s: float = c / 255.0
+                if s <= 0.04045:
+                    value = s / 12.92
+                else:
+                    value = ((s + 0.055) / 1.055) ** 2.4
+                return float(value)
 
             return 0.2126 * srgb(r) + 0.7152 * srgb(g) + 0.0722 * srgb(b)
 

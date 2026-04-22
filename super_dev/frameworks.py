@@ -13,14 +13,18 @@ FRONTEND_ALIASES: dict[str, str] = {
     "wechat-miniprogram": "miniapp",
     "miniprogram": "miniapp",
     "weapp": "miniapp",
+    "expo": "react-native",
     "react-native": "react-native",
     "flutter": "flutter",
     "electron": "desktop",
     "tauri": "desktop",
+    "wails": "desktop",
+    "ionic": "hybrid-mobile",
+    "capacitor": "hybrid-mobile",
     "desktop": "desktop",
 }
 
-CROSS_PLATFORM_FRONTENDS = {"miniapp", "react-native", "flutter", "desktop"}
+CROSS_PLATFORM_FRONTENDS = {"miniapp", "react-native", "flutter", "desktop", "hybrid-mobile"}
 
 FRAMEWORK_PLAYBOOK_REQUIRED_LISTS = (
     "implementation_modules",

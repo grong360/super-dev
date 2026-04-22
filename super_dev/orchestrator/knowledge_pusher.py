@@ -395,30 +395,6 @@ class LayeredKnowledgePush:
         lines.append("")
         return "\n".join(lines)
 
-    def to_legacy_push(self) -> KnowledgePush:
-        """转换为传统 KnowledgePush 格式（向后兼容）"""
-        files = []
-        for f in self.l1_index:
-            files.append(
-                {
-                    "path": f.get("path", ""),
-                    "filename": f.get("filename", ""),
-                    "domain": f.get("domain", ""),
-                    "category": f.get("category", ""),
-                    "title": f.get("title", ""),
-                    "relevance": f.get("priority_score", 0.5),
-                    "excerpt": f.get("summary", ""),
-                    "tags": f.get("tech_trigger", []),
-                }
-            )
-        return KnowledgePush(
-            phase=self.phase,
-            files=files,
-            focus_summary=self.focus_summary,
-            tech_stack_filter=self.tech_stack_filter,
-        )
-
-
 # ---------------------------------------------------------------------------
 # 主类
 # ---------------------------------------------------------------------------

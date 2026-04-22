@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from super_dev.review_state import save_host_runtime_validation, save_workflow_state
 from super_dev.reviewers.quality_advisor import (
     QualityAdvice,
     QualityAdvisor,
@@ -317,7 +318,7 @@ class TestQualityAdvisorAnalyze:
     def test_well_structured_fewer_advices(self, well_structured_project: Path):
         advisor = QualityAdvisor(well_structured_project)
         report = advisor.analyze()
-        critical = report.critical_advices
+        critical = [advice for advice in report.critical_advices if advice.category != "governance"]
         assert len(critical) == 0
 
     def test_report_markdown_generation(self, minimal_project: Path):
@@ -326,3 +327,55 @@ class TestQualityAdvisorAnalyze:
         md = report.to_markdown()
         assert isinstance(md, str)
         assert len(md) > 100
+
+    def test_analyze_emits_governance_advice_for_layered_runtime_gap(self, tmp_path: Path):
+        save_workflow_state(
+            tmp_path,
+            {
+                "status": "missing_frontend",
+                "workflow_mode": "continue",
+                "current_step_label": "先做前端与运行验证",
+                "recommended_command": "继续当前流程，进入前端实现与运行验证",
+            },
+        )
+        save_host_runtime_validation(
+            tmp_path,
+            {
+                "hosts": {
+                    "codex-cli": {
+                        "status": "passed",
+                        "comment": "manual accepted",
+                        "actor": "pytest",
+                    }
+                }
+            },
+        )
+
+        advisor = QualityAdvisor(tmp_path)
+        report = advisor.analyze()
+
+        governance_advices = [a for a in report.advices if a.category == "governance"]
+        assert governance_advices
+        advice = governance_advices[0]
+        assert advice.priority == "critical"
+        assert "codex-cli" in advice.description
+        assert "宿主真人验收记录" in advice.action
+        assert advice.knowledge_ref.endswith("host-runtime-validation.json")
+
+    def test_analyze_emits_governance_advice_for_compliance_artifact_gap(self, tmp_path: Path):
+        output_dir = tmp_path / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-prd.md").write_text(
+            "# PRD\n\n## Requirements\n\n- The system must support auditable delivery workflows.\n",
+            encoding="utf-8",
+        )
+
+        advisor = QualityAdvisor(tmp_path)
+        report = advisor.analyze()
+
+        governance_advices = [a for a in report.advices if a.title == "合规链证据状态未闭环"]
+        assert governance_advices
+        advice = governance_advices[0]
+        assert advice.priority == "critical"
+        assert "spec=missing" in advice.description
+        assert "重新生成 spec / architecture / uiux compliance artifacts" in advice.action

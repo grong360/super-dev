@@ -43,6 +43,28 @@ class TestRequirementParser:
         assert parser.detect_request_mode("修复登录接口报错并补充回归验证") == "bugfix"
         assert parser.detect_request_mode("开发一个新的商业官网") == "feature"
 
+    def test_analyze_requirement_detects_cross_platform_frontend_preferences(self):
+        parser = RequirementParser()
+
+        expo_analysis = parser.analyze_requirement("做一个 Expo 的 React Native 巡检 App")
+        tauri_analysis = parser.analyze_requirement("做一个 Tauri 桌面客户端，支持本地文件导入")
+        capacitor_analysis = parser.analyze_requirement(
+            "做一个 Ionic + Capacitor 的跨端服务工单应用"
+        )
+
+        assert expo_analysis.tech_preferences["frontend"] == "expo"
+        assert tauri_analysis.tech_preferences["frontend"] == "tauri"
+        assert capacitor_analysis.tech_preferences["frontend"] == "ionic"
+
+    def test_analyze_requirement_detects_electron_and_wails_preferences(self):
+        parser = RequirementParser()
+
+        electron_analysis = parser.analyze_requirement("做一个 Electron 数据分析桌面端")
+        wails_analysis = parser.analyze_requirement("做一个 Wails 桌面管理台")
+
+        assert electron_analysis.tech_preferences["frontend"] == "electron"
+        assert wails_analysis.tech_preferences["frontend"] == "wails"
+
 
 class TestDocumentGeneratorIntegration:
     def test_document_generator_extracts_dynamic_requirements(self):
@@ -128,6 +150,12 @@ class TestDocumentGeneratorIntegration:
         assert "图标体系" in uiux
         assert "多场景组件库矩阵" in uiux
         assert "设计参考锚点" in uiux
+        assert "品牌信号与权威感" in uiux
+        assert "证明构图规则" in uiux
+        assert "组件工艺要求" in uiux
+        assert "布局张力纪律" in uiux
+        assert "Screen Recipes（页面配方冻结）" in uiux
+        assert "Claude-Design 风格执行协议" in uiux
 
     def test_document_generator_emits_ui_contract(self):
         generator = DocumentGenerator(
@@ -150,6 +178,16 @@ class TestDocumentGeneratorIntegration:
         assert contract["design_references"][0]["name"]
         assert contract["design_tokens"]["css_variables"]
         assert contract["typography_preset"]["heading"]
+        assert contract["brand_signal_manifest"]["tone_descriptors"]
+        assert contract["proof_composition_rules"]["hero_proof_stack"]
+        assert contract["component_craft_requirements"]
+        assert contract["layout_tension_rules"]
+        assert contract["screen_recipes"]
+        assert contract["screen_recipes"][0]["section_order"]
+        assert contract["screen_recipes"][0]["proof_composition"]
+        assert contract["design_context_protocol"]["preferred_import_order"]
+        assert contract["tweak_strategy"]["default_controls"]
+        assert contract["verification_handoff"]["required_artifacts"]
 
     def test_document_generator_prefers_explicit_design_inspiration(self):
         generator = DocumentGenerator(
@@ -231,6 +269,9 @@ class TestDocumentGeneratorIntegration:
         assert "> **请求模式**: bugfix" in plan
         assert "问题复现与影响分析" in plan
         assert "轻量文档冻结" in plan
+        assert "宿主执行打法" in plan
+        assert "阶段硬门禁" in plan
+        assert "docs_confirm 未通过前，不允许进入补丁实现" in plan
 
     def test_document_generator_respects_explicit_bugfix_mode(self):
         generator = DocumentGenerator(
@@ -350,3 +391,5 @@ class TestFrontendScaffoldBuilder:
         assert '--font-heading: "IBM Plex Sans"' in css
         assert "--color-primary: #123456" in tokens
         assert "ui_library_preference" in js
+        assert "页面配方" in html
+        assert "verification_handoff" in js

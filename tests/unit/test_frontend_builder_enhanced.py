@@ -5,6 +5,8 @@
 测试对象: super_dev.creators.frontend_builder.FrontendScaffoldBuilder
 """
 
+import json
+
 import pytest
 from super_dev.creators.frontend_builder import FrontendScaffoldBuilder
 
@@ -129,6 +131,7 @@ class TestGenerate:
         assert isinstance(result, dict)
         # Should return paths to generated files
         assert len(result) > 0
+        assert result["framework_scaffold"]["kind"] == "react-vite"
 
     def test_empty_requirements(self, builder, sample_phases, sample_docs):
         result = builder.generate([], sample_phases, sample_docs)
@@ -161,11 +164,60 @@ class TestDifferentFrontends:
     def test_all_stacks_generate(self, stack_builder, sample_requirements, sample_phases, sample_docs):
         result = stack_builder.generate(sample_requirements, sample_phases, sample_docs)
         assert isinstance(result, dict)
+        assert "framework_scaffold" in result
 
     def test_all_stacks_create_html(self, stack_builder, sample_requirements, sample_phases, sample_docs):
         stack_builder.generate(sample_requirements, sample_phases, sample_docs)
         index = stack_builder.project_dir / "output" / "frontend" / "index.html"
         assert index.exists()
+
+    def test_next_stack_generates_nextjs_scaffold(self, tmp_path, sample_requirements, sample_phases, sample_docs):
+        builder = FrontendScaffoldBuilder(tmp_path, "next-app", "Next app", frontend="next")
+        result = builder.generate(sample_requirements, sample_phases, sample_docs)
+        assert result["framework_scaffold"]["kind"] == "nextjs-app-router"
+        assert (tmp_path / "output" / "nextjs-scaffold" / "app" / "page.tsx").exists()
+
+    def test_nuxt_stack_reuses_vue_scaffold_family(self, tmp_path, sample_requirements, sample_phases, sample_docs):
+        builder = FrontendScaffoldBuilder(tmp_path, "nuxt-app", "Nuxt app", frontend="nuxt")
+        result = builder.generate(sample_requirements, sample_phases, sample_docs)
+        assert result["framework_scaffold"]["kind"] == "vue3-vite"
+        assert (tmp_path / "output" / "frontend-vue3" / "src" / "views" / "HomeView.vue").exists()
+
+    def test_remix_stack_reuses_react_scaffold_family(self, tmp_path, sample_requirements, sample_phases, sample_docs):
+        builder = FrontendScaffoldBuilder(tmp_path, "remix-app", "Remix app", frontend="remix")
+        result = builder.generate(sample_requirements, sample_phases, sample_docs)
+        assert result["framework_scaffold"]["kind"] == "remix-family-preview"
+        assert (tmp_path / "output" / "frontend-react" / "src" / "App.tsx").exists()
+
+    def test_expo_stack_generates_mobile_scaffold(self, tmp_path, sample_requirements, sample_phases, sample_docs):
+        builder = FrontendScaffoldBuilder(tmp_path, "expo-app", "Expo app", frontend="expo")
+        result = builder.generate(sample_requirements, sample_phases, sample_docs)
+        assert result["framework_scaffold"]["kind"] == "expo-managed"
+        assert (tmp_path / "output" / "frontend-expo" / "app" / "index.tsx").exists()
+
+    def test_flutter_stack_generates_flutter_scaffold(self, tmp_path, sample_requirements, sample_phases, sample_docs):
+        builder = FrontendScaffoldBuilder(tmp_path, "flutter-app", "Flutter app", frontend="flutter")
+        result = builder.generate(sample_requirements, sample_phases, sample_docs)
+        assert result["framework_scaffold"]["kind"] == "flutter"
+        assert (tmp_path / "output" / "frontend-flutter" / "lib" / "main.dart").exists()
+
+    def test_uniapp_stack_generates_miniapp_scaffold(self, tmp_path, sample_requirements, sample_phases, sample_docs):
+        builder = FrontendScaffoldBuilder(tmp_path, "miniapp", "Miniapp", frontend="uni-app")
+        result = builder.generate(sample_requirements, sample_phases, sample_docs)
+        assert result["framework_scaffold"]["kind"] == "uni-app"
+        assert (tmp_path / "output" / "frontend-miniapp" / "pages.json").exists()
+
+    def test_tauri_stack_generates_desktop_shell_scaffold(self, tmp_path, sample_requirements, sample_phases, sample_docs):
+        builder = FrontendScaffoldBuilder(tmp_path, "desktop-app", "Desktop app", frontend="tauri")
+        result = builder.generate(sample_requirements, sample_phases, sample_docs)
+        assert result["framework_scaffold"]["kind"] == "tauri-desktop-shell"
+        assert (tmp_path / "output" / "frontend-desktop-shell" / "tauri" / "tauri.conf.json").exists()
+
+    def test_ionic_stack_generates_hybrid_shell_scaffold(self, tmp_path, sample_requirements, sample_phases, sample_docs):
+        builder = FrontendScaffoldBuilder(tmp_path, "hybrid-app", "Hybrid app", frontend="ionic")
+        result = builder.generate(sample_requirements, sample_phases, sample_docs)
+        assert result["framework_scaffold"]["kind"] == "ionic-hybrid-shell"
+        assert (tmp_path / "output" / "frontend-hybrid-shell" / "ionic" / "capacitor.config.ts").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +309,151 @@ class TestGeneratedFileContent:
         html_path = builder.project_dir / "output" / "frontend" / "index.html"
         content = html_path.read_text(encoding="utf-8")
         assert "design-tokens" in content or "token" in content.lower()
+
+    def test_html_contains_screen_recipe_and_execution_sections(
+        self, builder, sample_requirements, sample_phases, sample_docs
+    ):
+        builder.generate(sample_requirements, sample_phases, sample_docs)
+        html_path = builder.project_dir / "output" / "frontend" / "index.html"
+        content = html_path.read_text(encoding="utf-8")
+        assert "页面配方" in content
+        assert "上下文与 Tweaks 协议" in content
+        assert "验证与交付" in content
+
+    def test_js_payload_contains_claude_design_style_contract_fields(
+        self, builder, sample_requirements, sample_phases, sample_docs
+    ):
+        builder.generate(sample_requirements, sample_phases, sample_docs)
+        js_path = builder.project_dir / "output" / "frontend" / "app.js"
+        content = js_path.read_text(encoding="utf-8")
+        assert "screen_recipes" in content
+        assert "design_context_protocol" in content
+        assert "tweak_strategy" in content
+        assert "verification_handoff" in content
+
+    def test_html_and_js_render_art_direction_contract_fields(
+        self, builder, sample_requirements, sample_phases, sample_docs
+    ):
+        output_dir = builder.project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "test-app-ui-contract.json").write_text(
+            json.dumps(
+                {
+                    "typography_preset": {"heading": "Manrope", "body": "Inter"},
+                    "style_direction": {"direction": "Editorial precision"},
+                    "art_direction_candidates": [
+                        {
+                            "name": "Editorial Swiss",
+                            "philosophy": "Typography first",
+                            "hero_treatment": "Big headline",
+                            "proof_strategy": "Metrics + case study",
+                        },
+                        {
+                            "name": "Warm Trust",
+                            "philosophy": "Warm credibility",
+                            "hero_treatment": "Warm visual",
+                            "proof_strategy": "Reviews + trust badges",
+                        },
+                    ],
+                    "design_direction_manifest": {
+                        "selected_direction": "Editorial Swiss",
+                    },
+                    "anti_ai_slop_guardrails": {
+                        "forbidden_motifs": ["purple neon", "gradient sphere"],
+                    },
+                    "critique_rubric": [
+                        {"label": "哲学一致性", "dimension": "philosophy_alignment", "pass_threshold": 8},
+                        {"label": "原创度", "dimension": "originality", "pass_threshold": 8},
+                    ],
+                    "screen_recipes": [
+                        {
+                            "label": "North Star Hero",
+                            "objective": "Explain value",
+                            "section_order": ["hero", "proof", "cta"],
+                            "trust_modules": ["Case Study"],
+                            "required_states": ["loading"],
+                            "art_direction": "Editorial Swiss",
+                        }
+                    ],
+                    "design_context_protocol": {"preferred_import_order": ["tokens"]},
+                    "tweak_strategy": {"default_controls": ["信息密度"]},
+                    "verification_handoff": {"verification_order": ["preview"]},
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        builder.generate(sample_requirements, sample_phases, sample_docs)
+        html_path = builder.project_dir / "output" / "frontend" / "index.html"
+        js_path = builder.project_dir / "output" / "frontend" / "app.js"
+        html_content = html_path.read_text(encoding="utf-8")
+        js_content = js_path.read_text(encoding="utf-8")
+
+        assert "视觉方向候选" in html_content
+        assert "反 AI 味护栏" in html_content
+        assert "art_direction_candidates" in js_content
+        assert "anti_ai_slop_guardrails" in js_content
+
+    def test_direction_manifest_changes_page_shell_and_css_variants(
+        self, builder, sample_requirements, sample_phases, sample_docs
+    ):
+        output_dir = builder.project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "test-app-ui-contract.json").write_text(
+            json.dumps(
+                {
+                    "typography_preset": {"heading": "Manrope", "body": "Inter"},
+                    "color_palette": {
+                        "primary": "#0F7CFA",
+                        "accent": "#F65F22",
+                        "background": "#F5F8FF",
+                        "text": "#172133",
+                        "border": "#DFE7F3",
+                    },
+                    "style_direction": {"direction": "Editorial precision"},
+                    "art_direction_candidates": [
+                        {
+                            "id": "editorial-swiss",
+                            "name": "Editorial Swiss",
+                            "philosophy": "Typography first",
+                            "hero_treatment": "Big headline",
+                            "proof_strategy": "Metrics + case study",
+                            "visual_tension": "High contrast",
+                            "narrative_mode": "Point, then proof",
+                            "palette_strategy": "Ivory + one brand color",
+                            "anti_cliches": [
+                                "不要堆彩色渐变球和玻璃拟态卡片",
+                                "不要把营销页面做成聊天壳层",
+                            ],
+                            "tweak_axes": ["标题张力", "留白比例"],
+                        }
+                    ],
+                    "design_direction_manifest": {
+                        "selected_direction": "Editorial Swiss",
+                        "direction_id": "editorial-swiss",
+                        "why_this_direction": "Need more authority and less AI-template feel.",
+                    },
+                    "anti_ai_slop_guardrails": {
+                        "candidate_anti_cliches": ["不要堆彩色渐变球和玻璃拟态卡片"],
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        builder.generate(sample_requirements, sample_phases, sample_docs)
+        html_path = builder.project_dir / "output" / "frontend" / "index.html"
+        css_path = builder.project_dir / "output" / "frontend" / "styles.css"
+        html_content = html_path.read_text(encoding="utf-8")
+        css_content = css_path.read_text(encoding="utf-8")
+
+        assert 'data-direction="editorial-swiss"' in html_content
+        assert "Signature Art Direction" in html_content
+        assert "不要堆彩色渐变球和玻璃拟态卡片" in html_content
+        assert ".direction-stage" in css_content
+        assert 'body[data-direction="editorial-swiss"]' in css_content
 
     def test_html_has_charset_meta(self, builder, sample_requirements, sample_phases, sample_docs):
         builder.generate(sample_requirements, sample_phases, sample_docs)

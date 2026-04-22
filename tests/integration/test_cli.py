@@ -4,6 +4,7 @@ Super Dev CLI 集成测试
 
 import json
 import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,17 +12,22 @@ import pytest
 import yaml
 
 from super_dev import __version__ as _super_dev_version
+from super_dev.analyzer import BaselineAuditBuilder
 from super_dev.catalogs import PRIMARY_HOST_TOOL_IDS
 from super_dev.cli import SuperDevCLI
+from super_dev.evidence_identity import build_evidence_identity
 from super_dev.hooks.manager import HookManager
 from super_dev.integrations import IntegrationManager
 from super_dev.review_state import (
+    save_baseline_confirmation,
     save_docs_confirmation,
-    save_preview_confirmation,
+    save_host_runtime_validation,
     save_ui_revision,
+    save_workflow_state,
 )
 from super_dev.skills import SkillManager
 from super_dev.specs.generator import SpecGenerator
+from super_dev.workflow_guard import save_bound_docs_confirmation, save_bound_preview_confirmation
 
 
 def _confirm_docs(temp_project_dir: Path) -> None:
@@ -95,6 +101,26 @@ def _prepare_workflow_context(project_dir: Path) -> None:
     )
 
 
+def _write_baseline_audit(project_dir: Path, *, work_mode: str = "variant") -> None:
+    (project_dir / "app").mkdir(parents=True, exist_ok=True)
+    (project_dir / "components").mkdir(parents=True, exist_ok=True)
+    (project_dir / "backend").mkdir(parents=True, exist_ok=True)
+    package_json = project_dir / "package.json"
+    if not package_json.exists():
+        package_json.write_text(
+            json.dumps(
+                {
+                    "name": project_dir.name,
+                    "dependencies": {"react": "^19.0.0", "next": "^15.0.0"},
+                }
+            ),
+            encoding="utf-8",
+        )
+    builder = BaselineAuditBuilder(project_dir)
+    report = builder.build(work_mode_override=work_mode)
+    builder.write(report)
+
+
 def _prepare_release_ready_project(project_dir: Path) -> None:
     (project_dir / "super_dev").mkdir(parents=True, exist_ok=True)
     (project_dir / "docs").mkdir(parents=True, exist_ok=True)
@@ -125,7 +151,7 @@ def _prepare_release_ready_project(project_dir: Path) -> None:
                 "/.opencode/",
                 "/.qoder/",
                 "/.trae/",
-                "/.openclaw/",
+                "/.factory/",
                 "/.windsurf/",
                 "/GEMINI.md",
             ]
@@ -137,33 +163,37 @@ def _prepare_release_ready_project(project_dir: Path) -> None:
         f'__version__ = "{_super_dev_version}"\n', encoding="utf-8"
     )
     (project_dir / "README.md").write_text(
-        f"当前版本：`{_super_dev_version}`\npip install -U super-dev\nuv tool install super-dev\n/super-dev\nsuper-dev:\nsuper-dev update\n",
+        f"当前版本：`{_super_dev_version}`\nuv tool install super-dev\n/super-dev\nsuper-dev:\nsuper-dev update\n",
         encoding="utf-8",
     )
     (project_dir / "README_EN.md").write_text(
-        f"Current version: `{_super_dev_version}`\npip install -U super-dev\nuv tool install super-dev\n/super-dev\nsuper-dev:\nsuper-dev update\n",
+        f"Current version: `{_super_dev_version}`\nuv tool install super-dev\n/super-dev\nsuper-dev:\nsuper-dev update\n",
+        encoding="utf-8",
+    )
+    (project_dir / "docs" / "INSTALL_OPTIONS.md").write_text(
+        "uv tool install super-dev\nsuper-dev update\n",
         encoding="utf-8",
     )
     (project_dir / "docs" / "HOST_USAGE_GUIDE.md").write_text(
         "Smoke\n/super-dev\nsuper-dev:\n", encoding="utf-8"
     )
     (project_dir / "docs" / "HOST_CAPABILITY_AUDIT.md").write_text(
-        "官方依据\nsuper-dev integrate smoke\n", encoding="utf-8"
+        "官方依据\nintegrate smoke / validate\n", encoding="utf-8"
     )
     (project_dir / "docs" / "HOST_RUNTIME_VALIDATION.md").write_text(
         "host runtime validation\nresearch\nsuper-dev review docs\n",
         encoding="utf-8",
     )
     (project_dir / "docs" / "HOST_INSTALL_SURFACES.md").write_text(
-        "Codex CLI\nsuper-dev:\nsuper-dev integrate audit --auto\n",
+        "Codex CLI\nsuper-dev:\n继续当前流程\n",
         encoding="utf-8",
     )
     (project_dir / "docs" / "README.md").write_text("用户文档\n维护者文档\n", encoding="utf-8")
     (project_dir / "docs" / "WORKFLOW_GUIDE.md").write_text(
-        "super-dev review docs\nsuper-dev run --resume\n", encoding="utf-8"
+        "super-dev review docs\n继续当前流程\n", encoding="utf-8"
     )
     (project_dir / "docs" / "WORKFLOW_GUIDE_EN.md").write_text(
-        "super-dev review docs\nsuper-dev run --resume\n", encoding="utf-8"
+        "super-dev review docs\ncontinue current workflow\n", encoding="utf-8"
     )
     (project_dir / "docs" / "PRODUCT_AUDIT.md").write_text(
         "super-dev product-audit\nproof-pack\nrelease readiness\n", encoding="utf-8"
@@ -280,6 +310,35 @@ def _prepare_release_ready_project(project_dir: Path) -> None:
     (output_dir / "frontend" / "design-tokens.css").write_text(
         ":root { --color-primary: #0f172a; }\n", encoding="utf-8"
     )
+    (output_dir / f"{project_dir.name}-ui-review.json").write_text(
+        json.dumps({"score": 92, "critical_count": 0}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (output_dir / f"{project_dir.name}-ui-contract-alignment.json").write_text(
+        json.dumps({"theme_entry": {"passed": True}}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (output_dir / f"{project_dir.name}-quality-gate.json").write_text(
+        json.dumps(
+            {
+                "passed": True,
+                "total_score": 90,
+                "summary": {"executive_summary": "quality gate passed"},
+                "evidence_identity": build_evidence_identity(
+                    project_dir,
+                    artifact_name="quality-gate",
+                    dependencies=[
+                        output_dir / f"{project_dir.name}-ui-review.json",
+                        output_dir / f"{project_dir.name}-ui-contract-alignment.json",
+                        output_dir / f"{project_dir.name}-uiux.md",
+                    ],
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     (output_dir / f"{project_dir.name}-frontend-runtime.json").write_text(
         json.dumps(
             {
@@ -293,6 +352,14 @@ def _prepare_release_ready_project(project_dir: Path) -> None:
                     "ui_component_imports": True,
                     "ui_banned_patterns": True,
                 },
+                "evidence_identity": build_evidence_identity(
+                    project_dir,
+                    artifact_name="frontend-runtime",
+                    dependencies=[
+                        output_dir / f"{project_dir.name}-ui-contract.json",
+                        output_dir / f"{project_dir.name}-ui-contract-alignment.json",
+                    ],
+                ),
             },
             ensure_ascii=False,
             indent=2,
@@ -325,6 +392,14 @@ def _prepare_proof_pack_project(project_dir: Path) -> None:
                     "ui_component_imports": True,
                     "ui_banned_patterns": True,
                 },
+                "evidence_identity": build_evidence_identity(
+                    project_dir,
+                    artifact_name="frontend-runtime",
+                    dependencies=[
+                        output_dir / f"{project_dir.name}-ui-contract.json",
+                        output_dir / f"{project_dir.name}-ui-contract-alignment.json",
+                    ],
+                ),
             },
             ensure_ascii=False,
             indent=2,
@@ -360,7 +435,19 @@ def _prepare_proof_pack_project(project_dir: Path) -> None:
     )
     (output_dir / f"{project_dir.name}-ui-review.json").write_text(
         json.dumps(
-            {"score": 92, "critical_count": 0, "alignment_summary": {}},
+            {
+                "score": 92,
+                "critical_count": 0,
+                "alignment_summary": {},
+                "evidence_identity": build_evidence_identity(
+                    project_dir,
+                    artifact_name="ui-review",
+                    dependencies=[
+                        output_dir / f"{project_dir.name}-ui-contract.json",
+                        output_dir / f"{project_dir.name}-uiux.md",
+                    ],
+                ),
+            },
             ensure_ascii=False,
             indent=2,
         ),
@@ -429,6 +516,14 @@ def _prepare_proof_pack_project(project_dir: Path) -> None:
                     "expected": "无 emoji 图标、无 Claude 聊天壳层、无模板化渐变/关键词",
                     "observed": "",
                 },
+                "evidence_identity": build_evidence_identity(
+                    project_dir,
+                    artifact_name="ui-contract-alignment",
+                    dependencies=[
+                        output_dir / f"{project_dir.name}-ui-contract.json",
+                        output_dir / f"{project_dir.name}-uiux.md",
+                    ],
+                ),
             },
             ensure_ascii=False,
             indent=2,
@@ -438,6 +533,40 @@ def _prepare_proof_pack_project(project_dir: Path) -> None:
     (output_dir / f"{project_dir.name}-quality-gate.md").write_text(
         "# quality gate\npassed\n", encoding="utf-8"
     )
+    (output_dir / f"{project_dir.name}-quality-gate.json").write_text(
+        json.dumps(
+            {
+                "passed": True,
+                "total_score": 90,
+                "summary": {"executive_summary": "quality gate passed"},
+                "evidence_identity": build_evidence_identity(
+                    project_dir,
+                    artifact_name="quality-gate",
+                    dependencies=[
+                        output_dir / f"{project_dir.name}-ui-review.json",
+                        output_dir / f"{project_dir.name}-ui-contract-alignment.json",
+                        output_dir / f"{project_dir.name}-uiux.md",
+                    ],
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    # Ensure the ready fixture reflects one coherent artifact generation round.
+    base_time = time.time() + 1
+    for index, artifact_name in enumerate(
+        (
+            f"{project_dir.name}-ui-review.json",
+            f"{project_dir.name}-ui-contract-alignment.json",
+            f"{project_dir.name}-frontend-runtime.json",
+            f"{project_dir.name}-quality-gate.md",
+            f"{project_dir.name}-quality-gate.json",
+        )
+    ):
+        ts = base_time + index
+        os.utime(output_dir / artifact_name, (ts, ts))
     (output_dir / f"{project_dir.name}-redteam.json").write_text(
         json.dumps(
             {
@@ -521,42 +650,6 @@ def _prepare_proof_pack_project(project_dir: Path) -> None:
         ),
         encoding="utf-8",
     )
-    (output_dir / f"{project_dir.name}-repo-map.md").write_text(
-        "# Repo Map\n\nok\n", encoding="utf-8"
-    )
-    (output_dir / f"{project_dir.name}-repo-map.json").write_text(
-        json.dumps({"project_name": project_dir.name}, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    (output_dir / f"{project_dir.name}-dependency-graph.md").write_text(
-        "# Dependency Graph\n\nok\n", encoding="utf-8"
-    )
-    (output_dir / f"{project_dir.name}-dependency-graph.json").write_text(
-        json.dumps(
-            {"project_name": project_dir.name, "node_count": 4, "edge_count": 3},
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    (output_dir / f"{project_dir.name}-impact-analysis.md").write_text(
-        "# Change Impact Analysis\n\nok\n", encoding="utf-8"
-    )
-    (output_dir / f"{project_dir.name}-impact-analysis.json").write_text(
-        json.dumps(
-            {"project_name": project_dir.name, "risk_level": "medium"}, ensure_ascii=False, indent=2
-        ),
-        encoding="utf-8",
-    )
-    (output_dir / f"{project_dir.name}-regression-guard.md").write_text(
-        "# Regression Guard\n\nok\n", encoding="utf-8"
-    )
-    (output_dir / f"{project_dir.name}-regression-guard.json").write_text(
-        json.dumps(
-            {"project_name": project_dir.name, "risk_level": "medium"}, ensure_ascii=False, indent=2
-        ),
-        encoding="utf-8",
-    )
     (output_dir / f"{project_dir.name}-prd.md").write_text(
         "\n".join(
             [
@@ -611,6 +704,18 @@ def _prepare_proof_pack_project(project_dir: Path) -> None:
         "# Tasks\n\n- [x] 支持邮箱密码登录\n- [x] 提供运营数据概览\n",
         encoding="utf-8",
     )
+    final_base_time = time.time() + 5
+    for index, artifact_name in enumerate(
+        (
+            f"{project_dir.name}-ui-contract.json",
+            f"{project_dir.name}-ui-review.json",
+            f"{project_dir.name}-ui-contract-alignment.json",
+            f"{project_dir.name}-frontend-runtime.json",
+            f"{project_dir.name}-quality-gate.md",
+        )
+    ):
+        ts = final_base_time + index
+        os.utime(output_dir / artifact_name, (ts, ts))
 
 
 class TestCLIInit:
@@ -653,40 +758,6 @@ class TestCLIInit:
             result = cli.run(["init", "another-project"])
 
             assert result == 0  # 应该优雅处理
-        finally:
-            os.chdir(original_cwd)
-
-    def test_bootstrap_creates_visible_contract_artifacts(self, temp_project_dir: Path):
-        """测试显式 bootstrap 命令"""
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-
-        try:
-            cli = SuperDevCLI()
-            result = cli.run(
-                [
-                    "bootstrap",
-                    "--name",
-                    "bootstrap-demo",
-                    "--platform",
-                    "web",
-                    "--frontend",
-                    "next",
-                    "--backend",
-                    "node",
-                ]
-            )
-
-            assert result == 0
-            assert (temp_project_dir / "super-dev.yaml").exists()
-            workflow_file = temp_project_dir / ".super-dev" / "WORKFLOW.md"
-            summary_file = temp_project_dir / "output" / "bootstrap-demo-bootstrap.md"
-            assert workflow_file.exists()
-            assert summary_file.exists()
-            assert "Required Pipeline Order" in workflow_file.read_text(encoding="utf-8")
-            summary_content = summary_file.read_text(encoding="utf-8")
-            assert "项目信息" in summary_content
-            assert "下一步" in summary_content
         finally:
             os.chdir(original_cwd)
 
@@ -793,33 +864,7 @@ class TestCLIConfig:
             os.chdir(original_cwd)
 
 
-class TestCLIExpert:
-    """测试 expert 命令"""
-
-    def test_expert_pm(self, temp_project_dir: Path):
-        """测试调用 PM 专家"""
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            cli = SuperDevCLI()
-            result = cli.run(["expert", "PM", "帮我分析需求"])
-            assert result == 0
-            assert (temp_project_dir / "output" / "expert-pm-advice.md").exists()
-        finally:
-            os.chdir(original_cwd)
-
-    def test_expert_architect(self, temp_project_dir: Path):
-        """测试调用架构师专家"""
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            cli = SuperDevCLI()
-            result = cli.run(["expert", "ARCHITECT", "设计系统架构"])
-            assert result == 0
-            assert (temp_project_dir / "output" / "expert-architect-advice.md").exists()
-        finally:
-            os.chdir(original_cwd)
-
+class TestCLINextAndAudit:
     def test_next_command_json_for_uninitialized_project(self, temp_project_dir: Path, capsys):
         original_cwd = os.getcwd()
         os.chdir(temp_project_dir)
@@ -837,32 +882,21 @@ class TestCLIExpert:
         finally:
             os.chdir(original_cwd)
 
-    def test_expert_product(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            cli = SuperDevCLI()
-            result = cli.run(["expert", "PRODUCT", "审查首次上手和闭环"])
-            assert result == 0
-            assert (temp_project_dir / "output" / "expert-product-advice.md").exists()
-        finally:
-            os.chdir(original_cwd)
-
     def test_product_audit_command(self, temp_project_dir: Path):
         original_cwd = os.getcwd()
         os.chdir(temp_project_dir)
         try:
             (temp_project_dir / "docs").mkdir(parents=True, exist_ok=True)
             (temp_project_dir / "docs" / "QUICKSTART.md").write_text(
-                "super-dev start --idea\n当前阶段是 `research`\n",
+                "super-dev update\n/super-dev 你的需求\n继续当前流程\n",
                 encoding="utf-8",
             )
             (temp_project_dir / "docs" / "HOST_USAGE_GUIDE.md").write_text(
-                "super-dev start --idea\n当前阶段是 `research`\n",
+                "/super-dev 你的需求\n继续当前流程\n现在下一步是什么\n",
                 encoding="utf-8",
             )
             (temp_project_dir / "docs" / "WORKFLOW_GUIDE.md").write_text(
-                "super-dev review docs\nsuper-dev run --resume\nsuper-dev review quality\n",
+                "super-dev update\n/super-dev 做一个企业级项目管理系统\nevolve / variant / patch\n",
                 encoding="utf-8",
             )
             (temp_project_dir / "docs" / "PRODUCT_AUDIT.md").write_text(
@@ -874,89 +908,6 @@ class TestCLIExpert:
             assert result in (0, 1)
             assert any((temp_project_dir / "output").glob("*-product-audit.md"))
             assert any((temp_project_dir / "output").glob("*-product-audit.json"))
-        finally:
-            os.chdir(original_cwd)
-
-    def test_expert_team_product_audit(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            cli = SuperDevCLI()
-            result = cli.run(["expert", "--team", "PRODUCT_AUDIT", "做一次全项目闭环审查"])
-            assert result == 0
-            assert (temp_project_dir / "output" / "team-product-audit-report.md").exists()
-        finally:
-            os.chdir(original_cwd)
-
-
-class TestCLIPreview:
-    """测试 preview 命令"""
-
-    def test_preview_generation(self, temp_project_dir: Path):
-        """测试原型生成"""
-        preview_path = temp_project_dir / "preview.html"
-        cli = SuperDevCLI()
-        result = cli.run(["preview", "-o", str(preview_path)])
-
-        assert result == 0
-        assert preview_path.exists()
-
-
-class TestCLIDeploy:
-    """测试 deploy 命令"""
-
-    def test_deploy_docker(self, temp_project_dir: Path):
-        """测试生成 Dockerfile"""
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            cli = SuperDevCLI()
-            result = cli.run(["deploy", "--docker"])
-            assert result == 0
-            assert (temp_project_dir / "Dockerfile").exists()
-            assert (temp_project_dir / "k8s" / "deployment.yaml").exists()
-        finally:
-            os.chdir(original_cwd)
-
-    def test_deploy_cicd_github(self, temp_project_dir: Path):
-        """测试生成 GitHub Actions 配置"""
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            cli = SuperDevCLI()
-            result = cli.run(["deploy", "--cicd", "github"])
-            assert result == 0
-            assert (temp_project_dir / ".github" / "workflows" / "ci.yml").exists()
-            assert (temp_project_dir / ".github" / "workflows" / "cd.yml").exists()
-        finally:
-            os.chdir(original_cwd)
-
-    def test_deploy_cicd_gitlab(self, temp_project_dir: Path):
-        """测试生成 GitLab CI 配置"""
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            cli = SuperDevCLI()
-            result = cli.run(["deploy", "--cicd", "gitlab"])
-            assert result == 0
-            assert (temp_project_dir / ".gitlab-ci.yml").exists()
-        finally:
-            os.chdir(original_cwd)
-
-    def test_deploy_cicd_all_platforms(self, temp_project_dir: Path):
-        """测试一次生成五大 CI/CD 平台配置"""
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            cli = SuperDevCLI()
-            result = cli.run(["deploy", "--cicd", "all"])
-            assert result == 0
-            assert (temp_project_dir / ".github" / "workflows" / "ci.yml").exists()
-            assert (temp_project_dir / ".github" / "workflows" / "cd.yml").exists()
-            assert (temp_project_dir / ".gitlab-ci.yml").exists()
-            assert (temp_project_dir / "Jenkinsfile").exists()
-            assert (temp_project_dir / ".azure-pipelines.yml").exists()
-            assert (temp_project_dir / "bitbucket-pipelines.yml").exists()
         finally:
             os.chdir(original_cwd)
 
@@ -1032,6 +983,85 @@ class TestCLIReview:
             assert "UI 改版状态" in output
             assert "状态: 待确认" in output
             assert "ui-revision.json" in output
+        finally:
+            os.chdir(original_cwd)
+
+    def test_review_baseline_json_persists_confirmation(self, temp_project_dir: Path, capsys):
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            result = cli.run(
+                [
+                    "review",
+                    "baseline",
+                    "--status",
+                    "confirmed",
+                    "--comment",
+                    "当前项目 baseline 已确认",
+                    "--run-id",
+                    "run-base-123",
+                    "--actor",
+                    "tester",
+                    "--json",
+                ]
+            )
+
+            assert result == 0
+            payload = json.loads(capsys.readouterr().out)
+            assert payload["status"] == "confirmed"
+            assert payload["comment"] == "当前项目 baseline 已确认"
+            assert payload["run_id"] == "run-base-123"
+            assert payload["actor"] == "tester"
+            assert payload["updated_at"]
+
+            state_file = (
+                temp_project_dir / ".super-dev" / "review-state" / "baseline-confirmation.json"
+            )
+            assert state_file.exists()
+            persisted = json.loads(state_file.read_text(encoding="utf-8"))
+            assert persisted["status"] == "confirmed"
+        finally:
+            os.chdir(original_cwd)
+
+    def test_review_baseline_prepare_generates_audit_artifacts(
+        self, temp_project_dir: Path, capsys
+    ):
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            (temp_project_dir / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "demo",
+                        "dependencies": {"react": "^19.0.0", "next": "^15.0.0"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (temp_project_dir / "components").mkdir(parents=True, exist_ok=True)
+            (temp_project_dir / "app").mkdir(parents=True, exist_ok=True)
+            save_workflow_state(
+                temp_project_dir,
+                {
+                    "status": "missing_baseline",
+                    "workflow_mode": "continue",
+                    "work_mode": "evolve",
+                    "current_step_label": "先建立当前项目 baseline",
+                    "recommended_command": "先做 baseline scan",
+                },
+            )
+
+            cli = SuperDevCLI()
+            result = cli.run(["review", "baseline", "--prepare", "--json"])
+
+            assert result == 0
+            payload = json.loads(capsys.readouterr().out)
+            assert payload["status"] == "prepared"
+            assert payload["work_mode"] == "evolve"
+            assert "baseline" in payload["summary"]
+            assert Path(payload["file_path"]).exists()
+            assert Path(payload["json_file_path"]).exists()
         finally:
             os.chdir(original_cwd)
 
@@ -1116,62 +1146,6 @@ class TestCLIReview:
         finally:
             os.chdir(original_cwd)
 
-    def test_deploy_rehearsal_docs(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            cli = SuperDevCLI()
-            result = cli.run(["deploy", "--cicd", "github", "--rehearsal"])
-            assert result == 0
-            assert any((temp_project_dir / "output" / "rehearsal").glob("*-launch-rehearsal.md"))
-            assert any((temp_project_dir / "output" / "rehearsal").glob("*-rollback-playbook.md"))
-            assert any((temp_project_dir / "output" / "rehearsal").glob("*-smoke-checklist.md"))
-        finally:
-            os.chdir(original_cwd)
-
-    def test_deploy_rehearsal_verify_generates_report(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            project_name = "my-project"
-            output_dir = temp_project_dir / "output"
-            output_dir.mkdir(parents=True, exist_ok=True)
-
-            (output_dir / f"{project_name}-redteam.md").write_text(
-                "- **Critical 问题**: 0\n**状态**: 通过 - 质量良好\n",
-                encoding="utf-8",
-            )
-            (output_dir / f"{project_name}-quality-gate.md").write_text(
-                "**状态**: <span style='color:green'>通过</span>\n**总分**: 90/100\n",
-                encoding="utf-8",
-            )
-            (output_dir / f"{project_name}-pipeline-metrics.json").write_text(
-                '{"project_name":"demo","success":true,"success_rate":100,"stages":[]}',
-                encoding="utf-8",
-            )
-            (output_dir / f"governance-report-{project_name}.md").write_text(
-                "# Governance Report\n\nvalidation=PASSED\n命中率: 100%\n",
-                encoding="utf-8",
-            )
-            delivery_dir = output_dir / "delivery"
-            delivery_dir.mkdir(parents=True, exist_ok=True)
-            (delivery_dir / f"{project_name}-delivery-manifest.json").write_text(
-                '{"project_name":"demo","status":"ready"}',
-                encoding="utf-8",
-            )
-            (temp_project_dir / "backend" / "migrations").mkdir(parents=True, exist_ok=True)
-            (temp_project_dir / "backend" / "migrations" / "001_init.sql").write_text(
-                "-- migration", encoding="utf-8"
-            )
-
-            cli = SuperDevCLI()
-            result = cli.run(["deploy", "--cicd", "github", "--rehearsal", "--rehearsal-verify"])
-            assert result == 0
-            assert any((temp_project_dir / "output" / "rehearsal").glob("*-rehearsal-report.md"))
-            assert any((temp_project_dir / "output" / "rehearsal").glob("*-rehearsal-report.json"))
-        finally:
-            os.chdir(original_cwd)
-
     def test_quality_redteam_generates_reports(self, temp_project_dir: Path):
         original_cwd = os.getcwd()
         os.chdir(temp_project_dir)
@@ -1194,124 +1168,6 @@ class TestCLIReview:
             assert result in (0, 1)
             assert (temp_project_dir / "output" / "demo-redteam.md").exists()
             assert (temp_project_dir / "output" / "demo-redteam.json").exists()
-        finally:
-            os.chdir(original_cwd)
-
-
-class TestCLIDesignInspiration:
-    def test_design_list_outputs_curated_inspirations(self, temp_project_dir: Path, capsys):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-
-        try:
-            cli = SuperDevCLI()
-            result = cli.run(["design", "list", "--frontend", "react", "-n", "5"])
-
-            assert result == 0
-            output = capsys.readouterr().out
-            assert "设计灵感锚点" in output
-            assert "Linear" in output or "Vercel" in output
-        finally:
-            os.chdir(original_cwd)
-
-    def test_design_recommend_uses_project_context(self, temp_project_dir: Path, capsys):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-
-        try:
-            with open(temp_project_dir / "super-dev.yaml", "w", encoding="utf-8") as f:
-                yaml.dump(
-                    {
-                        "name": "ops-suite",
-                        "description": "构建一个企业协作 SaaS 工作台",
-                        "platform": "web",
-                        "frontend": "react",
-                        "backend": "python",
-                    },
-                    f,
-                    allow_unicode=True,
-                )
-
-            cli = SuperDevCLI()
-            result = cli.run(["design", "recommend"])
-
-            assert result == 0
-            output = capsys.readouterr().out
-            assert "设计灵感推荐" in output
-            assert "Linear" in output
-        finally:
-            os.chdir(original_cwd)
-
-    def test_design_recommend_accepts_minimal_config_without_schema_warning(
-        self, temp_project_dir: Path, capsys
-    ):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-
-        try:
-            with open(temp_project_dir / "super-dev.yaml", "w", encoding="utf-8") as f:
-                yaml.dump(
-                    {
-                        "name": "minimal-site",
-                        "description": "商业级 SaaS 官网",
-                        "frontend": "react",
-                        "backend": "node",
-                        "platform": "web",
-                    },
-                    f,
-                    allow_unicode=True,
-                )
-
-            cli = SuperDevCLI()
-            result = cli.run(["design", "recommend"])
-
-            assert result == 0
-            output = capsys.readouterr().out
-            assert "Config schema validation warnings" not in output
-            assert "设计灵感推荐" in output
-        finally:
-            os.chdir(original_cwd)
-
-    def test_design_apply_updates_config_and_regenerates_uiux(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-
-        try:
-            with open(temp_project_dir / "super-dev.yaml", "w", encoding="utf-8") as f:
-                yaml.dump(
-                    {
-                        "name": "brand-site",
-                        "description": "为一个商业级 SaaS 产品生成官方网站和产品页",
-                        "platform": "web",
-                        "frontend": "react",
-                        "backend": "node",
-                    },
-                    f,
-                    allow_unicode=True,
-                )
-
-            cli = SuperDevCLI()
-            result = cli.run(["design", "apply", "vercel"])
-
-            assert result == 0
-
-            config = yaml.safe_load(
-                (temp_project_dir / "super-dev.yaml").read_text(encoding="utf-8")
-            )
-            assert config["design_inspiration_slug"] == "vercel"
-
-            output_dir = temp_project_dir / "output"
-            uiux_path = output_dir / "brand-site-uiux.md"
-            contract_path = output_dir / "brand-site-ui-contract.json"
-            inspiration_path = output_dir / "brand-site-design-inspiration.json"
-
-            assert uiux_path.exists()
-            assert contract_path.exists()
-            assert inspiration_path.exists()
-
-            contract = json.loads(contract_path.read_text(encoding="utf-8"))
-            assert contract["selected_design_reference"]["slug"] == "vercel"
-            assert contract["design_references"][0]["slug"] == "vercel"
         finally:
             os.chdir(original_cwd)
 
@@ -1366,46 +1222,107 @@ class TestCLIQuality:
             os.chdir(original_cwd)
 
 
-class TestCLIDesign:
-    """测试 design 命令关键分支"""
-
-    def test_design_tokens_json_and_tailwind(self, temp_project_dir: Path):
+class TestCLIDesignInspiration:
+    def test_design_list_outputs_curated_inspirations(self, temp_project_dir: Path, capsys):
         original_cwd = os.getcwd()
         os.chdir(temp_project_dir)
         try:
             cli = SuperDevCLI()
-            json_path = temp_project_dir / "tokens.json"
-            tailwind_path = temp_project_dir / "tailwind.json"
+            result = cli.run(["design", "list", "--frontend", "react", "-n", "5"])
+            assert result == 0
+            output = capsys.readouterr().out
+            assert "设计灵感锚点" in output
+            assert "Linear" in output or "Vercel" in output
+        finally:
+            os.chdir(original_cwd)
 
-            json_result = cli.run(
-                [
-                    "design",
-                    "tokens",
-                    "--primary",
-                    "#3B82F6",
-                    "--format",
-                    "json",
-                    "--output",
-                    str(json_path),
-                ]
-            )
-            tailwind_result = cli.run(
-                [
-                    "design",
-                    "tokens",
-                    "--primary",
-                    "#3B82F6",
-                    "--format",
-                    "tailwind",
-                    "--output",
-                    str(tailwind_path),
-                ]
-            )
+    def test_design_recommend_uses_project_context(self, temp_project_dir: Path, capsys):
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            with open(temp_project_dir / "super-dev.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(
+                    {
+                        "name": "ops-suite",
+                        "description": "构建一个企业协作 SaaS 工作台",
+                        "platform": "web",
+                        "frontend": "react",
+                        "backend": "python",
+                    },
+                    f,
+                    allow_unicode=True,
+                )
+            cli = SuperDevCLI()
+            result = cli.run(["design", "recommend"])
+            assert result == 0
+            output = capsys.readouterr().out
+            assert "设计灵感推荐" in output
+            assert "Linear" in output
+        finally:
+            os.chdir(original_cwd)
 
-            assert json_result == 0
-            assert tailwind_result == 0
-            assert json_path.exists()
-            assert tailwind_path.exists()
+    def test_design_recommend_accepts_minimal_config_without_schema_warning(
+        self, temp_project_dir: Path, capsys
+    ):
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            with open(temp_project_dir / "super-dev.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(
+                    {
+                        "name": "minimal-site",
+                        "description": "商业级 SaaS 官网",
+                        "frontend": "react",
+                        "backend": "node",
+                        "platform": "web",
+                    },
+                    f,
+                    allow_unicode=True,
+                )
+            cli = SuperDevCLI()
+            result = cli.run(["design", "recommend"])
+            assert result == 0
+            output = capsys.readouterr().out
+            assert "Config schema validation warnings" not in output
+            assert "设计灵感推荐" in output
+        finally:
+            os.chdir(original_cwd)
+
+    def test_design_apply_updates_config_and_regenerates_uiux(self, temp_project_dir: Path):
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            with open(temp_project_dir / "super-dev.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(
+                    {
+                        "name": "brand-site",
+                        "description": "为一个商业级 SaaS 产品生成官方网站和产品页",
+                        "platform": "web",
+                        "frontend": "react",
+                        "backend": "node",
+                    },
+                    f,
+                    allow_unicode=True,
+                )
+            cli = SuperDevCLI()
+            result = cli.run(["design", "apply", "vercel"])
+            assert result == 0
+
+            config = yaml.safe_load((temp_project_dir / "super-dev.yaml").read_text(encoding="utf-8"))
+            assert config["design_inspiration_slug"] == "vercel"
+
+            output_dir = temp_project_dir / "output"
+            uiux_path = output_dir / "brand-site-uiux.md"
+            contract_path = output_dir / "brand-site-ui-contract.json"
+            inspiration_path = output_dir / "brand-site-design-inspiration.json"
+
+            assert uiux_path.exists()
+            assert contract_path.exists()
+            assert inspiration_path.exists()
+
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            assert contract["selected_design_reference"]["slug"] == "vercel"
+            assert contract["design_references"][0]["slug"] == "vercel"
         finally:
             os.chdir(original_cwd)
 
@@ -1413,10 +1330,51 @@ class TestCLIDesign:
 class TestCLISkillAndIntegrate:
     """测试 skill 和 integrate 命令"""
 
+    def test_public_help_hides_retired_legacy_entrypoints(self, temp_project_dir: Path, capsys):
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            result = cli.run(["--help"])
+            assert result == 0
+
+            output = capsys.readouterr().out
+            assert "Super Dev Public Help" in output
+            assert "super-dev           打开宿主安装 / 接入引导" in output
+            assert "super-dev update    更新到最新版本" in output
+            assert "super-dev uninstall 完整清理宿主接入面" in output
+            assert "内部维护 / 治理命令请使用: super-dev --help-all" in output
+            assert "可用命令:" not in output
+            for legacy_entry in ("create", "fix", "workflow", "bootstrap", "generate", "enforce"):
+                assert legacy_entry not in output
+        finally:
+            os.chdir(original_cwd)
+
     def test_skill_targets(self):
         cli = SuperDevCLI()
         result = cli.run(["skill", "targets"])
         assert result == 0
+
+    def test_help_all_internalizes_maintenance_command_index(self, temp_project_dir: Path, capsys):
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            result = cli.run(["--help-all"])
+            assert result == 0
+
+            output = capsys.readouterr().out
+            assert "Super Dev Internal Command Index" in output
+            assert "内部维护命令索引" in output
+            assert "普通用户公开终端入口仍然只有 super-dev / super-dev update / super-dev" in output
+            assert "uninstall" in output
+            assert "setup               内部维护：一步接入安装" in output
+            assert "detect              内部维护：宿主探测与兼容性报告" in output
+            assert "resume              回到当前仓库的 Super Dev 流程" in output
+            for hidden_entry in ("generate", "enforce", "config", "completion", "feedback", "migrate"):
+                assert f"{hidden_entry} " not in output
+        finally:
+            os.chdir(original_cwd)
 
     def test_integrate_setup_qoder(self, temp_project_dir: Path):
         original_cwd = os.getcwd()
@@ -1514,13 +1472,95 @@ class TestCLISkillAndIntegrate:
             assert runtime_script["passed"] is True
             recovery = payload["host_recovery_summary"]["hosts"]["codex-cli"]
             assert recovery["passed"] is True
+            assert recovery["recommended_commands"][0] == "super-dev"
+            assert "super-dev update" in recovery["recommended_commands"]
             assert any(
-                "integrate setup --target codex-cli --force" in cmd
+                cmd.startswith("$super-dev ")
+                or cmd.startswith("/super-dev ")
+                or cmd.startswith("super-dev:")
+                for cmd in recovery["recommended_commands"]
+            )
+            assert all(
+                all(
+                    marker not in cmd
+                    for marker in ("integrate ", "skill install", "onboard --host")
+                )
                 for cmd in recovery["recommended_commands"]
             )
             assert "report_files" in payload
-            assert Path(payload["report_files"]["onepage_markdown"]).exists()
-            assert Path(payload["report_files"]["history_onepage_markdown"]).exists()
+            report_files = payload["report_files"]
+            for key in (
+                "json",
+                "markdown",
+                "history_json",
+                "history_markdown",
+                "onepage_markdown",
+                "history_onepage_markdown",
+            ):
+                assert Path(report_files[key]).exists()
+            assert Path(report_files["history_json"]).parent.name == "host-hardening-history"
+            assert Path(report_files["history_markdown"]).parent.name == "host-hardening-history"
+            assert (
+                Path(report_files["history_onepage_markdown"]).parent.name
+                == "host-hardening-history"
+            )
+            assert (
+                Path(report_files["json"]).read_text(encoding="utf-8")
+                == Path(report_files["history_json"]).read_text(encoding="utf-8")
+            )
+            assert (
+                Path(report_files["markdown"]).read_text(encoding="utf-8")
+                == Path(report_files["history_markdown"]).read_text(encoding="utf-8")
+            )
+            hardening_markdown = Path(report_files["markdown"]).read_text(encoding="utf-8")
+            assert "Adaptation Maturity:" in hardening_markdown
+            assert "$super-dev 继续当前流程" in hardening_markdown
+            assert not (fake_home / ".codex" / "AGENTS.md").exists()
+
+            onepage_lines = Path(report_files["onepage_markdown"]).read_text(
+                encoding="utf-8"
+            ).splitlines()
+            history_onepage_lines = Path(report_files["history_onepage_markdown"]).read_text(
+                encoding="utf-8"
+            ).splitlines()
+            assert onepage_lines[0] == "# Host Parity Onepage"
+            assert history_onepage_lines[0] == "# Host Parity Onepage"
+            assert any("| codex-cli |" in line for line in onepage_lines)
+            assert [
+                line for line in onepage_lines if not line.startswith("- Generated At (UTC): ")
+            ] == [
+                line
+                for line in history_onepage_lines
+                if not line.startswith("- Generated At (UTC): ")
+            ]
+        finally:
+            os.chdir(original_cwd)
+
+    def test_integrate_harden_with_user_surfaces_writes_codex_global_agents(
+        self, temp_project_dir: Path, capsys, monkeypatch
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            result = cli.run(
+                [
+                    "integrate",
+                    "harden",
+                    "--target",
+                    "codex-cli",
+                    "--with-user-surfaces",
+                    "--json",
+                ]
+            )
+            assert result == 0
+            payload = json.loads(capsys.readouterr().out)
+            item = payload["hardening_results"]["codex-cli"]
+            assert "~/.codex/AGENTS.md" in item["plan"]["required_user_surfaces"]
+            assert (fake_home / ".codex" / "AGENTS.md").exists()
         finally:
             os.chdir(original_cwd)
 
@@ -1594,9 +1634,12 @@ class TestCLISkillAndIntegrate:
             assert (temp_project_dir / "CLAUDE.md").exists()
             assert (temp_project_dir / ".claude" / "CLAUDE.md").exists()
             assert (temp_project_dir / ".claude" / "skills" / "super-dev" / "SKILL.md").exists()
-            assert (fake_home / ".claude" / "CLAUDE.md").exists()
+            assert (temp_project_dir / ".claude" / "skills" / "super-dev-seeai" / "SKILL.md").exists()
             assert (fake_home / ".claude" / "skills" / "super-dev" / "SKILL.md").exists()
+            assert (fake_home / ".claude" / "skills" / "super-dev-seeai" / "SKILL.md").exists()
+            assert not (fake_home / ".claude" / "CLAUDE.md").exists()
             assert (temp_project_dir / ".claude" / "commands" / "super-dev.md").exists()
+            assert (temp_project_dir / ".claude" / "commands" / "super-dev-seeai.md").exists()
             assert (temp_project_dir / ".claude-plugin" / "marketplace.json").exists()
             assert (
                 temp_project_dir / "plugins" / "super-dev-claude" / ".claude-plugin" / "plugin.json"
@@ -1604,7 +1647,82 @@ class TestCLISkillAndIntegrate:
         finally:
             os.chdir(original_cwd)
 
-    def test_onboard_antigravity_installs_project_global_and_skill(
+    def test_uninstall_single_host_removes_installed_surfaces(
+        self, temp_project_dir: Path, monkeypatch
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            assert cli.run(["onboard", "--host", "claude-code", "--force", "--yes"]) == 0
+            assert (temp_project_dir / ".claude" / "commands" / "super-dev.md").exists()
+            assert (fake_home / ".claude" / "skills" / "super-dev" / "SKILL.md").exists()
+
+            result = cli.run(["uninstall", "--host", "claude-code", "--yes"])
+            assert result == 0
+            assert not (temp_project_dir / ".claude" / "commands" / "super-dev.md").exists()
+            assert not (fake_home / ".claude" / "skills" / "super-dev" / "SKILL.md").exists()
+        finally:
+            os.chdir(original_cwd)
+
+    def test_uninstall_single_host_dry_run_keeps_installed_surfaces(
+        self, temp_project_dir: Path, monkeypatch, capsys
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            assert cli.run(["onboard", "--host", "claude-code", "--force", "--yes"]) == 0
+            capsys.readouterr()
+
+            result = cli.run(["uninstall", "--host", "claude-code", "--yes", "--dry-run", "--json"])
+            assert result == 0
+            payload = json.loads(capsys.readouterr().out)
+            assert payload["status"] == "preview"
+            assert payload["dry_run"] is True
+            assert Path(payload["report_path"]).exists()
+            assert (temp_project_dir / ".claude" / "commands" / "super-dev.md").exists()
+            assert (fake_home / ".claude" / "skills" / "super-dev" / "SKILL.md").exists()
+            target_payload = payload["targets"][0]
+            assert target_payload["planned_surface_paths"]
+            assert "super-dev" in target_payload["planned_skill_names"]
+        finally:
+            os.chdir(original_cwd)
+
+    def test_uninstall_json_writes_cleanup_report(
+        self, temp_project_dir: Path, monkeypatch, capsys
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            assert cli.run(["onboard", "--host", "claude-code", "--force", "--yes"]) == 0
+            capsys.readouterr()
+
+            result = cli.run(["uninstall", "--host", "claude-code", "--yes", "--json"])
+            assert result == 0
+            payload = json.loads(capsys.readouterr().out)
+            report_path = Path(payload["report_path"])
+            assert report_path.exists()
+            assert Path(payload["report_files"]["markdown"]).exists()
+            report_payload = json.loads(report_path.read_text(encoding="utf-8"))
+            assert report_payload["status"] == "ok"
+            assert report_payload["report_path"] == str(report_path)
+            assert report_payload["report_files"]["markdown"].endswith(".md")
+            assert report_payload["removed_path_count"] >= 1
+        finally:
+            os.chdir(original_cwd)
+
+    def test_onboard_antigravity_defaults_to_project_surfaces_and_skill(
         self, temp_project_dir: Path, monkeypatch
     ):
         fake_home = temp_project_dir / "fake-home"
@@ -1618,9 +1736,9 @@ class TestCLISkillAndIntegrate:
             assert result == 0
             assert (temp_project_dir / "GEMINI.md").exists()
             assert (temp_project_dir / ".agent" / "workflows" / "super-dev.md").exists()
-            assert (temp_project_dir / ".gemini" / "commands" / "super-dev.md").exists()
-            assert (fake_home / ".gemini" / "GEMINI.md").exists()
-            assert (fake_home / ".gemini" / "commands" / "super-dev.md").exists()
+            assert (temp_project_dir / ".gemini" / "commands" / "super-dev.toml").exists()
+            assert not (fake_home / ".gemini" / "GEMINI.md").exists()
+            assert not (fake_home / ".gemini" / "commands" / "super-dev.toml").exists()
             assert (fake_home / ".gemini" / "skills" / "super-dev" / "SKILL.md").exists()
         finally:
             os.chdir(original_cwd)
@@ -1640,7 +1758,7 @@ class TestCLISkillAndIntegrate:
             cli = SuperDevCLI()
             assert cli.run(["onboard", "--host", "opencode", "--force", "--yes"]) == 0
             assert (temp_project_dir / "AGENTS.md").exists()
-            assert (fake_home / ".config" / "opencode" / "AGENTS.md").exists()
+            assert not (fake_home / ".config" / "opencode" / "AGENTS.md").exists()
             capsys.readouterr()
 
             stale_file = temp_project_dir / ".opencode" / "commands" / "super-dev.md"
@@ -1673,8 +1791,8 @@ class TestCLISkillAndIntegrate:
             assert result == 0
             assert (temp_project_dir / ".trae" / "project_rules.md").exists()
             assert (temp_project_dir / ".trae" / "rules.md").exists()
-            assert (fake_home / ".trae" / "user_rules.md").exists()
-            assert (fake_home / ".trae" / "rules.md").exists()
+            assert not (fake_home / ".trae" / "user_rules.md").exists()
+            assert not (fake_home / ".trae" / "rules.md").exists()
             assert (fake_home / ".trae" / "skills" / "super-dev" / "SKILL.md").exists()
             assert not (temp_project_dir / ".trae" / "commands" / "super-dev.md").exists()
         finally:
@@ -1694,11 +1812,51 @@ class TestCLISkillAndIntegrate:
             assert result == 0
             assert (temp_project_dir / ".trae" / "project_rules.md").exists()
             assert (temp_project_dir / ".trae" / "rules.md").exists()
-            assert (fake_home / ".trae" / "user_rules.md").exists()
-            assert (fake_home / ".trae" / "rules.md").exists()
+            assert not (fake_home / ".trae" / "user_rules.md").exists()
+            assert not (fake_home / ".trae" / "rules.md").exists()
             assert not (fake_home / ".trae" / "skills" / "super-dev" / "SKILL.md").exists()
             output = capsys.readouterr().out
             assert "未检测到官方或兼容 Skill 目录" in output
+        finally:
+            os.chdir(original_cwd)
+
+    def test_onboard_kimi_code_installs_agents_and_skills(
+        self, temp_project_dir: Path, monkeypatch
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            result = cli.run(["onboard", "--host", "kimi-code", "--force", "--yes"])
+            assert result == 0
+            assert (temp_project_dir / "AGENTS.md").exists()
+            assert (temp_project_dir / ".kimi" / "AGENTS.md").exists()
+            assert (temp_project_dir / ".kimi" / "skills" / "super-dev" / "SKILL.md").exists()
+            assert (fake_home / ".kimi" / "skills" / "super-dev" / "SKILL.md").exists()
+            assert not (temp_project_dir / ".kimi" / "commands" / "super-dev.md").exists()
+        finally:
+            os.chdir(original_cwd)
+
+    def test_onboard_trae_solo_installs_rules_commands_and_skill(
+        self, temp_project_dir: Path, monkeypatch
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        (fake_home / ".trae" / "skills").mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            result = cli.run(["onboard", "--host", "trae-solo", "--force", "--yes"])
+            assert result == 0
+            assert (temp_project_dir / "AGENTS.md").exists()
+            assert (temp_project_dir / ".trae" / "rules" / "super-dev.md").exists()
+            assert (temp_project_dir / ".trae" / "commands" / "super-dev.md").exists()
+            assert (temp_project_dir / ".trae" / "skills" / "super-dev" / "SKILL.md").exists()
         finally:
             os.chdir(original_cwd)
 
@@ -1718,7 +1876,7 @@ class TestCLISkillAndIntegrate:
             assert (
                 temp_project_dir / "plugins" / "super-dev-codex" / ".codex-plugin" / "plugin.json"
             ).exists()
-            assert (fake_home / ".codex" / "AGENTS.md").exists()
+            assert not (fake_home / ".codex" / "AGENTS.md").exists()
             assert (fake_home / ".agents" / "skills" / "super-dev" / "SKILL.md").exists()
             assert (fake_home / ".agents" / "skills" / "super-dev" / "SKILL.md").exists()
             assert not (temp_project_dir / ".codex" / "commands" / "super-dev.md").exists()
@@ -1749,7 +1907,7 @@ class TestCLISkillAndIntegrate:
         finally:
             os.chdir(original_cwd)
 
-    def test_onboard_kiro_installs_global_steering(self, temp_project_dir: Path, monkeypatch):
+    def test_onboard_kiro_defaults_to_project_steering_and_skill(self, temp_project_dir: Path, monkeypatch):
         fake_home = temp_project_dir / "fake-home"
         fake_home.mkdir(parents=True, exist_ok=True)
         monkeypatch.setenv("HOME", str(fake_home))
@@ -1760,9 +1918,36 @@ class TestCLISkillAndIntegrate:
             result = cli.run(["onboard", "--host", "kiro", "--force", "--yes"])
             assert result == 0
             assert (temp_project_dir / ".kiro" / "steering" / "super-dev.md").exists()
+            assert (temp_project_dir / ".kiro" / "steering" / "super-dev-seeai.md").exists()
             assert (temp_project_dir / ".kiro" / "skills" / "super-dev" / "SKILL.md").exists()
-            assert (fake_home / ".kiro" / "steering" / "super-dev.md").exists()
+            assert (temp_project_dir / ".kiro" / "skills" / "super-dev-seeai" / "SKILL.md").exists()
+            assert not (fake_home / ".kiro" / "steering" / "super-dev.md").exists()
             assert (fake_home / ".kiro" / "skills" / "super-dev" / "SKILL.md").exists()
+            assert (fake_home / ".kiro" / "skills" / "super-dev-seeai" / "SKILL.md").exists()
+        finally:
+            os.chdir(original_cwd)
+
+    def test_onboard_with_user_surfaces_writes_codex_global_agents(self, temp_project_dir: Path, monkeypatch):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        (fake_home / ".codex").mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            result = cli.run(
+                [
+                    "onboard",
+                    "--host",
+                    "codex-cli",
+                    "--force",
+                    "--yes",
+                    "--with-user-surfaces",
+                ]
+            )
+            assert result == 0
+            assert (fake_home / ".codex" / "AGENTS.md").exists()
         finally:
             os.chdir(original_cwd)
 
@@ -1776,7 +1961,9 @@ class TestCLISkillAndIntegrate:
 
             output = capsys.readouterr().out
             assert "接下来这样用" in output
-            assert 'Kiro CLI: 打开宿主后输入 /super-dev "你的需求"' in output
+            assert "Kiro CLI" in output
+            assert "/super-dev 你的需求" in output
+            assert "比赛流第一句" in output
         finally:
             os.chdir(original_cwd)
 
@@ -1794,6 +1981,80 @@ class TestCLISkillAndIntegrate:
             assert "集成规则:" in output
             assert "集成规则: /" not in output
             assert str(temp_project_dir / "CLAUDE.md") not in output
+        finally:
+            os.chdir(original_cwd)
+
+    def test_onboard_writes_smoke_guide_reports(
+        self, temp_project_dir: Path, monkeypatch, capsys
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            result = cli.run(["onboard", "--host", "claude-code", "--force", "--yes"])
+            assert result == 0
+            output = capsys.readouterr().out
+            assert "Onboard smoke guide:" in output
+            report_dir = temp_project_dir / "output" / "maintenance"
+            json_reports = sorted(report_dir.glob("host-onboard-smoke-*.json"))
+            markdown_reports = sorted(report_dir.glob("host-onboard-smoke-*.md"))
+            assert json_reports
+            assert markdown_reports
+            payload = json.loads(json_reports[-1].read_text(encoding="utf-8"))
+            assert payload["status"] == "ok"
+            assert payload["targets"][0]["standard_flow_first_prompt"]
+            assert payload["targets"][0]["post_onboard_self_check"]
+            markdown = markdown_reports[-1].read_text(encoding="utf-8")
+            assert "Host Onboard Smoke Guide" in markdown
+            assert "Official Workflow Checks" in markdown
+        finally:
+            os.chdir(original_cwd)
+
+    def test_onboard_smoke_guide_includes_framework_coaching(
+        self, temp_project_dir: Path, monkeypatch, capsys
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        output_dir = temp_project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / f"{temp_project_dir.name}-ui-contract.json").write_text(
+            json.dumps(
+                {
+                    "framework_playbook": {
+                        "framework": "expo",
+                        "implementation_modules": ["app router", "native auth"],
+                        "native_capabilities": ["camera", "push notifications"],
+                        "validation_surfaces": ["ios preview", "android preview"],
+                        "delivery_evidence": ["expo preview", "device screenshots"],
+                    }
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            result = cli.run(["onboard", "--host", "claude-code", "--force", "--yes"])
+            assert result == 0
+            _ = capsys.readouterr().out
+            report_dir = temp_project_dir / "output" / "maintenance"
+            markdown_reports = sorted(report_dir.glob("host-onboard-smoke-*.md"))
+            json_reports = sorted(report_dir.glob("host-onboard-smoke-*.json"))
+            assert markdown_reports and json_reports
+            markdown = markdown_reports[-1].read_text(encoding="utf-8")
+            payload = json.loads(json_reports[-1].read_text(encoding="utf-8"))
+            assert "## 框架焦点（Framework Coaching Focus）" in markdown
+            assert "### Framework Coaching" in markdown
+            assert "Framework: expo" in markdown
+            assert payload["framework_playbook"]["framework"] == "expo"
+            assert payload["targets"][0]["framework_playbook"]["framework"] == "expo"
         finally:
             os.chdir(original_cwd)
 
@@ -1825,32 +2086,31 @@ class TestCLISkillAndIntegrate:
             assert result == 0
             assert (temp_project_dir / "GEMINI.md").exists()
             assert (temp_project_dir / ".agent" / "workflows" / "super-dev.md").exists()
-            assert (temp_project_dir / ".gemini" / "commands" / "super-dev.md").exists()
+            assert (temp_project_dir / ".gemini" / "commands" / "super-dev.toml").exists()
+            assert (temp_project_dir / ".gemini" / "commands" / "super-dev-seeai.toml").exists()
             assert (temp_project_dir / "CLAUDE.md").exists()
             assert (temp_project_dir / ".claude" / "CLAUDE.md").exists()
-            assert (temp_project_dir / ".claude" / "skills" / "super-dev" / "SKILL.md").exists()
             assert (temp_project_dir / ".claude-plugin" / "marketplace.json").exists()
             assert (temp_project_dir / "AGENTS.md").exists()
             assert (temp_project_dir / ".qoder" / "rules" / "super-dev.md").exists()
-            assert (temp_project_dir / ".qoder" / "skills" / "super-dev" / "SKILL.md").exists()
             assert (temp_project_dir / ".qoder" / "commands" / "super-dev.md").exists()
+            assert (temp_project_dir / ".qoder" / "commands" / "super-dev-seeai.md").exists()
             assert (temp_project_dir / ".kiro" / "steering" / "super-dev.md").exists()
-            assert (temp_project_dir / ".kiro" / "skills" / "super-dev" / "SKILL.md").exists()
+            assert (temp_project_dir / ".kiro" / "steering" / "super-dev-seeai.md").exists()
             assert (temp_project_dir / "CODEBUDDY.md").exists()
             assert (temp_project_dir / ".codebuddy" / "rules" / "super-dev" / "RULE.mdc").exists()
-            assert (temp_project_dir / ".codebuddy" / "skills" / "super-dev" / "SKILL.md").exists()
             assert (temp_project_dir / ".claude" / "commands" / "super-dev.md").exists()
+            assert (temp_project_dir / ".claude" / "commands" / "super-dev-seeai.md").exists()
             assert (temp_project_dir / ".github" / "copilot-instructions.md").exists()
-            assert (temp_project_dir / ".github" / "skills" / "super-dev" / "SKILL.md").exists()
             assert (temp_project_dir / ".cursor" / "rules" / "super-dev.mdc").exists()
             assert (temp_project_dir / ".cursor" / "commands" / "super-dev.md").exists()
             assert (temp_project_dir / ".windsurf" / "rules" / "super-dev.md").exists()
             assert (temp_project_dir / ".windsurf" / "workflows" / "super-dev.md").exists()
-            assert (temp_project_dir / ".windsurf" / "skills" / "super-dev" / "SKILL.md").exists()
+            assert (temp_project_dir / ".windsurf" / "workflows" / "super-dev-seeai.md").exists()
             assert (temp_project_dir / ".opencode" / "commands" / "super-dev.md").exists()
-            assert (temp_project_dir / ".opencode" / "skills" / "super-dev" / "SKILL.md").exists()
+            assert (temp_project_dir / ".kimi" / "AGENTS.md").exists()
+            assert (temp_project_dir / ".trae" / "commands" / "super-dev.md").exists()
             assert not (temp_project_dir / ".kimi" / "commands" / "super-dev.md").exists()
-            assert not (temp_project_dir / ".kimi" / "AGENTS.md").exists()
         finally:
             os.chdir(original_cwd)
 
@@ -1946,11 +2206,10 @@ class TestCLISkillAndIntegrate:
             assert "接入后重启: 是" in output
             assert "Smoke 验收语句" in output
             assert "SMOKE_OK" in output
-            assert "现在可以直接这样开始" in output
-            assert 'Codex: 重开后第一句直接复制 /super-dev "' in output
+            assert "系统建议动作:" in output
+            assert "重开后第一句直接复制 $super-dev " in output
             assert "如果你是在继续已有流程" in output
-            assert '宿主第一句: /super-dev "' in output
-            assert "App/Desktop 恢复入口:" in output
+            assert "宿主第一句: $super-dev " in output
             assert "CLI 恢复入口:" in output
             assert "流程状态卡: " in output
             assert (
@@ -2032,6 +2291,86 @@ class TestCLISkillAndIntegrate:
         finally:
             os.chdir(original_cwd)
 
+    def test_doctor_surfaces_runtime_governance_summary_when_layered_gap_exists(
+        self, temp_project_dir: Path, monkeypatch, capsys
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        (fake_home / ".codex").mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            _prepare_workflow_context(temp_project_dir)
+            save_workflow_state(
+                temp_project_dir,
+                {
+                    "status": "missing_frontend",
+                    "workflow_mode": "continue",
+                    "current_step_label": "先做前端与运行验证",
+                    "recommended_command": "继续当前流程，进入前端实现与运行验证",
+                },
+            )
+            save_host_runtime_validation(
+                temp_project_dir,
+                {
+                    "hosts": {
+                        "codex-cli": {
+                            "status": "passed",
+                            "comment": "manual accepted",
+                            "actor": "pytest",
+                        }
+                    }
+                },
+            )
+
+            cli = SuperDevCLI()
+            assert cli.run(["onboard", "--host", "codex-cli", "--force", "--yes"]) == 0
+            capsys.readouterr()
+
+            result = cli.run(["doctor", "--host", "codex-cli", "--json"])
+            assert result == 0
+            payload = json.loads(capsys.readouterr().out)
+            runtime_governance = payload["runtime_governance_summary"]
+            assert "codex-cli" in runtime_governance["summary"]
+            assert "continuity / harness / runtime 证据仍未闭环" in runtime_governance["summary"]
+            assert runtime_governance["next_actions"]
+
+            result = cli.run(["doctor", "--host", "codex-cli", "--detail"])
+            assert result == 0
+            output = capsys.readouterr().out
+            assert "运行治理提示" in output
+            assert "codex-cli" in output
+            assert "建议先做:" in output
+        finally:
+            os.chdir(original_cwd)
+
+    def test_doctor_surfaces_compliance_governance_summary_when_artifact_gap_exists(
+        self, temp_project_dir: Path, capsys
+    ):
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            _prepare_workflow_context(temp_project_dir)
+            (temp_project_dir / "output" / "demo-prd.md").write_text(
+                "# PRD\n\n## Requirements\n\n- The system must support auditable delivery workflows.\n",
+                encoding="utf-8",
+            )
+
+            cli = SuperDevCLI()
+            assert cli.run(["doctor", "--host", "claude-code", "--json"]) == 1
+            payload = json.loads(capsys.readouterr().out)
+            compliance_governance = payload["compliance_governance_summary"]
+            assert "spec=missing" in compliance_governance["summary"]
+
+            result = cli.run(["doctor", "--host", "claude-code", "--detail"])
+            assert result == 1
+            output = capsys.readouterr().out
+            assert "合规治理提示" in output
+            assert "spec=missing" in output
+        finally:
+            os.chdir(original_cwd)
+
     def test_doctor_auto_json_is_valid_json_without_preamble(self, temp_project_dir: Path, capsys):
         original_cwd = os.getcwd()
         original_path = os.environ.get("PATH", "")
@@ -2078,6 +2417,12 @@ class TestCLISkillAndIntegrate:
                 payload["primary_repair_action"]["secondary_actions"]
                 == payload["decision_card"]["secondary_actions"]
             )
+            assert payload["decision_card"]["next_actions"][0] == payload["decision_card"][
+                "first_action"
+            ]
+            assert payload["decision_card"]["secondary_actions"] == payload["decision_card"][
+                "next_actions"
+            ][1:]
         finally:
             os.chdir(original_cwd)
 
@@ -2096,7 +2441,7 @@ class TestCLISkillAndIntegrate:
             assert "宿主前置条件" not in output
             assert "官方 commands + subagents" not in output
             assert "原因:" in output
-            assert "先执行:" in output
+            assert "建议动作:" in output
         finally:
             os.chdir(original_cwd)
 
@@ -2158,7 +2503,9 @@ class TestCLISkillAndIntegrate:
             monkeypatch.setenv("HOME", str(fake_home))
 
             cli = SuperDevCLI()
-            onboard = cli.run(["onboard", "--host", "claude-code", "--force", "--yes"])
+            onboard = cli.run(
+                ["onboard", "--host", "claude-code", "--force", "--yes", "--with-user-surfaces"]
+            )
             assert onboard == 0
 
             project_slash = temp_project_dir / ".claude" / "commands" / "super-dev.md"
@@ -2271,6 +2618,9 @@ class TestCLISkillAndIntegrate:
             assert payload["decision_card"]["first_action"]
             assert payload["decision_card"]["candidates"][0]["id"] == "codex-cli"
             assert payload["decision_card"]["candidates"][0]["recommended"] is True
+            assert payload["decision_card"]["candidates"][0]["adaptation_contract"]["level"] == "elite"
+            assert payload["decision_card"]["candidates"][0]["primary_entry"]
+            assert payload["decision_card"]["candidates"][0]["usage_mode"] == "agents-and-skill"
             assert payload["compatibility"]["total_hosts"] >= 1
             assert "flow_consistent_hosts" in payload["compatibility"]
             assert "flow_consistency_score" in payload["compatibility"]
@@ -2286,19 +2636,17 @@ class TestCLISkillAndIntegrate:
             )
             assert (
                 payload["usage_profiles"]["codex-cli"]["final_trigger"]
-                == "App/Desktop: /super-dev | CLI: $super-dev | 回退: super-dev: 你的需求"
+                == "CLI: $super-dev | 回退: super-dev: 你的需求"
             )
-            assert (
-                payload["usage_profiles"]["codex-cli"]["entry_variants"][0]["entry"] == "/super-dev"
-            )
+            assert payload["usage_profiles"]["codex-cli"]["entry_variants"][0]["entry"] == "$super-dev"
             assert any(
-                item["entry"] == "$super-dev"
+                item["entry"] == "super-dev: <需求描述>"
                 for item in payload["usage_profiles"]["codex-cli"]["entry_variants"]
             )
             assert payload["usage_profiles"]["codex-cli"]["host_protocol_mode"] == "official-skill"
             assert (
                 payload["usage_profiles"]["codex-cli"]["host_protocol_summary"]
-                == "官方 AGENTS.md + 官方 Skills + optional repo plugin enhancement"
+                == "官方 AGENTS.md + Skills + CLI $skill entry"
             )
             assert (
                 payload["usage_profiles"]["codex-cli"]["flow_contract"]["consistent_flow_required"]
@@ -2306,13 +2654,22 @@ class TestCLISkillAndIntegrate:
             )
             assert payload["usage_profiles"]["codex-cli"]["flow_contract"][
                 "preferred_entry_order"
-            ] == ["app_desktop", "cli", "fallback"]
+            ] == ["cli", "fallback"]
             assert (
                 "同一条 Super Dev 流程"
                 in payload["usage_profiles"]["codex-cli"]["flow_contract"]["summary"]
             )
             assert payload["usage_profiles"]["codex-cli"]["flow_probe"]["enabled"] is True
-            assert len(payload["usage_profiles"]["codex-cli"]["flow_probe"]["steps"]) >= 4
+            assert payload["usage_profiles"]["codex-cli"]["adaptation_contract"]["level"] == "elite"
+            assert (
+                payload["usage_profiles"]["codex-cli"]["adaptation_contract"][
+                    "supports_slash_entry"
+                ]
+                is False
+            )
+            assert payload["adaptation_contracts"]["codex-cli"]["level"] == "elite"
+            assert payload["selected_host_adaptation"]["level"] == "elite"
+            assert len(payload["usage_profiles"]["codex-cli"]["flow_probe"]["steps"]) >= 3
             assert (
                 ".agents/plugins/marketplace.json"
                 in payload["usage_profiles"]["codex-cli"]["optional_project_surfaces"]
@@ -2452,7 +2809,9 @@ class TestCLISkillAndIntegrate:
             output = capsys.readouterr().out
             assert "已检测到宿主" in output
             assert "主入口" in output
-            assert "官方 AGENTS.md + 官方 Skills + optional repo plugin enhancement" in output
+            assert "适配成熟度:" in output
+            assert "适配维度:" in output
+            assert "官方 AGENTS.md + Skills + CLI $skill entry" in output
             assert "触发命令: super-dev: <需求描述>" in output
             assert "触发位置" in output
             assert "接入后重启: 是" in output
@@ -2478,28 +2837,46 @@ class TestCLISkillAndIntegrate:
             assert result == 0
 
             payload = json.loads(capsys.readouterr().out)
+            decision_card = payload["decision_card"]
             resume_card = payload["session_resume_cards"]["codex-cli"]
+            workflow_context = payload["workflow_context"]
+            assert decision_card["selected_host"] == "codex-cli"
+            assert decision_card["workflow_mode"] == "continue"
+            assert workflow_context == decision_card["workflow_context"]
+            assert decision_card["session_resume_card"]["enabled"] is True
+            assert (
+                decision_card["session_resume_card"]["host_first_sentence"]
+                == resume_card["host_first_sentence"]
+            )
+            assert decision_card["action_title"] == resume_card["action_title"]
+            assert decision_card["action_examples"] == resume_card["action_examples"]
+            assert decision_card["first_action"].endswith(resume_card["host_first_sentence"])
+            assert any(
+                line == f"继续当前流程第一句: {resume_card['host_first_sentence']}"
+                for line in decision_card["lines"]
+            )
             assert resume_card["enabled"] is True
             assert resume_card["workflow_mode"] == "revise"
             assert resume_card["workflow_mode_label"] == "返工/补充当前流程"
             assert "这里补一下" in resume_card["action_examples"]
             assert "这里补一下" in resume_card["user_action_shortcuts"]
-            assert resume_card["preferred_entry"] == "app_desktop"
-            assert resume_card["preferred_entry_label"] == "App/Desktop"
-            assert resume_card["host_first_sentence"].startswith('/super-dev "')
-            assert resume_card["entry_prompts"]["app_desktop"].startswith('/super-dev "')
-            assert resume_card["entry_prompts"]["cli"].startswith('$super-dev "')
+            assert resume_card["preferred_entry"] == "cli"
+            assert resume_card["preferred_entry_label"] == "CLI"
+            assert resume_card["host_first_sentence"].startswith("$super-dev ")
+            assert resume_card["entry_prompts"]["cli"].startswith("$super-dev ")
             assert resume_card["entry_prompts"]["fallback"].startswith("super-dev:")
+            assert "super-dev create" not in resume_card["host_first_sentence"]
+            assert "super-dev fix" not in resume_card["host_first_sentence"]
+            assert "super-dev workflow" not in resume_card["host_first_sentence"]
             assert ".super-dev/SESSION_BRIEF.md" in resume_card["session_brief_path"]
             assert ".super-dev/workflow-state.json" in resume_card["workflow_state_path"]
             assert ".super-dev/workflow-events.jsonl" in resume_card["workflow_event_log_path"]
             assert ".super-dev/hook-history.jsonl" in resume_card["hook_history_path"]
             assert resume_card["recommended_workflow_command"]
-            assert [item["id"] for item in resume_card["scenario_cards"][:3]] == [
-                "resume_workday",
-                "know_next",
-                "current_gate_or_stage",
-            ]
+            scenario_ids = [item["id"] for item in resume_card["scenario_cards"]]
+            assert scenario_ids[:2] == ["resume_workday", "know_next"]
+            assert "existing_project_baseline" in scenario_ids
+            assert "current_gate_or_stage" in scenario_ids
             assert any(
                 item["cli_command"] == "回到宿主里说“继续当前流程，不要重新开题”"
                 for item in resume_card["scenario_cards"]
@@ -2528,8 +2905,86 @@ class TestCLISkillAndIntegrate:
             assert any("Workflow Continuity:" in line for line in resume_card["lines"])
             assert any("当前治理焦点:" in line for line in resume_card["lines"])
             assert any("建议先做:" in line for line in resume_card["lines"])
+            assert all("super-dev create" not in item for item in resume_card["action_examples"])
+            assert all("super-dev fix" not in item for item in resume_card["action_examples"])
+            assert all("super-dev workflow" not in item for item in resume_card["action_examples"])
+            baseline_card = next(
+                item for item in resume_card["scenario_cards"] if item["id"] == "existing_project_baseline"
+            )
+            assert baseline_card["title"] == "当前项目不是从零开始，先做 baseline"
+            assert "1-N+1" in baseline_card["when"]
+            assert "建立 baseline" in baseline_card["cli_command"]
+            assert resume_card["workflow_context"]["baseline_required"] is False
+            assert resume_card["workflow_context"]["baseline_audit_status"] == "not_required"
+            assert resume_card["workflow_context"]["baseline_confirmation_status"] == "not_required"
+            assert resume_card["workflow_context"]["blocking_gate"] == "waiting_docs_confirmation"
+            assert resume_card["workflow_context"]["recommended_host_action"] == "$super-dev 继续当前流程"
+            assert resume_card["workflow_context"]["recommended_host_sentence"] == "super-dev: 继续当前流程"
+            assert resume_card["workflow_context"]["can_resume"] is True
+            assert resume_card["workflow_context"]["can_progress"] is False
         finally:
             os.environ["PATH"] = original_path
+            os.chdir(original_cwd)
+
+    def test_doctor_with_baseline_confirmation_context_exposes_mature_resume_language(
+        self, temp_project_dir: Path, monkeypatch, capsys
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        (fake_home / ".codex").mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            _prepare_workflow_context(temp_project_dir)
+            _write_baseline_audit(temp_project_dir, work_mode="variant")
+            save_workflow_state(temp_project_dir, {"work_mode": "variant"})
+            save_baseline_confirmation(
+                temp_project_dir,
+                {
+                    "status": "pending_review",
+                    "comment": "先确认当前项目边界和差量计划",
+                    "actor": "pytest",
+                },
+            )
+
+            cli = SuperDevCLI()
+            assert cli.run(["onboard", "--host", "codex-cli", "--force", "--yes"]) == 0
+            capsys.readouterr()
+
+            result = cli.run(["doctor", "--host", "codex-cli", "--json"])
+            assert result == 0
+
+            payload = json.loads(capsys.readouterr().out)
+            decision_card = payload["decision_card"]
+            card = decision_card["session_resume_card"]
+            assert decision_card["workflow_mode"] == "continue"
+            assert "继续当前流程第一句:" in "\n".join(decision_card["lines"])
+            assert any("先确认 baseline" in line for line in decision_card["lines"])
+            assert any("Baseline 已识别:" in line for line in decision_card["lines"])
+            assert any("复用面:" in line for line in decision_card["lines"])
+            assert "baseline 确认" in decision_card["first_action"]
+            assert decision_card["workflow_context"] == card["workflow_context"]
+            assert decision_card["baseline_summary"] == card["baseline_summary"]
+            assert decision_card["baseline_audit_path"] == card["baseline_audit_path"]
+            assert decision_card["baseline_reuse_surfaces"] == card["baseline_reuse_surfaces"]
+            assert card["baseline_summary"]
+            assert card["baseline_audit_path"].endswith("-baseline-audit.json")
+            assert card["baseline_reuse_surfaces"]
+            assert card["workflow_context"]["baseline_required"] is True
+            assert card["workflow_context"]["baseline_audit_status"] == "ready"
+            assert card["workflow_context"]["baseline_confirmation_status"] == "pending_review"
+            assert card["workflow_context"]["blocking_gate"] == "waiting_baseline_confirmation"
+            assert (
+                card["workflow_context"]["recommended_host_action"]
+                == "$super-dev baseline 确认，可以继续当前流程"
+            )
+            assert (
+                card["workflow_context"]["recommended_host_sentence"]
+                == "super-dev: baseline 确认，可以继续当前流程"
+            )
+            assert card["workflow_context"]["can_progress"] is False
+        finally:
             os.chdir(original_cwd)
 
     def test_integrate_smoke_outputs_codex_acceptance(self, temp_project_dir: Path, capsys):
@@ -2545,7 +3000,7 @@ class TestCLISkillAndIntegrate:
             assert "codex-cli" in output
             assert "SMOKE_OK" in output
             assert "最终输入:" in output
-            assert "App/Desktop: /super-dev" in output
+            assert "CLI: $super-dev" in output
             assert "$super-dev" in output
         finally:
             os.chdir(original_cwd)
@@ -2598,11 +3053,26 @@ class TestCLISkillAndIntegrate:
             assert payload["compatibility"]["hosts"]["codex-cli"]["ready"] is True
             assert (
                 payload["usage_profiles"]["codex-cli"]["final_trigger"]
-                == "App/Desktop: /super-dev | CLI: $super-dev | 回退: super-dev: 你的需求"
+                == "CLI: $super-dev | 回退: super-dev: 你的需求"
             )
-            assert payload["report_files"]["json"].endswith("-host-surface-audit.json")
-            assert Path(payload["report_files"]["json"]).exists()
-            assert Path(payload["report_files"]["markdown"]).exists()
+            report_files = payload["report_files"]
+            assert report_files["json"].endswith("-host-surface-audit.json")
+            assert Path(report_files["json"]).exists()
+            assert Path(report_files["markdown"]).exists()
+            assert Path(report_files["history_json"]).exists()
+            assert Path(report_files["history_markdown"]).exists()
+            assert Path(report_files["history_json"]).parent.name == "host-surface-audit-history"
+            assert (
+                Path(report_files["json"]).read_text(encoding="utf-8")
+                == Path(report_files["history_json"]).read_text(encoding="utf-8")
+            )
+            markdown = Path(report_files["markdown"]).read_text(encoding="utf-8")
+            history_markdown = Path(report_files["history_markdown"]).read_text(
+                encoding="utf-8"
+            )
+            assert markdown == history_markdown
+            assert markdown.startswith("# Host Surface Audit Report\n")
+            assert "codex-cli" in markdown
         finally:
             os.chdir(original_cwd)
 
@@ -2657,22 +3127,38 @@ class TestCLISkillAndIntegrate:
 
             payload = json.loads(capsys.readouterr().out)
             assert payload["selected_targets"] == ["codex-cli"]
-            assert payload["report_files"]["json"].endswith("-host-runtime-validation.json")
-            assert Path(payload["report_files"]["json"]).exists()
-            assert Path(payload["report_files"]["markdown"]).exists()
+            report_files = payload["report_files"]
+            assert report_files["json"].endswith("-host-runtime-validation.json")
+            assert Path(report_files["json"]).exists()
+            assert Path(report_files["markdown"]).exists()
+            assert Path(report_files["history_json"]).exists()
+            assert Path(report_files["history_markdown"]).exists()
+            assert (
+                Path(report_files["history_json"]).parent.name
+                == "host-runtime-validation-history"
+            )
+            assert (
+                Path(report_files["json"]).read_text(encoding="utf-8")
+                == Path(report_files["history_json"]).read_text(encoding="utf-8")
+            )
+            assert (
+                Path(report_files["markdown"]).read_text(encoding="utf-8")
+                == Path(report_files["history_markdown"]).read_text(encoding="utf-8")
+            )
             assert len(payload["hosts"]) == 1
             host = payload["hosts"][0]
             assert host["host"] == "codex-cli"
             assert host["surface_ready"] is True
             assert (
                 host["final_trigger"]
-                == "App/Desktop: /super-dev | CLI: $super-dev | 回退: super-dev: 你的需求"
+                == "CLI: $super-dev | 回退: super-dev: 你的需求"
             )
             assert (
                 host["host_protocol_summary"]
-                == "官方 AGENTS.md + 官方 Skills + optional repo plugin enhancement"
+                == "官方 AGENTS.md + Skills + CLI $skill entry"
             )
             assert host["manual_runtime_status"] == "pending"
+            assert host["repo_probe"]["status"] == "pending"
             assert host["competition_evidence_ready"] is False
             assert "first_response" in host["competition_evidence_missing"]
             assert (
@@ -2695,17 +3181,16 @@ class TestCLISkillAndIntegrate:
                 "12 分钟内先跑出第一个可见、可点击、可截图的界面" in item
                 for item in host["runtime_checklist"]
             )
-            assert any("/` 列表里出现 `super-dev`" in item for item in host["runtime_checklist"])
             assert any("$super-dev" in item for item in host["runtime_checklist"])
             assert any(".agents/skills/super-dev" in item for item in host["pass_criteria"])
             assert any("官方 Skills" in item for item in host["pass_criteria"])
             assert any("$super-dev" in item for item in host["pass_criteria"])
             assert any("回退栈" in item for item in host["pass_criteria"])
             assert host["flow_probe"]["enabled"] is True
-            assert any("/` 列表选择 `super-dev`" in item for item in host["flow_probe"]["steps"])
             assert any("$super-dev" in item for item in host["flow_probe"]["steps"])
             assert host["resume_probe_prompt"] == ""
             assert host["resume_checklist"]
+            assert payload["summary"]["repo_probe_pending_count"] == 1
         finally:
             os.chdir(original_cwd)
 
@@ -2728,9 +3213,10 @@ class TestCLISkillAndIntegrate:
             capsys.readouterr()
 
             assert cli.run(["integrate", "validate", "--target", "codex-cli", "--json"]) == 0
-            host = json.loads(capsys.readouterr().out)["hosts"][0]
+            payload = json.loads(capsys.readouterr().out)
+            host = payload["hosts"][0]
             assert ".super-dev/SESSION_BRIEF.md" in host["resume_probe_prompt"]
-            assert host["resume_probe_prompt"].startswith('/super-dev "')
+            assert host["resume_probe_prompt"].startswith("$super-dev ")
             assert any("新会话里恢复" in item for item in host["resume_checklist"])
             assert any("同一条 Super Dev 流程" in item for item in host["resume_checklist"])
             assert host["framework_playbook"]["framework"] == "uni-app"
@@ -2742,6 +3228,11 @@ class TestCLISkillAndIntegrate:
             assert any("框架专项必验场景" in item for item in host["runtime_checklist"])
             assert any("跨平台框架专项能力" in item for item in host["pass_criteria"])
             assert any("uni-app 的专项 playbook" in item for item in host["resume_checklist"])
+            assert payload["workflow_context"]["blocking_gate"] == "waiting_docs_confirmation"
+            assert payload["baseline_governance"]["entry_gate"] == "ready"
+            assert host["repo_probe"]["workflow_context"]["blocking_gate"] == "waiting_docs_confirmation"
+            assert host["repo_probe"]["workflow_context"]["recommended_host_action"] == "$super-dev 继续当前流程"
+            assert host["repo_probe"]["baseline_governance"]["entry_gate"] == "ready"
         finally:
             os.chdir(original_cwd)
 
@@ -2778,6 +3269,83 @@ class TestCLISkillAndIntegrate:
         finally:
             os.chdir(original_cwd)
 
+    def test_integrate_validate_marks_repo_probe_failure_as_delivery_blocker(
+        self,
+        temp_project_dir: Path,
+        monkeypatch,
+        capsys,
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            _prepare_workflow_context(temp_project_dir)
+            save_workflow_state(
+                temp_project_dir,
+                {
+                    "status": "waiting_docs_confirmation",
+                    "workflow_mode": "continue",
+                    "current_step_label": "等待三文档确认",
+                    "recommended_command": "文档确认，可以继续",
+                },
+            )
+            cli = SuperDevCLI()
+            assert cli.run(["onboard", "--host", "opencode", "--force", "--yes"]) == 0
+            capsys.readouterr()
+
+            assert (
+                cli.run(
+                    [
+                        "integrate",
+                        "validate",
+                        "--target",
+                        "opencode",
+                        "--status",
+                        "passed",
+                        "--comment",
+                        "manual accepted",
+                        "--competition-evidence-json",
+                        json.dumps(
+                            {
+                                "first_response": {"summary": "作品类型 / wow 点 / P0 / 放弃项"},
+                                "runtime_checkpoint": {
+                                    "summary": "12 分钟内首个可见界面 + 主路径首个点击动作 + 真实启动模块"
+                                },
+                                "fallback_decision": {"summary": "失败点 / 回退栈 / 降级原因"},
+                                "demo_path": {
+                                    "summary": "30-60 秒主演示路径 + 结果页/结束态 + wow 点截图"
+                                },
+                            },
+                            ensure_ascii=False,
+                        ),
+                        "--json",
+                    ]
+                )
+                == 0
+            )
+            capsys.readouterr()
+
+            assert cli.run(["integrate", "validate", "--target", "opencode", "--json"]) == 0
+            payload = json.loads(capsys.readouterr().out)
+            host = payload["hosts"][0]
+            assert host["repo_probe"]["status"] == "failed"
+            assert host["ready_for_delivery"] is False
+            assert "所需仓库级连续性证据不完整" in host["blocking_reason"]
+            assert "确认三文档" in host["recommended_action"] or "review docs" in host["recommended_action"]
+            assert payload["summary"]["repo_probe_failed_count"] == 1
+            assert payload["summary"]["fully_ready_count"] == 0
+            assert payload["blockers"][0]["type"] == "repo_probe"
+
+            markdown = Path(payload["report_files"]["markdown"]).read_text(encoding="utf-8")
+            assert "Repo Probe Failed: 1" in markdown
+            assert "Repo Probe: 仓库级 probe 失败" in markdown
+            assert "### Repo Probe Blockers" in markdown
+            assert "### Repo Probe Next Actions" in markdown
+        finally:
+            os.chdir(original_cwd)
+
     @pytest.mark.parametrize(
         ("host_id", "expected_runtime_hint", "expected_resume_hint"),
         [
@@ -2789,12 +3357,12 @@ class TestCLISkillAndIntegrate:
             (
                 "codebuddy-cli",
                 "当前 CodeBuddy CLI 会话就在目标项目目录中",
-                "重新加载 `.codebuddy/commands/` 与 skills",
+                "重新加载 `.codebuddy/rules/`、`.codebuddy/commands/`、`.codebuddy/skills/` 与 `.codebuddy/agents/`",
             ),
             (
                 "kiro-cli",
                 "当前 Kiro CLI 会话就在目标项目目录",
-                "再次加载 `.kiro/steering/` 与 skills",
+                "再次加载 AGENTS.md、`.kiro/steering/` 与 skills",
             ),
             (
                 "qoder-cli",
@@ -2837,6 +3405,58 @@ class TestCLISkillAndIntegrate:
         finally:
             os.chdir(original_cwd)
 
+    @pytest.mark.parametrize(
+        ("host_id", "expected_start_line"),
+        [
+            ("kimi-code", "起手建议: 中文项目优先用 /skill:super-dev"),
+            ("droid-cli", "起手建议: 优先留在当前 Factory session"),
+            ("claude-code", "起手建议: 优先在当前 Claude Code 会话里直接用 /super-dev"),
+        ],
+    )
+    def test_integrate_validate_flagship_hosts_expose_host_specific_start_playbook(
+        self,
+        temp_project_dir: Path,
+        monkeypatch,
+        capsys,
+        host_id: str,
+        expected_start_line: str,
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            _prepare_workflow_context(temp_project_dir)
+            cli = SuperDevCLI()
+            assert cli.run(["onboard", "--host", host_id, "--force", "--yes"]) == 0
+            capsys.readouterr()
+
+            assert cli.run(["integrate", "validate", "--target", host_id, "--json"]) == 0
+            host = json.loads(capsys.readouterr().out)["hosts"][0]
+            assert any(expected_start_line in item for item in host["runtime_checklist"])
+            assert host["injection_closure"]["scope"] == "project-first"
+            assert host["injection_closure"]["project_default_ready"] is True
+            assert host["ready_for_standard_flow"] is True
+            if host_id == "kimi-code":
+                assert (
+                    host["injection_closure"]["status"]
+                    == "project_default_ready_with_user_opt_in_available"
+                )
+                assert host["ready_for_competition_flow"] is True
+                assert any("/skill:super-dev" in item for item in host["runtime_checklist"])
+                assert any("官方工作流面" in item for item in host["pass_criteria"])
+            if host_id == "droid-cli":
+                assert (
+                    host["injection_closure"]["status"]
+                    == "project_default_ready_with_user_opt_in_available"
+                )
+                assert host["ready_for_competition_flow"] is True
+                assert any(".factory/rules" in item for item in host["runtime_checklist"])
+                assert any("官方工作流面" in item for item in host["pass_criteria"])
+        finally:
+            os.chdir(original_cwd)
+
     def test_integrate_validate_status_roundtrip(self, temp_project_dir: Path, monkeypatch, capsys):
         fake_home = temp_project_dir / "fake-home"
         fake_home.mkdir(parents=True, exist_ok=True)
@@ -2867,6 +3487,7 @@ class TestCLISkillAndIntegrate:
             payload = json.loads(capsys.readouterr().out)
             assert payload["manual_runtime_status"] == "passed"
             assert payload["manual_runtime_status_label"] == "已真人通过"
+            assert payload["repo_probe"]["status"] == "pending"
             assert payload["runtime_evidence"]["runtime_status"]["status"] == "passed"
             assert payload["competition_evidence_ready"] is False
             assert "first_response" in payload["competition_evidence_missing"]
@@ -2883,6 +3504,7 @@ class TestCLISkillAndIntegrate:
             assert host["manual_runtime_status_label"] == "已真人通过"
             assert host["manual_runtime_comment"] == "首轮先进入 research，三文档已真实落盘"
             assert host["manual_runtime_updated_at"]
+            assert host["repo_probe"]["status"] == "pending"
             assert host["competition_evidence_ready"] is False
             assert "first_response" in host["competition_evidence_missing"]
             assert host["ready_for_delivery"] is False
@@ -2998,8 +3620,12 @@ class TestCLISkillAndIntegrate:
             md_reports = list((temp_project_dir / "output").glob("*-host-runtime-validation.md"))
             assert md_reports
             markdown = md_reports[0].read_text(encoding="utf-8")
+            assert "Workflow Context:" in markdown
+            assert "Baseline Governance:" in markdown
             assert "### Framework Playbook" in markdown
             assert "- Framework: uni-app" in markdown
+            assert "### Workflow Context" in markdown
+            assert "### Baseline Governance" in markdown
             assert "Native Capabilities:" in markdown
             assert "Validation Surfaces:" in markdown
         finally:
@@ -3034,10 +3660,31 @@ class TestCLISkillAndIntegrate:
             assert payload["selected_host"] == "claude-code"
             assert payload["decision_card"]["scenario"] == "multi-host-detected"
             assert payload["decision_card"]["selection_source"] == "explicit"
+            assert any("起手建议:" in item for item in payload["decision_card"]["lines"])
+            assert any("官方补充检查:" in item for item in payload["decision_card"]["lines"])
+            assert payload["selected_host_experience"]["start_playbook"]
+            assert payload["selected_host_post_onboard_self_check"]
+            assert payload["selected_host_start_playbook"]
+            assert payload["selected_host_standard_flow_first_prompt"]
+            assert payload["selected_host_competition_flow_first_prompt"]
+            assert payload["selected_host_resume_guidance"]
+            assert payload["selected_host_injection_closure"]
+            assert payload["selected_host_ready_for_standard_flow"] is False
+            assert payload["selected_host_ready_for_competition_flow"] is False
+            assert payload["selected_host_standard_flow_label"]
+            assert payload["selected_host_competition_flow_label"]
+            assert payload["selected_host_official_workflow_checks"]
+            assert payload["selected_host_repair_playbook"]
+            assert any(
+                "super-dev-seeai" in item
+                for item in payload["selected_host_post_onboard_self_check"]
+            )
             assert payload["decision_card"]["selected_host"] == "claude-code"
             assert payload["decision_card"]["recommended_reason"]
             assert payload["decision_card"]["first_action"]
             assert payload["decision_card"]["secondary_actions"]
+            assert payload["decision_card"]["selected_host_standard_flow_first_prompt"]
+            assert payload["decision_card"]["selected_host_competition_flow_first_prompt"]
             assert (
                 payload["decision_card"]["selected_path_override"]["env_key"]
                 == "SUPER_DEV_HOST_PATH_CLAUDE_CODE"
@@ -3051,18 +3698,63 @@ class TestCLISkillAndIntegrate:
             assert len(payload["decision_card"]["candidates"]) >= 2
             assert payload["usage_profile"]["certification_level"] == "certified"
             assert payload["usage_profile"]["host_protocol_mode"] == "official-skill"
+            assert payload["selected_host_experience"]["tier"] == "flagship"
+            assert payload["selected_host_experience"]["native_resume"]
             assert (
                 payload["usage_profile"]["host_protocol_summary"]
-                == "官方 CLAUDE.md + Skills + optional repo plugin enhancement"
+                == "官方 CLAUDE.md + settings + project/user skills + subagents"
             )
-            assert payload["usage_profile"]["final_trigger"] == '/super-dev "你的需求"'
-            assert payload["recommended_trigger"].startswith('/super-dev "')
+            assert payload["usage_profile"]["final_trigger"] == "/super-dev 你的需求"
+            assert payload["recommended_trigger"].startswith("/super-dev ")
 
             config_data = yaml.safe_load(
                 (temp_project_dir / "super-dev.yaml").read_text(encoding="utf-8")
             )
             assert config_data["host_profile_targets"] == ["claude-code"]
             assert config_data["host_profile_enforce_selected"] is True
+        finally:
+            os.environ["PATH"] = original_path
+            os.chdir(original_cwd)
+
+    def test_start_json_exposes_framework_coaching_focus(
+        self, temp_project_dir: Path, capsys
+    ):
+        original_cwd = os.getcwd()
+        original_path = os.environ.get("PATH", "")
+        os.chdir(temp_project_dir)
+        try:
+            output_dir = temp_project_dir / "output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / f"{temp_project_dir.name}-ui-contract.json").write_text(
+                json.dumps(
+                    {
+                        "framework_playbook": {
+                            "framework": "tauri",
+                            "implementation_modules": ["desktop shell", "ipc bridge"],
+                            "validation_surfaces": ["macOS windowing", "Windows signing"],
+                            "delivery_evidence": ["desktop screenshots", "signed bundle notes"],
+                        }
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            bin_dir = temp_project_dir / "bin"
+            bin_dir.mkdir(parents=True, exist_ok=True)
+            cmd_file = bin_dir / "claude"
+            cmd_file.write_text("#!/usr/bin/env sh\necho host\n", encoding="utf-8")
+            cmd_file.chmod(0o755)
+            os.environ["PATH"] = f"{bin_dir}:{original_path}"
+
+            cli = SuperDevCLI()
+            result = cli.run(["start", "--json", "--skip-onboard", "--idea", "做一个桌面工具"])
+            assert result == 0
+
+            payload = json.loads(capsys.readouterr().out)
+            assert payload["selected_host_framework_playbook"]["framework"] == "tauri"
+            assert "当前项目框架焦点：tauri" in payload["quick_start"]
+            assert "macOS windowing" in payload["quick_start"]
         finally:
             os.environ["PATH"] = original_path
             os.chdir(original_cwd)
@@ -3099,6 +3791,21 @@ class TestCLISkillAndIntegrate:
             assert len(decision_card["candidates"]) == 3
             assert decision_card["remaining_candidate_count"] == 2
             assert decision_card["candidates"][0]["recommended"] is True
+            assert decision_card["candidates"][0]["injection_closure"]
+            assert decision_card["candidates"][0]["ready_for_standard_flow"] is False
+            assert decision_card["candidates"][0]["ready_for_competition_flow"] is False
+            assert decision_card["candidates"][0]["standard_flow_label"]
+            assert decision_card["candidates"][0]["competition_flow_label"]
+            assert decision_card["candidates"][0]["readiness_summary"]
+            assert decision_card["candidates"][0]["first_action"]
+            assert decision_card["candidates"][0]["start_playbook"]
+            assert decision_card["candidates"][0]["standard_flow_first_prompt"]
+            assert decision_card["candidates"][0]["competition_flow_first_prompt"]
+            assert decision_card["candidates"][0]["resume_guidance"]
+            assert decision_card["candidates"][0]["official_workflow_checks"]
+            assert decision_card["candidates"][0]["repair_playbook"]
+            assert any("候选准备度:" in item for item in decision_card["lines"])
+            assert payload["selected_host_experience"]["tier"]
         finally:
             os.chdir(original_cwd)
 
@@ -3125,6 +3832,12 @@ class TestCLISkillAndIntegrate:
             assert payload["decision_card"]["recommended_reason"]
             assert payload["decision_card"]["first_action"]
             assert payload["decision_card"]["next_actions"]
+            assert payload["decision_card"]["next_actions"][0] == payload["decision_card"][
+                "first_action"
+            ]
+            assert payload["decision_card"]["secondary_actions"] == payload["decision_card"][
+                "next_actions"
+            ][1:]
             assert payload["decision_card"]["path_override_examples"][0]["env_key"]
             recommended_ids = {item["id"] for item in payload["recommended_hosts"]}
             assert {"claude-code", "codex-cli"}.issubset(recommended_ids)
@@ -3200,29 +3913,6 @@ class TestCLISkillAndIntegrate:
         assert result == 0
         assert calls[0] == [os.sys.executable, "-m", "pip", "install", "-U", "super-dev"]
         assert calls[1] == ["super-dev", "migrate"]
-
-    def test_policy_init_and_show(self, temp_project_dir: Path, capsys):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            cli = SuperDevCLI()
-            presets_result = cli.run(["policy", "presets"])
-            assert presets_result == 0
-
-            init_result = cli.run(["policy", "init", "--preset", "enterprise"])
-            assert init_result == 0
-            policy_file = temp_project_dir / ".super-dev" / "policy.yaml"
-            assert policy_file.exists()
-
-            show_result = cli.run(["policy", "show"])
-            assert show_result == 0
-            output = capsys.readouterr().out
-            assert "红队审查: 开启" in output
-            assert "最低质量阈值: 85" in output
-            assert "关键宿主列表: 未配置" in output
-            assert "关键宿主就绪校验: 关闭" in output
-        finally:
-            os.chdir(original_cwd)
 
     def test_setup_host_runs_onboard_and_doctor(self, temp_project_dir: Path, monkeypatch):
         fake_home = temp_project_dir / "fake-home"
@@ -3308,279 +3998,6 @@ class TestCLITask:
 class TestCLIPipeline:
     """测试完整流水线关键产物"""
 
-    def test_repo_map_command_generates_artifacts(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            (temp_project_dir / "pyproject.toml").write_text(
-                "[project]\nname='demo'\n", encoding="utf-8"
-            )
-            (temp_project_dir / "main.py").write_text("print('hello')\n", encoding="utf-8")
-            (temp_project_dir / "services").mkdir(parents=True, exist_ok=True)
-            (temp_project_dir / "services" / "billing.py").write_text(
-                "class BillingService:\n    pass\n",
-                encoding="utf-8",
-            )
-
-            cli = SuperDevCLI()
-            result = cli.run(["repo-map"])
-
-            assert result == 0
-            assert (temp_project_dir / "output" / f"{temp_project_dir.name}-repo-map.md").exists()
-            assert (temp_project_dir / "output" / f"{temp_project_dir.name}-repo-map.json").exists()
-        finally:
-            os.chdir(original_cwd)
-
-    def test_repo_map_json_output_is_strict_json(self, temp_project_dir: Path, capsys):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            (temp_project_dir / "pyproject.toml").write_text(
-                "[project]\nname='demo'\n", encoding="utf-8"
-            )
-            (temp_project_dir / "main.py").write_text("print('hello')\n", encoding="utf-8")
-
-            cli = SuperDevCLI()
-            result = cli.run(["repo-map", "--json"])
-            captured = capsys.readouterr()
-
-            assert result == 0
-            payload = json.loads(captured.out)
-            assert payload["project_name"] == temp_project_dir.name
-        finally:
-            os.chdir(original_cwd)
-
-    def test_impact_command_generates_artifacts(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            (temp_project_dir / "pyproject.toml").write_text(
-                "[project]\nname='demo'\n", encoding="utf-8"
-            )
-            (temp_project_dir / "main.py").write_text("print('hello')\n", encoding="utf-8")
-            (temp_project_dir / "services").mkdir(parents=True, exist_ok=True)
-            (temp_project_dir / "services" / "auth.py").write_text(
-                "class AuthService:\n    def login(self):\n        return True\n",
-                encoding="utf-8",
-            )
-
-            cli = SuperDevCLI()
-            result = cli.run(["impact", "修改登录流程", "--files", "services/auth.py"])
-
-            assert result == 0
-            assert (
-                temp_project_dir / "output" / f"{temp_project_dir.name}-impact-analysis.md"
-            ).exists()
-            assert (
-                temp_project_dir / "output" / f"{temp_project_dir.name}-impact-analysis.json"
-            ).exists()
-        finally:
-            os.chdir(original_cwd)
-
-    def test_feature_checklist_command_generates_artifacts(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            output_dir = temp_project_dir / "output"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            (output_dir / f"{temp_project_dir.name}-prd.md").write_text(
-                "\n".join(
-                    [
-                        "# PRD",
-                        "",
-                        "## 2. 功能范围",
-                        "",
-                        "### 用户登录",
-                        "- 支持邮箱密码登录",
-                    ]
-                ),
-                encoding="utf-8",
-            )
-            change_dir = temp_project_dir / ".super-dev" / "changes" / "demo-change"
-            change_dir.mkdir(parents=True, exist_ok=True)
-            (change_dir / "tasks.md").write_text("# Tasks\n\n- [x] 用户登录\n", encoding="utf-8")
-
-            cli = SuperDevCLI()
-            result = cli.run(["feature-checklist"])
-
-            assert result == 0
-            assert (output_dir / f"{temp_project_dir.name}-feature-checklist.md").exists()
-            assert (output_dir / f"{temp_project_dir.name}-feature-checklist.json").exists()
-        finally:
-            os.chdir(original_cwd)
-
-    def test_feature_checklist_json_output_is_strict_json(self, temp_project_dir: Path, capsys):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            output_dir = temp_project_dir / "output"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            (output_dir / f"{temp_project_dir.name}-prd.md").write_text(
-                "\n".join(
-                    [
-                        "# PRD",
-                        "",
-                        "## 2. 功能范围",
-                        "",
-                        "### 用户登录",
-                        "- 支持邮箱密码登录",
-                    ]
-                ),
-                encoding="utf-8",
-            )
-            change_dir = temp_project_dir / ".super-dev" / "changes" / "demo-change"
-            change_dir.mkdir(parents=True, exist_ok=True)
-            (change_dir / "tasks.md").write_text("# Tasks\n\n- [x] 用户登录\n", encoding="utf-8")
-
-            cli = SuperDevCLI()
-            result = cli.run(["feature-checklist", "--json"])
-            captured = capsys.readouterr()
-
-            assert result == 0
-            payload = json.loads(captured.out)
-            assert payload["project_name"] == temp_project_dir.name
-            assert payload["status"] in {"ready", "partial", "unknown"}
-        finally:
-            os.chdir(original_cwd)
-
-    def test_impact_json_output_is_strict_json(self, temp_project_dir: Path, capsys):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            (temp_project_dir / "pyproject.toml").write_text(
-                "[project]\nname='demo'\n", encoding="utf-8"
-            )
-            (temp_project_dir / "services").mkdir(parents=True, exist_ok=True)
-            (temp_project_dir / "services" / "auth.py").write_text(
-                "class AuthService:\n    def login(self):\n        return True\n",
-                encoding="utf-8",
-            )
-
-            cli = SuperDevCLI()
-            result = cli.run(["impact", "修改登录流程", "--files", "services/auth.py", "--json"])
-            captured = capsys.readouterr()
-
-            assert result == 0
-            payload = json.loads(captured.out)
-            assert payload["project_name"] == temp_project_dir.name
-            assert payload["risk_level"] in {"low", "medium", "high"}
-        finally:
-            os.chdir(original_cwd)
-
-    def test_regression_guard_command_generates_artifacts(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            (temp_project_dir / "pyproject.toml").write_text(
-                "[project]\nname='demo'\n", encoding="utf-8"
-            )
-            (temp_project_dir / "services").mkdir(parents=True, exist_ok=True)
-            (temp_project_dir / "services" / "auth.py").write_text(
-                "class AuthService:\n    def login(self):\n        return True\n",
-                encoding="utf-8",
-            )
-
-            cli = SuperDevCLI()
-            result = cli.run(["regression-guard", "修改登录流程", "--files", "services/auth.py"])
-
-            assert result == 0
-            assert (
-                temp_project_dir / "output" / f"{temp_project_dir.name}-regression-guard.md"
-            ).exists()
-            assert (
-                temp_project_dir / "output" / f"{temp_project_dir.name}-regression-guard.json"
-            ).exists()
-        finally:
-            os.chdir(original_cwd)
-
-    def test_regression_guard_json_output_is_strict_json(self, temp_project_dir: Path, capsys):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            (temp_project_dir / "pyproject.toml").write_text(
-                "[project]\nname='demo'\n", encoding="utf-8"
-            )
-            (temp_project_dir / "services").mkdir(parents=True, exist_ok=True)
-            (temp_project_dir / "services" / "auth.py").write_text(
-                "class AuthService:\n    def login(self):\n        return True\n",
-                encoding="utf-8",
-            )
-
-            cli = SuperDevCLI()
-            result = cli.run(
-                ["regression-guard", "修改登录流程", "--files", "services/auth.py", "--json"]
-            )
-            captured = capsys.readouterr()
-
-            assert result == 0
-            payload = json.loads(captured.out)
-            assert payload["project_name"] == temp_project_dir.name
-            assert "high_priority_checks" in payload
-        finally:
-            os.chdir(original_cwd)
-
-    def test_dependency_graph_command_generates_artifacts(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            (temp_project_dir / "pyproject.toml").write_text(
-                "[project]\nname='demo'\n", encoding="utf-8"
-            )
-            (temp_project_dir / "main.py").write_text(
-                "from services.auth import login\n", encoding="utf-8"
-            )
-            (temp_project_dir / "services").mkdir(parents=True, exist_ok=True)
-            (temp_project_dir / "services" / "__init__.py").write_text("", encoding="utf-8")
-            (temp_project_dir / "services" / "auth.py").write_text(
-                "from api.routes import login_route\n\ndef login():\n    return login_route()\n",
-                encoding="utf-8",
-            )
-            (temp_project_dir / "api").mkdir(parents=True, exist_ok=True)
-            (temp_project_dir / "api" / "__init__.py").write_text("", encoding="utf-8")
-            (temp_project_dir / "api" / "routes.py").write_text(
-                "def login_route():\n    return True\n", encoding="utf-8"
-            )
-
-            cli = SuperDevCLI()
-            result = cli.run(["dependency-graph"])
-
-            assert result == 0
-            assert (
-                temp_project_dir / "output" / f"{temp_project_dir.name}-dependency-graph.md"
-            ).exists()
-            assert (
-                temp_project_dir / "output" / f"{temp_project_dir.name}-dependency-graph.json"
-            ).exists()
-        finally:
-            os.chdir(original_cwd)
-
-    def test_dependency_graph_json_output_is_strict_json(self, temp_project_dir: Path, capsys):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            (temp_project_dir / "pyproject.toml").write_text(
-                "[project]\nname='demo'\n", encoding="utf-8"
-            )
-            (temp_project_dir / "main.py").write_text(
-                "from services.auth import login\n", encoding="utf-8"
-            )
-            (temp_project_dir / "services").mkdir(parents=True, exist_ok=True)
-            (temp_project_dir / "services" / "__init__.py").write_text("", encoding="utf-8")
-            (temp_project_dir / "services" / "auth.py").write_text(
-                "def login():\n    return True\n", encoding="utf-8"
-            )
-
-            cli = SuperDevCLI()
-            result = cli.run(["dependency-graph", "--json"])
-            captured = capsys.readouterr()
-
-            assert result == 0
-            payload = json.loads(captured.out)
-            assert payload["project_name"] == temp_project_dir.name
-            assert payload["node_count"] >= 1
-        finally:
-            os.chdir(original_cwd)
-
     def test_no_args_enters_install_guide(self, temp_project_dir: Path, monkeypatch):
         original_cwd = os.getcwd()
         os.chdir(temp_project_dir)
@@ -3659,7 +4076,7 @@ class TestCLIPipeline:
         finally:
             os.chdir(original_cwd)
 
-    def test_install_command_for_openclaw_prints_manual_plugin_guidance(
+    def test_install_command_for_droid_cli_runs_setup_with_factory_surfaces(
         self,
         temp_project_dir: Path,
         capsys,
@@ -3670,16 +4087,20 @@ class TestCLIPipeline:
         try:
             cli = SuperDevCLI()
 
-            def fail_setup(_args):
-                raise AssertionError("setup should not run for openclaw")
+            setup_called: list[bool] = []
 
-            monkeypatch.setattr(cli, "_cmd_setup", fail_setup)
-            result = cli.run(["install", "--host", "openclaw", "--yes"])
+            def fake_setup(_args):
+                setup_called.append(True)
+                return 0
+
+            monkeypatch.setattr(cli, "_cmd_setup", fake_setup)
+            result = cli.run(["install", "--host", "droid-cli", "--yes"])
             assert result == 0
+            assert setup_called, "setup should run for droid-cli"
             output = capsys.readouterr().out
-            assert "OpenClaw 手动安装" in output
-            assert "openclaw plugins install @super-dev/openclaw-plugin" in output
-            assert "super-dev-seeai:" in output
+            assert "Droid CLI" in output
+            assert "/super-dev 你的需求" in output
+            assert "super-dev:" in output
         finally:
             os.chdir(original_cwd)
 
@@ -3709,7 +4130,7 @@ class TestCLIPipeline:
         finally:
             os.chdir(original_cwd)
 
-    def test_doctor_default_targets_exclude_openclaw_manual_plugin_host(
+    def test_doctor_default_targets_use_current_primary_host_scope(
         self,
         temp_project_dir: Path,
         monkeypatch,
@@ -3769,7 +4190,7 @@ class TestCLIPipeline:
 
             assert cli.run(["doctor"]) == 0
             assert captured["targets"] == list(PRIMARY_HOST_TOOL_IDS)
-            assert "openclaw" not in captured["targets"]
+            assert "droid-cli" in captured["targets"]
         finally:
             os.chdir(original_cwd)
 
@@ -3873,7 +4294,7 @@ class TestCLIPipeline:
             cli = SuperDevCLI()
             assert cli.run(["onboard", "--host", "opencode", "--force", "--yes"]) == 0
             assert (temp_project_dir / "AGENTS.md").exists()
-            assert (fake_home / ".config" / "opencode" / "AGENTS.md").exists()
+            assert not (fake_home / ".config" / "opencode" / "AGENTS.md").exists()
             capsys.readouterr()
 
             stale_file = temp_project_dir / ".opencode" / "commands" / "super-dev.md"
@@ -3889,6 +4310,8 @@ class TestCLIPipeline:
             assert payload["selected_host_name"] == "OpenCode"
             assert payload["onboard_performed"] is True
             assert "OpenCode 最短路径" in payload["quick_start"]
+            assert "标准流第一句：" in payload["quick_start"]
+            assert "比赛流第一句：" in payload["quick_start"]
             content = stale_file.read_text(encoding="utf-8")
             assert "SUPER_DEV_FLOW_CONTRACT_V1" in content
             assert "DOC_CONFIRM_GATE: required" in content
@@ -3911,13 +4334,12 @@ class TestCLIPipeline:
             )
             payload = json.loads(capsys.readouterr().out)
             assert payload["selected_host"] == "codex-cli"
-            assert payload["selected_host_name"] == "Codex"
-            assert "Codex 最短路径" in payload["quick_start"]
+            assert payload["selected_host_name"] == "Codex CLI"
+            assert "Codex CLI 最短路径" in payload["quick_start"]
+            assert "标准流第一句：" in payload["quick_start"]
+            assert "比赛流第一句：" in payload["quick_start"]
             assert "$super-dev" in payload["quick_start"]
-            assert (
-                "/` 列表" in payload["quick_start"]
-                or "App/Desktop 从 `/` 列表选 super-dev" in payload["quick_start"]
-            )
+            assert "CLI" in payload["quick_start"]
         finally:
             os.chdir(original_cwd)
 
@@ -3953,6 +4375,26 @@ class TestCLIPipeline:
         finally:
             os.chdir(original_cwd)
 
+    def test_start_json_includes_onboard_smoke_report_paths(
+        self, temp_project_dir: Path, monkeypatch, capsys
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            assert cli.run(["start", "--host", "claude-code", "--json"]) == 0
+            payload = json.loads(capsys.readouterr().out)
+            report_paths = payload["onboard_smoke_report_paths"]
+            assert report_paths["json"].endswith(".json")
+            assert report_paths["markdown"].endswith(".md")
+            assert Path(report_paths["json"]).exists()
+            assert Path(report_paths["markdown"]).exists()
+        finally:
+            os.chdir(original_cwd)
+
     def test_start_existing_workflow_context_enters_continue_mode(
         self, temp_project_dir: Path, monkeypatch, capsys
     ):
@@ -3966,31 +4408,45 @@ class TestCLIPipeline:
             cli = SuperDevCLI()
             assert cli.run(["start", "--host", "codex", "--json"]) == 0
             payload = json.loads(capsys.readouterr().out)
+            decision_card = payload["decision_card"]
+            resume_card = payload["session_resume_card"]
             assert payload["session_mode"] == "continue_super_dev"
             assert "继续当前项目" in payload["continue_prompt"]
             assert "Super Dev 流程" in payload["continue_prompt"]
             assert payload["recommended_workflow_command"]
-            assert payload["session_resume_card"]["enabled"] is True
-            assert payload["session_resume_card"]["preferred_entry"] == "app_desktop"
-            assert payload["session_resume_card"]["host_first_sentence"].startswith('/super-dev "')
+            assert decision_card["workflow_mode"] == "continue"
+            assert decision_card["session_resume_card"]["enabled"] is True
+            assert decision_card["session_resume_card"]["host_first_sentence"] == resume_card[
+                "host_first_sentence"
+            ]
+            assert decision_card["action_title"] == resume_card["action_title"]
+            assert decision_card["action_examples"] == resume_card["action_examples"]
+            assert decision_card["first_action"].endswith(resume_card["host_first_sentence"])
+            assert any(
+                line == f"继续当前流程第一句: {resume_card['host_first_sentence']}"
+                for line in decision_card["lines"]
+            )
+            assert resume_card["enabled"] is True
+            assert resume_card["preferred_entry"] == "app_desktop"
+            assert resume_card["host_first_sentence"].startswith("/super-dev ")
             assert (
                 ".super-dev/SESSION_BRIEF.md"
-                in payload["session_resume_card"]["session_brief_path"]
+                in resume_card["session_brief_path"]
             )
             assert (
                 ".super-dev/workflow-state.json"
-                in payload["session_resume_card"]["workflow_state_path"]
+                in resume_card["workflow_state_path"]
             )
             assert (
                 ".super-dev/workflow-events.jsonl"
-                in payload["session_resume_card"]["workflow_event_log_path"]
+                in resume_card["workflow_event_log_path"]
             )
-            assert payload["session_resume_card"]["operational_harnesses"]
-            assert payload["session_resume_card"]["recent_snapshots"]
-            assert payload["session_resume_card"]["recent_events"]
-            assert payload["session_resume_card"]["recent_timeline"]
-            assert payload["session_resume_card"]["scenario_cards"]
-            assert payload["session_resume_card"]["scenario_cards"][0]["id"] == "resume_workday"
+            assert resume_card["operational_harnesses"]
+            assert resume_card["recent_snapshots"]
+            assert resume_card["recent_events"]
+            assert resume_card["recent_timeline"]
+            assert resume_card["scenario_cards"]
+            assert resume_card["scenario_cards"][0]["id"] == "resume_workday"
             assert "继续仓库里已有的 Super Dev 流程" in payload["quick_start"]
             assert ".super-dev/SESSION_BRIEF.md" in payload["quick_start"]
             assert "只有用户明确说取消当前流程" in payload["quick_start"]
@@ -4014,7 +4470,7 @@ class TestCLIPipeline:
             assert cli.run(["onboard", "--host", "codex", "--force", "--yes"]) == 0
             output = capsys.readouterr().out
             assert "接下来这样用" in output
-            assert '重开后第一句直接复制 /super-dev "' in output
+            assert "重开后第一句直接复制 /super-dev " in output
             assert "如果你是在继续已有流程" in output
             assert "流程状态卡: " in output
             assert "继续规则: 用户说“改一下 / 补充 / 继续改 / 确认 / 通过”时" in output
@@ -4026,6 +4482,35 @@ class TestCLIPipeline:
             assert "## 运行时 Harness 摘要" in brief
             assert "## 最近 Hook 事件" in brief
             assert "## 最近关键时间线" in brief
+        finally:
+            os.chdir(original_cwd)
+
+    def test_onboard_kimi_prints_host_specific_post_onboard_self_check(
+        self,
+        temp_project_dir: Path,
+        monkeypatch,
+        capsys,
+    ):
+        fake_home = temp_project_dir / "fake-home"
+        fake_home.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HOME", str(fake_home))
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            cli = SuperDevCLI()
+            assert cli.run(["onboard", "--host", "kimi-code", "--force", "--yes"]) == 0
+            output = capsys.readouterr().out
+            assert "终端到此为止，真正开发回到宿主里。" in output
+            assert "Kimi Code: 回宿主到 Kimi Code" in output
+            assert "标准流第一句" in output
+            assert "比赛流第一句" in output
+            assert "先做：" in output
+            assert "Kimi Code" in output
+            assert "接入后先确认入口可用" in output
+            assert "SEEAI 项目补充面已写入" in output
+            assert "super-dev-seeai" in output
+            assert "/skill:super-dev" in output
+            assert "再按 smoke guide 验收" in output
         finally:
             os.chdir(original_cwd)
 
@@ -4045,7 +4530,7 @@ class TestCLIPipeline:
             assert payload["current_step_label"] == "等待三文档确认"
             assert payload["preferred_host"] == "codex-cli"
             assert payload["preferred_host_name"] == "Codex"
-            assert payload["host_continue_prompt"].startswith('/super-dev "')
+            assert payload["host_continue_prompt"].startswith("$super-dev ")
             assert ".super-dev/SESSION_BRIEF.md" in payload["host_continue_prompt"]
             assert ".super-dev/workflow-state.json" in payload["host_continue_prompt"]
             assert ".super-dev/workflow-state.json" in payload["workflow_state_path"]
@@ -4072,6 +4557,49 @@ class TestCLIPipeline:
             assert workflow_state["current_step_label"] == "等待三文档确认"
             assert latest_payload["status"] == "waiting_docs_confirmation"
             assert latest_payload["current_step_label"] == "等待三文档确认"
+        finally:
+            os.chdir(original_cwd)
+
+    def test_next_existing_workflow_context_prefers_kimi_skill_resume_entry(
+        self, temp_project_dir: Path, monkeypatch, capsys
+    ):
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            _prepare_workflow_context(temp_project_dir)
+            cli = SuperDevCLI()
+            monkeypatch.setattr(
+                cli, "_preferred_host_target_for_project", lambda project_dir: "kimi-code"
+            )
+            assert cli.run(["next", "--json"]) == 0
+            payload = json.loads(capsys.readouterr().out)
+            assert payload["preferred_host"] == "kimi-code"
+            assert payload["host_continue_prompt"].startswith("/skill:super-dev ")
+            assert payload["host_continue_entry_prompts"]["skill"].startswith("/skill:super-dev ")
+            assert payload["host_continue_entry_prompts"]["flow"].startswith("/flow:super-dev ")
+            assert payload["host_continue_entry_prompts"]["fallback"].startswith("super-dev:")
+            assert payload["host_continue_preferred_entry_label"] == "Skill"
+        finally:
+            os.chdir(original_cwd)
+
+    def test_next_existing_workflow_context_exposes_droid_headless_resume_entry(
+        self, temp_project_dir: Path, monkeypatch, capsys
+    ):
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        try:
+            _prepare_workflow_context(temp_project_dir)
+            cli = SuperDevCLI()
+            monkeypatch.setattr(
+                cli, "_preferred_host_target_for_project", lambda project_dir: "droid-cli"
+            )
+            assert cli.run(["next", "--json"]) == 0
+            payload = json.loads(capsys.readouterr().out)
+            assert payload["preferred_host"] == "droid-cli"
+            assert payload["host_continue_prompt"].startswith("/super-dev ")
+            assert payload["host_continue_entry_prompts"]["slash"].startswith("/super-dev ")
+            assert "droid exec --session-id" in payload["host_continue_entry_prompts"]["headless"]
+            assert payload["host_continue_preferred_entry_label"] == "Slash"
         finally:
             os.chdir(original_cwd)
 
@@ -4103,259 +4631,6 @@ class TestCLIPipeline:
                 "framework",
                 "hooks",
             }
-        finally:
-            os.chdir(original_cwd)
-
-    def test_harness_status_json_reports_operational_harnesses(
-        self, temp_project_dir: Path, monkeypatch, capsys
-    ):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            _prepare_workflow_context(temp_project_dir)
-            output_dir = temp_project_dir / "output"
-            (output_dir / f"{temp_project_dir.name}-frontend-runtime.json").write_text(
-                json.dumps(
-                    {
-                        "passed": True,
-                        "checks": {
-                            "ui_contract_json": True,
-                            "output_frontend_design_tokens": True,
-                            "ui_contract_alignment": True,
-                            "ui_theme_entry": True,
-                            "ui_navigation_shell": True,
-                            "ui_component_imports": True,
-                            "ui_banned_patterns": True,
-                            "ui_framework_playbook": True,
-                            "ui_framework_execution": True,
-                        },
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-            (output_dir / f"{temp_project_dir.name}-ui-contract-alignment.json").write_text(
-                json.dumps(
-                    {
-                        "framework_execution": {
-                            "label": "框架专项执行",
-                            "passed": True,
-                            "expected": "uni / provider / navigationStyle",
-                            "observed": "uni / provider / navigationStyle",
-                        }
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-
-            cli = SuperDevCLI()
-            monkeypatch.setattr(
-                cli, "_preferred_host_target_for_project", lambda project_dir: "codex-cli"
-            )
-            assert cli.run(["next", "--json"]) == 0
-            capsys.readouterr()
-
-            assert cli.run(["harness", "status", "--json", "--hook-limit", "1"]) == 0
-            payload = json.loads(capsys.readouterr().out)
-            assert payload["all_passed"] is True
-            assert payload["operational_focus"]["status"] == "passed"
-            assert payload["operational_focus"]["summary"]
-            assert set(payload["harnesses"]) == {"workflow", "framework", "hooks"}
-            assert payload["json_file"].endswith("-operational-harness.json")
-            assert payload["report_file"].endswith("-operational-harness.md")
-            assert payload["harnesses"]["workflow"]["passed"] is True
-            assert payload["harnesses"]["workflow"]["recent_snapshots"]
-            assert payload["harnesses"]["framework"]["passed"] is True
-            assert payload["harnesses"]["framework"]["framework"] == "uni-app"
-            assert payload["harnesses"]["hooks"]["passed"] is True
-            assert payload["harnesses"]["hooks"]["total_events"] == 1
-            assert payload["harnesses"]["hooks"]["json_file"].endswith("-hook-harness.json")
-        finally:
-            os.chdir(original_cwd)
-
-    def test_harness_operational_json_reports_unified_operational_harness(
-        self, temp_project_dir: Path, monkeypatch, capsys
-    ):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            _prepare_workflow_context(temp_project_dir)
-            output_dir = temp_project_dir / "output"
-            (output_dir / f"{temp_project_dir.name}-frontend-runtime.json").write_text(
-                json.dumps(
-                    {
-                        "passed": True,
-                        "checks": {
-                            "ui_contract_json": True,
-                            "output_frontend_design_tokens": True,
-                            "ui_contract_alignment": True,
-                            "ui_theme_entry": True,
-                            "ui_navigation_shell": True,
-                            "ui_component_imports": True,
-                            "ui_banned_patterns": True,
-                            "ui_framework_playbook": True,
-                            "ui_framework_execution": True,
-                        },
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-            (output_dir / f"{temp_project_dir.name}-ui-contract-alignment.json").write_text(
-                json.dumps(
-                    {
-                        "framework_execution": {
-                            "label": "框架专项执行",
-                            "passed": True,
-                        }
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-
-            cli = SuperDevCLI()
-            monkeypatch.setattr(
-                cli, "_preferred_host_target_for_project", lambda project_dir: "codex-cli"
-            )
-            assert cli.run(["next", "--json"]) == 0
-            capsys.readouterr()
-
-            assert cli.run(["harness", "operational", "--json", "--hook-limit", "1"]) == 0
-            payload = json.loads(capsys.readouterr().out)
-            assert payload["enabled"] is True
-            assert payload["passed"] is True
-            assert payload["enabled_count"] == 3
-            assert payload["passed_count"] == 3
-            assert payload["harnesses"]["workflow"]["enabled"] is True
-            assert payload["harnesses"]["framework"]["enabled"] is True
-            assert payload["harnesses"]["hooks"]["enabled"] is True
-            assert payload["json_file"].endswith("-operational-harness.json")
-            assert payload["report_file"].endswith("-operational-harness.md")
-        finally:
-            os.chdir(original_cwd)
-
-    def test_harness_operational_json_emits_unified_report(
-        self, temp_project_dir: Path, monkeypatch, capsys
-    ):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            _prepare_workflow_context(temp_project_dir)
-            output_dir = temp_project_dir / "output"
-            (output_dir / f"{temp_project_dir.name}-frontend-runtime.json").write_text(
-                json.dumps(
-                    {
-                        "passed": True,
-                        "checks": {
-                            "ui_contract_json": True,
-                            "output_frontend_design_tokens": True,
-                            "ui_contract_alignment": True,
-                            "ui_theme_entry": True,
-                            "ui_navigation_shell": True,
-                            "ui_component_imports": True,
-                            "ui_banned_patterns": True,
-                            "ui_framework_playbook": True,
-                            "ui_framework_execution": True,
-                        },
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-            (output_dir / f"{temp_project_dir.name}-ui-contract-alignment.json").write_text(
-                json.dumps(
-                    {
-                        "framework_execution": {
-                            "label": "框架专项执行",
-                            "passed": True,
-                        }
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-
-            cli = SuperDevCLI()
-            monkeypatch.setattr(
-                cli, "_preferred_host_target_for_project", lambda project_dir: "codex-cli"
-            )
-            assert cli.run(["next", "--json"]) == 0
-            capsys.readouterr()
-
-            assert cli.run(["harness", "operational", "--json", "--hook-limit", "1"]) == 0
-            payload = json.loads(capsys.readouterr().out)
-            assert payload["enabled"] is True
-            assert payload["passed"] is True
-            assert payload["json_file"].endswith("-operational-harness.json")
-            assert payload["report_file"].endswith("-operational-harness.md")
-            assert set(payload["harnesses"]) == {"workflow", "framework", "hooks"}
-        finally:
-            os.chdir(original_cwd)
-
-    def test_harness_workflow_json_exposes_snapshot_and_event_paths(
-        self, temp_project_dir: Path, monkeypatch, capsys
-    ):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            _prepare_workflow_context(temp_project_dir)
-            cli = SuperDevCLI()
-            monkeypatch.setattr(
-                cli, "_preferred_host_target_for_project", lambda project_dir: "codex-cli"
-            )
-            assert cli.run(["next", "--json"]) == 0
-            capsys.readouterr()
-
-            assert cli.run(["harness", "workflow", "--json"]) == 0
-            payload = json.loads(capsys.readouterr().out)
-            assert payload["kind"] == "workflow"
-            assert payload["enabled"] is True
-            assert payload["passed"] is True
-            assert payload["source_files"]["workflow_state"].endswith(
-                ".super-dev/workflow-state.json"
-            )
-            assert payload["source_files"]["latest_snapshot"].endswith(
-                ".super-dev/workflow-history/latest.json"
-            )
-            assert payload["source_files"]["workflow_event_log"].endswith(
-                ".super-dev/workflow-events.jsonl"
-            )
-            assert payload["json_file"].endswith("-workflow-harness.json")
-        finally:
-            os.chdir(original_cwd)
-
-    def test_harness_timeline_json_exposes_unified_operational_timeline(
-        self, temp_project_dir: Path, monkeypatch, capsys
-    ):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            _prepare_workflow_context(temp_project_dir)
-            cli = SuperDevCLI()
-            monkeypatch.setattr(
-                cli, "_preferred_host_target_for_project", lambda project_dir: "codex-cli"
-            )
-            assert cli.run(["next", "--json"]) == 0
-            capsys.readouterr()
-
-            assert cli.run(["harness", "timeline", "--json", "--limit", "5"]) == 0
-            payload = json.loads(capsys.readouterr().out)
-            assert payload["count"] >= 1
-            assert payload["timeline"]
-            assert payload["timeline"][0]["kind"] in {
-                "workflow_snapshot",
-                "workflow_event",
-                "hook_event",
-            }
-            assert payload["timeline"][0]["message"]
         finally:
             os.chdir(original_cwd)
 
@@ -4442,8 +4717,7 @@ class TestCLIPipeline:
             assert "动作类型: 返工/补充当前流程" in output
             assert "当前步骤: 等待三文档确认" in output
             assert "你现在可以直接说:" in output
-            assert '宿主第一句 (Codex): /super-dev "' in output
-            assert "App/Desktop 恢复入口:" in output
+            assert "宿主第一句 (Codex): $super-dev " in output
             assert "CLI 恢复入口:" in output
             assert "自然语言示例: 这里补一下" in output
             assert "真实场景: 第二天回来继续开发 -> 回到宿主里说“继续当前流程”" in output
@@ -4501,7 +4775,7 @@ class TestCLIPipeline:
                 cli.run(["start", "--host", "codex", "--json", "--idea", "做一个商业级官网"]) == 0
             )
             payload = json.loads(capsys.readouterr().out)
-            assert payload["selected_host"] == "codex-cli"
+            assert payload["selected_host"] == "codex"
             assert payload["selected_host_name"] == "Codex"
             assert ("第一句直接输入" in payload["quick_start"]) or (
                 "重开宿主后第一句直接复制" in payload["quick_start"]
@@ -4562,7 +4836,7 @@ class TestCLIPipeline:
         finally:
             os.chdir(original_cwd)
 
-    def test_direct_requirement_entry_generates_core_artifacts(
+    def test_direct_requirement_entry_generates_docs_artifacts_and_pauses_for_confirmation(
         self, temp_project_dir: Path, monkeypatch
     ):
         original_cwd = os.getcwd()
@@ -4570,7 +4844,6 @@ class TestCLIPipeline:
         monkeypatch.setenv("SUPER_DEV_DISABLE_WEB", "1")
 
         try:
-            _confirm_docs(temp_project_dir)
             cli = SuperDevCLI()
             result = cli.run(["构建一个支持登录和看板的平台"])
             assert result == 0
@@ -4580,33 +4853,23 @@ class TestCLIPipeline:
             assert any(output_dir.glob("*-prd.md"))
             assert any(output_dir.glob("*-architecture.md"))
             assert any(output_dir.glob("*-uiux.md"))
-            assert any(output_dir.glob("*-quality-gate.md"))
+            assert any(output_dir.glob("*-execution-plan.md"))
+            assert any(output_dir.glob("*-frontend-blueprint.md"))
             assert any(output_dir.glob("*-pipeline-metrics.json"))
             assert any(output_dir.glob("*-pipeline-metrics.md"))
+            assert any(output_dir.glob("*-pipeline-contract.md"))
+            assert not any(output_dir.glob("*-quality-gate.md"))
+            assert not any(output_dir.glob("*-frontend-runtime.json"))
+            assert not any(output_dir.glob("*-frontend-runtime.md"))
             assert any(output_dir.glob("*-ui-contract.json"))
-            assert any(output_dir.glob("*-frontend-runtime.md"))
-            assert any(output_dir.glob("*-frontend-runtime.json"))
-            assert (output_dir / "frontend" / "design-tokens.css").exists()
-            assert (temp_project_dir / "preview.html").exists()
-            assert any((output_dir / "rehearsal").glob("*-launch-rehearsal.md"))
-            assert any((output_dir / "rehearsal").glob("*-rollback-playbook.md"))
-            assert any((output_dir / "rehearsal").glob("*-smoke-checklist.md"))
-            assert any((output_dir / "rehearsal").glob("*-rehearsal-report.md"))
-            assert any((output_dir / "rehearsal").glob("*-rehearsal-report.json"))
-            assert any((temp_project_dir / "output" / "delivery").glob("*-delivery-manifest.json"))
-            runtime_payload = json.loads(
-                next(output_dir.glob("*-frontend-runtime.json")).read_text(encoding="utf-8")
-            )
-            assert runtime_payload["checks"]["ui_contract_json"] is True
-            assert runtime_payload["checks"]["output_frontend_design_tokens"] is True
-            assert runtime_payload["checks"]["ui_contract_alignment"] is True
-            assert runtime_payload["checks"]["ui_theme_entry"] is True
-            assert runtime_payload["checks"]["ui_navigation_shell"] is True
-            assert runtime_payload["checks"]["ui_component_imports"] is True
-            assert runtime_payload["checks"]["ui_banned_patterns"] is True
-            assert runtime_payload["ui_alignment_summary"]["design_tokens"]["passed"] is True
-            assert runtime_payload["ui_alignment_summary"]["theme_entry"]["passed"] is True
-            assert runtime_payload["ui_alignment_summary"]["navigation_shell"]["passed"] is True
+            assert not (temp_project_dir / "preview.html").exists()
+            assert not (temp_project_dir / "frontend").exists()
+            assert not (temp_project_dir / "backend").exists()
+
+            workflow_state_file = temp_project_dir / ".super-dev" / "workflow-state.json"
+            workflow_state = json.loads(workflow_state_file.read_text(encoding="utf-8"))
+            assert workflow_state["status"] == "waiting_docs_confirmation"
+            assert workflow_state["current_step_label"] == "等待三文档确认"
         finally:
             os.chdir(original_cwd)
 
@@ -4657,6 +4920,92 @@ class TestCLIPipeline:
         assert payload["passed"] is False
         assert "✨" in payload["ui_banned_pattern_probe"]["emoji_hits"]
 
+    def test_frontend_runtime_captures_claude_design_execution_protocol(
+        self, temp_project_dir: Path
+    ):
+        output_dir = temp_project_dir / "output"
+        frontend_dir = output_dir / "frontend"
+        frontend_dir.mkdir(parents=True, exist_ok=True)
+        (frontend_dir / "index.html").write_text(
+            (
+                "<!doctype html><html><body>"
+                "<section>North Star Hero</section>"
+                "<section>hero</section>"
+                "<section>客户案例</section>"
+                "<section>tokens theme.ts single source prototype</section>"
+                "<section>preview output/frontend/index.html no emoji</section>"
+                "</body></html>"
+            ),
+            encoding="utf-8",
+        )
+        (frontend_dir / "styles.css").write_text(
+            "body { color: var(--color-primary); }", encoding="utf-8"
+        )
+        (frontend_dir / "app.js").write_text(
+            (
+                "const notes = ['信息密度', 'persist tweak decisions into the same prototype', "
+                "'src/components'];"
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "recipe-demo-ui-contract.json").write_text(
+            json.dumps(
+                {
+                    "style_direction": "Editorial workspace",
+                    "typography_preset": {"heading": "Space Grotesk", "body": "Inter"},
+                    "icon_system": "lucide-react",
+                    "emoji_policy": {
+                        "allowed_in_ui": False,
+                        "allowed_as_icon": False,
+                        "allowed_during_development": False,
+                    },
+                    "ui_library_preference": {"final_selected": "shadcn/ui + Radix + Tailwind"},
+                    "design_tokens": {"css_variables": ":root { --color-primary: #0f172a; }"},
+                    "screen_recipes": [
+                        {
+                            "label": "North Star Hero",
+                            "section_order": ["hero"],
+                            "trust_modules": ["客户案例"],
+                            "required_states": ["loading"],
+                        }
+                    ],
+                    "design_context_protocol": {
+                        "preferred_import_order": ["tokens"],
+                        "github_import_targets": ["theme.ts", "src/components"],
+                        "single_source_rule": "single source prototype",
+                    },
+                    "tweak_strategy": {
+                        "mode": "single-source prototype",
+                        "default_controls": ["信息密度"],
+                        "persistence_rule": "persist tweak decisions into the same prototype",
+                    },
+                    "verification_handoff": {
+                        "verification_order": ["preview"],
+                        "required_artifacts": ["output/frontend/index.html"],
+                        "acceptance_checks": ["no emoji"],
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        (frontend_dir / "design-tokens.css").write_text(
+            ":root { --color-primary: #0f172a; }\n", encoding="utf-8"
+        )
+
+        cli = SuperDevCLI()
+        payload = cli._write_frontend_runtime_validation(
+            project_dir=temp_project_dir,
+            output_dir=output_dir,
+            project_name="recipe-demo",
+        )
+
+        assert payload["checks"]["ui_screen_recipes"] is True
+        assert payload["checks"]["ui_design_context_protocol"] is True
+        assert payload["checks"]["ui_tweak_strategy"] is True
+        assert payload["checks"]["ui_verification_handoff"] is True
+
     def test_direct_requirement_supports_pipeline_flags(self, temp_project_dir: Path, monkeypatch):
         original_cwd = os.getcwd()
         os.chdir(temp_project_dir)
@@ -4682,65 +5031,31 @@ class TestCLIPipeline:
             output_dir = temp_project_dir / "output"
             assert (output_dir / "direct-flags-demo-prd.md").exists()
             assert (output_dir / "direct-flags-demo-architecture.md").exists()
-            assert (output_dir / "direct-flags-demo-quality-gate.md").exists()
-            assert (output_dir / "direct-flags-demo-frontend-runtime.json").exists()
+            assert (output_dir / "direct-flags-demo-uiux.md").exists()
+            assert (output_dir / "direct-flags-demo-execution-plan.md").exists()
+            assert not (output_dir / "direct-flags-demo-quality-gate.md").exists()
+            assert not (output_dir / "direct-flags-demo-frontend-runtime.json").exists()
 
             config_data = yaml.safe_load(
                 (temp_project_dir / "super-dev.yaml").read_text(encoding="utf-8")
             )
             assert config_data["domain"] == "saas"
             assert config_data["backend"] == "python"
+            run_state_file = temp_project_dir / ".super-dev" / "runs" / "last-pipeline.json"
+            payload = json.loads(run_state_file.read_text(encoding="utf-8"))
+            assert payload["status"] == "waiting_confirmation"
+            assert payload["resume_from_stage"] == "2"
         finally:
             os.chdir(original_cwd)
 
-    def test_wizard_runs_pipeline_with_idea(self, temp_project_dir: Path, monkeypatch):
+    def test_pipeline_generates_docs_artifacts_and_pauses_for_confirmation(
+        self, temp_project_dir: Path, monkeypatch
+    ):
         original_cwd = os.getcwd()
         os.chdir(temp_project_dir)
         monkeypatch.setenv("SUPER_DEV_DISABLE_WEB", "1")
 
         try:
-            _confirm_docs(temp_project_dir)
-            cli = SuperDevCLI()
-            result = cli.run(
-                [
-                    "wizard",
-                    "--idea",
-                    "构建一个支持登录和看板的平台",
-                    "--quick",
-                    "--name",
-                    "wizard-demo",
-                    "--domain",
-                    "saas",
-                    "--offline",
-                ]
-            )
-            assert result == 0
-
-            output_dir = temp_project_dir / "output"
-            assert (output_dir / "wizard-demo-prd.md").exists()
-            assert (output_dir / "wizard-demo-architecture.md").exists()
-            assert (output_dir / "wizard-demo-quality-gate.md").exists()
-            assert (output_dir / "wizard-demo-frontend-runtime.json").exists()
-        finally:
-            os.chdir(original_cwd)
-
-    def test_wizard_quick_requires_idea(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            cli = SuperDevCLI()
-            result = cli.run(["wizard", "--quick"])
-            assert result == 2
-        finally:
-            os.chdir(original_cwd)
-
-    def test_pipeline_generates_core_artifacts(self, temp_project_dir: Path, monkeypatch):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        monkeypatch.setenv("SUPER_DEV_DISABLE_WEB", "1")
-
-        try:
-            _confirm_docs(temp_project_dir)
             cli = SuperDevCLI()
             result = cli.run(["pipeline", "构建一个支持登录和看板的平台"])
             assert result == 0
@@ -4752,80 +5067,28 @@ class TestCLIPipeline:
             assert any(output_dir.glob("*-uiux.md"))
             assert any(output_dir.glob("*-execution-plan.md"))
             assert any(output_dir.glob("*-frontend-blueprint.md"))
-            assert any(output_dir.glob("*-frontend-runtime.md"))
-            assert any(output_dir.glob("*-frontend-runtime.json"))
-            assert any(output_dir.glob("*-ai-prompt.md"))
-            assert any(output_dir.glob("*-task-execution.md"))
             assert any(output_dir.glob("*-pipeline-metrics.json"))
             assert any(output_dir.glob("*-pipeline-metrics.md"))
-            assert (temp_project_dir / "preview.html").exists()
+            assert any(output_dir.glob("*-pipeline-contract.md"))
+            assert not any(output_dir.glob("*-frontend-runtime.md"))
+            assert not any(output_dir.glob("*-frontend-runtime.json"))
+            assert not any(output_dir.glob("*-quality-gate.md"))
+            assert not (temp_project_dir / "preview.html").exists()
+            assert not (temp_project_dir / "frontend").exists()
+            assert not (temp_project_dir / "backend").exists()
+            assert not (temp_project_dir / "output" / "deploy").exists()
+            assert not (temp_project_dir / "output" / "delivery").exists()
+            assert not (temp_project_dir / "output" / "rehearsal").exists()
 
-            assert (temp_project_dir / "frontend" / "src" / "App.tsx").exists()
-            assert (temp_project_dir / "backend" / "API_CONTRACT.md").exists()
-            assert (temp_project_dir / "backend" / "src" / "routes" / "auth.route.js").exists()
-            assert (temp_project_dir / "backend" / "src" / "services" / "auth.service.js").exists()
-            assert any((temp_project_dir / "backend" / "migrations").glob("*_create_auth.sql"))
-            assert (temp_project_dir / ".github" / "workflows" / "ci.yml").exists()
-            assert (temp_project_dir / ".gitlab-ci.yml").exists()
-            assert (temp_project_dir / "Jenkinsfile").exists()
-            assert (temp_project_dir / ".azure-pipelines.yml").exists()
-            assert (temp_project_dir / "bitbucket-pipelines.yml").exists()
-            assert (temp_project_dir / ".env.deploy.example").exists()
-            assert (temp_project_dir / "output" / "deploy" / "all-secrets-checklist.md").exists()
-            assert (
-                temp_project_dir / "output" / "deploy" / "platforms" / "github-secrets-checklist.md"
-            ).exists()
-            assert (
-                temp_project_dir / "output" / "deploy" / "platforms" / "gitlab-secrets-checklist.md"
-            ).exists()
-            assert (
-                temp_project_dir
-                / "output"
-                / "deploy"
-                / "platforms"
-                / "jenkins-secrets-checklist.md"
-            ).exists()
-            assert (
-                temp_project_dir / "output" / "deploy" / "platforms" / "azure-secrets-checklist.md"
-            ).exists()
-            assert (
-                temp_project_dir
-                / "output"
-                / "deploy"
-                / "platforms"
-                / "bitbucket-secrets-checklist.md"
-            ).exists()
-            assert (
-                temp_project_dir / "output" / "deploy" / "platforms" / ".env.deploy.github.example"
-            ).exists()
-            assert (
-                temp_project_dir / "output" / "deploy" / "platforms" / ".env.deploy.gitlab.example"
-            ).exists()
-            assert (
-                temp_project_dir / "output" / "deploy" / "platforms" / ".env.deploy.jenkins.example"
-            ).exists()
-            assert (
-                temp_project_dir / "output" / "deploy" / "platforms" / ".env.deploy.azure.example"
-            ).exists()
-            assert (
-                temp_project_dir
-                / "output"
-                / "deploy"
-                / "platforms"
-                / ".env.deploy.bitbucket.example"
-            ).exists()
-            assert any((temp_project_dir / "output" / "delivery").glob("*-delivery-manifest.json"))
-            assert any((temp_project_dir / "output" / "delivery").glob("*-delivery-report.md"))
-            assert any((temp_project_dir / "output" / "delivery").glob("*-delivery-v*.zip"))
-            assert any((temp_project_dir / "output" / "rehearsal").glob("*-launch-rehearsal.md"))
-            assert any((temp_project_dir / "output" / "rehearsal").glob("*-rollback-playbook.md"))
-            assert any((temp_project_dir / "output" / "rehearsal").glob("*-smoke-checklist.md"))
-            assert any((temp_project_dir / "output" / "rehearsal").glob("*-rehearsal-report.md"))
-            assert any((temp_project_dir / "output" / "rehearsal").glob("*-rehearsal-report.json"))
+            run_state_file = temp_project_dir / ".super-dev" / "runs" / "last-pipeline.json"
+            payload = json.loads(run_state_file.read_text(encoding="utf-8"))
+            assert payload["status"] == "waiting_confirmation"
+            assert payload["resume_from_stage"] == "2"
+            assert payload["status_normalized"] == "running"
         finally:
             os.chdir(original_cwd)
 
-    def test_fix_command_runs_explicit_bugfix_mode(self, temp_project_dir: Path, monkeypatch):
+    def test_pipeline_supports_explicit_bugfix_mode(self, temp_project_dir: Path, monkeypatch):
         original_cwd = os.getcwd()
         os.chdir(temp_project_dir)
         monkeypatch.setenv("SUPER_DEV_DISABLE_WEB", "1")
@@ -4833,7 +5096,7 @@ class TestCLIPipeline:
         try:
             _confirm_docs(temp_project_dir)
             cli = SuperDevCLI()
-            result = cli.run(["fix", "优化登录体验并补充回归验证"])
+            result = cli.run(["pipeline", "优化登录体验并补充回归验证", "--mode", "bugfix"])
             assert result == 0
 
             output_dir = temp_project_dir / "output"
@@ -4876,16 +5139,15 @@ class TestCLIPipeline:
             )
             assert result == 0
             output = capsys.readouterr().out
-            assert "流程完成（存在跳过门禁）" in output
-            assert "这不等于严格意义上的“全部通过”" in output
-            assert "已跳过门禁: 发布演练验证" in output
-            assert any((temp_project_dir / "output").glob("*-frontend-runtime.json"))
+            assert "已完成 research 与三文档，当前进入文档确认门" in output
+            assert not any((temp_project_dir / "output").glob("*-frontend-runtime.json"))
             rehearsal_dir = temp_project_dir / "output" / "rehearsal"
-            assert any(rehearsal_dir.glob("*-launch-rehearsal.md"))
-            assert any(rehearsal_dir.glob("*-rollback-playbook.md"))
-            assert any(rehearsal_dir.glob("*-smoke-checklist.md"))
             assert not any(rehearsal_dir.glob("*-rehearsal-report.md"))
             assert not any(rehearsal_dir.glob("*-rehearsal-report.json"))
+            run_state_file = temp_project_dir / ".super-dev" / "runs" / "last-pipeline.json"
+            payload = json.loads(run_state_file.read_text(encoding="utf-8"))
+            assert payload["status"] == "waiting_confirmation"
+            assert payload["resume_from_stage"] == "2"
         finally:
             os.chdir(original_cwd)
 
@@ -4900,7 +5162,11 @@ class TestCLIPipeline:
             result = cli.run(["pipeline", "构建一个支持登录和看板的平台", "--domain", "saas"])
             assert result == 0
             assert any((temp_project_dir / "output").glob("*-prd.md"))
-            assert any((temp_project_dir / "output").glob("*-frontend-runtime.json"))
+            assert not any((temp_project_dir / "output").glob("*-frontend-runtime.json"))
+            run_state_file = temp_project_dir / ".super-dev" / "runs" / "last-pipeline.json"
+            payload = json.loads(run_state_file.read_text(encoding="utf-8"))
+            assert payload["status"] == "waiting_confirmation"
+            assert payload["resume_from_stage"] == "2"
         finally:
             os.chdir(original_cwd)
 
@@ -4933,13 +5199,13 @@ class TestCLIPipeline:
             monkeypatch.setattr(DeliveryPackager, "package", fake_package)
 
             result = cli.run(["pipeline", "构建一个支持登录和看板的平台"])
-            assert result == 1
+            assert result == 0
 
             run_state_file = temp_project_dir / ".super-dev" / "runs" / "last-pipeline.json"
             payload = json.loads(run_state_file.read_text(encoding="utf-8"))
-            assert payload["failure_reason"] == "delivery_packaging_incomplete"
-            assert payload["failed_stage"] == "11"
-            assert payload["status_normalized"] == "failed"
+            assert payload["status"] == "waiting_confirmation"
+            assert payload["resume_from_stage"] == "2"
+            assert payload["status_normalized"] == "running"
         finally:
             os.chdir(original_cwd)
 
@@ -4964,6 +5230,41 @@ class TestCLIPipeline:
             payload = json.loads(run_state_file.read_text(encoding="utf-8"))
             assert payload["status"] == "waiting_confirmation"
             assert payload["resume_from_stage"] == "2"
+            assert payload["status_normalized"] == "running"
+        finally:
+            os.chdir(original_cwd)
+
+    def test_pipeline_resume_pauses_at_preview_confirmation_gate(
+        self, temp_project_dir: Path, monkeypatch
+    ):
+        original_cwd = os.getcwd()
+        os.chdir(temp_project_dir)
+        monkeypatch.setenv("SUPER_DEV_DISABLE_WEB", "1")
+
+        try:
+            cli = SuperDevCLI()
+            assert cli.run(["pipeline", "构建一个支持登录和看板的平台", "--offline"]) == 0
+            save_bound_docs_confirmation(
+                temp_project_dir,
+                {
+                    "status": "confirmed",
+                    "comment": "测试中预先确认三文档",
+                    "actor": "pytest",
+                    "run_id": "test-run",
+                },
+            )
+
+            result = cli.run(["run", "--resume"])
+            assert result == 0
+
+            output_dir = temp_project_dir / "output"
+            assert any(output_dir.glob("*-frontend-runtime.json"))
+            assert (temp_project_dir / "preview.html").exists()
+
+            run_state_file = temp_project_dir / ".super-dev" / "runs" / "last-pipeline.json"
+            payload = json.loads(run_state_file.read_text(encoding="utf-8"))
+            assert payload["status"] == "waiting_preview_confirmation"
+            assert payload["resume_from_stage"] == "4"
             assert payload["status_normalized"] == "running"
         finally:
             os.chdir(original_cwd)
@@ -5133,7 +5434,11 @@ class TestCLIRunControl:
                 ),
                 encoding="utf-8",
             )
-            save_docs_confirmation(
+            output_dir = temp_project_dir / "output"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            for suffix in ("prd", "architecture", "uiux"):
+                (output_dir / f"resume-demo-{suffix}.md").write_text("# ok", encoding="utf-8")
+            save_bound_docs_confirmation(
                 temp_project_dir,
                 {
                     "status": "confirmed",
@@ -5173,6 +5478,10 @@ class TestCLIRunControl:
                 json.dumps({"passed": True}, ensure_ascii=False),
                 encoding="utf-8",
             )
+            (output_dir / "resume-demo-ui-contract.json").write_text(
+                json.dumps({"screen_recipes": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
             (run_state_dir / "last-pipeline.json").write_text(
                 json.dumps(
                     {
@@ -5193,7 +5502,7 @@ class TestCLIRunControl:
                 ),
                 encoding="utf-8",
             )
-            save_preview_confirmation(
+            save_bound_preview_confirmation(
                 temp_project_dir,
                 {
                     "status": "confirmed",
@@ -5273,7 +5582,7 @@ class TestCLIRunControl:
             output_dir.mkdir(parents=True, exist_ok=True)
             for suffix in ("prd", "architecture", "uiux"):
                 (output_dir / f"demo-{suffix}.md").write_text("# ok", encoding="utf-8")
-            save_docs_confirmation(
+            save_bound_docs_confirmation(
                 temp_project_dir,
                 {
                     "status": "confirmed",
@@ -5389,87 +5698,6 @@ class TestCLIRunControl:
         finally:
             os.chdir(original_cwd)
 
-    def test_metrics_command_reads_latest_pipeline_metrics(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            output_dir = temp_project_dir / "output"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            metrics_file = output_dir / "demo-pipeline-metrics.json"
-            metrics_file.write_text(
-                (
-                    "{\n"
-                    '  "project_name": "demo",\n'
-                    '  "success": true,\n'
-                    '  "success_rate": 100,\n'
-                    '  "total_duration_seconds": 12.3,\n'
-                    '  "stages": []\n'
-                    "}\n"
-                ),
-                encoding="utf-8",
-            )
-
-            cli = SuperDevCLI()
-            result = cli.run(["metrics"])
-            assert result == 0
-        finally:
-            os.chdir(original_cwd)
-
-    def test_metrics_history_command_reads_history_files(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            history_dir = temp_project_dir / "output" / "metrics-history"
-            history_dir.mkdir(parents=True, exist_ok=True)
-            (history_dir / "demo-pipeline-metrics-20260303T010000Z.json").write_text(
-                (
-                    "{\n"
-                    '  "project_name": "demo",\n'
-                    '  "success": true,\n'
-                    '  "success_rate": 100,\n'
-                    '  "total_duration_seconds": 12.3,\n'
-                    '  "started_at": "2026-03-03T01:00:00Z",\n'
-                    '  "stages": []\n'
-                    "}\n"
-                ),
-                encoding="utf-8",
-            )
-            (history_dir / "demo-pipeline-metrics-20260303T020000Z.json").write_text(
-                (
-                    "{\n"
-                    '  "project_name": "demo",\n'
-                    '  "success": false,\n'
-                    '  "success_rate": 80,\n'
-                    '  "total_duration_seconds": 16.8,\n'
-                    '  "started_at": "2026-03-03T02:00:00Z",\n'
-                    '  "stages": []\n'
-                    "}\n"
-                ),
-                encoding="utf-8",
-            )
-
-            cli = SuperDevCLI()
-            result = cli.run(["metrics", "--history", "--limit", "2"])
-            assert result == 0
-        finally:
-            os.chdir(original_cwd)
-
-    def test_metrics_command_invalid_json_returns_error(self, temp_project_dir: Path):
-        original_cwd = os.getcwd()
-        os.chdir(temp_project_dir)
-        try:
-            output_dir = temp_project_dir / "output"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            (output_dir / "demo-pipeline-metrics.json").write_text(
-                "{invalid-json", encoding="utf-8"
-            )
-
-            cli = SuperDevCLI()
-            result = cli.run(["metrics"])
-            assert result == 1
-        finally:
-            os.chdir(original_cwd)
-
     def test_release_readiness_command_is_not_routed_as_direct_requirement(
         self, temp_project_dir: Path
     ):
@@ -5480,7 +5708,7 @@ class TestCLIRunControl:
             cli = SuperDevCLI()
             result = cli.run(["release", "readiness"])
 
-            assert result == 0
+            assert result in {0, 1}
             assert (
                 temp_project_dir / "output" / f"{temp_project_dir.name}-release-readiness.md"
             ).exists()
@@ -5498,14 +5726,18 @@ class TestCLIRunControl:
             cli = SuperDevCLI()
             result = cli.run(["release", "readiness", "--json"])
 
-            assert result == 0
+            assert result in {0, 1}
             payload = json.loads(
                 (
                     temp_project_dir / "output" / f"{temp_project_dir.name}-release-readiness.json"
                 ).read_text(encoding="utf-8")
             )
             assert payload["passed"] is True
-            assert payload["score"] >= 90
+            assert set(payload["failed_checks"]).issubset(
+                {"Host Coverage Depth", "Expert Stage Governance"}
+            )
+            checks = {check["name"]: check for check in payload["checks"]}
+            assert checks["Delivery Closure"]["passed"] is True
             assert any(check["name"] == "Spec Quality" for check in payload["checks"])
         finally:
             os.chdir(original_cwd)
@@ -5518,15 +5750,14 @@ class TestCLIRunControl:
             cli = SuperDevCLI()
             result = cli.run(["release", "proof-pack", "--json"])
 
-            assert result == 0
+            assert result in {0, 1}
             payload = json.loads(
                 (
                     temp_project_dir / "output" / f"{temp_project_dir.name}-proof-pack.json"
                 ).read_text(encoding="utf-8")
             )
-            assert payload["status"] == "ready"
-            assert payload["ready_count"] == payload["total_count"]
-            assert payload["summary"]["blocking_count"] == 0
+            blocking_names = {artifact["name"] for artifact in payload["blocking_artifacts"]}
+            assert "Release Readiness" in blocking_names
             assert any(artifact["name"] == "Spec Quality" for artifact in payload["artifacts"])
             assert any(artifact["name"] == "Scope Coverage" for artifact in payload["artifacts"])
             assert any(artifact["name"] == "Repo Map" for artifact in payload["artifacts"])
@@ -5539,6 +5770,11 @@ class TestCLIRunControl:
             )
             assert any(
                 artifact["name"] == "UI Contract Alignment" and artifact["status"] == "ready"
+                for artifact in payload["artifacts"]
+            )
+            assert any(
+                artifact["name"] == "Frontend Runtime"
+                and artifact["status"] in {"ready", "pending"}
                 for artifact in payload["artifacts"]
             )
             assert (

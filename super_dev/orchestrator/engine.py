@@ -28,6 +28,17 @@ from ..config.manager import ConfigManager, get_config_manager
 from ..exceptions import PhaseExecutionError, QualityGateError
 from ..terminal import create_console
 from ..utils import get_logger
+from ..workflow_guard import (
+    record_docs_generated,
+    record_stage_progress,
+    require_docs_confirmation,
+    require_preview_confirmation,
+)
+from ..workflow_stage_truth import (
+    active_experts_for_stage,
+    canonical_stage_for_engine_phase,
+    resolve_engine_phase_names,
+)
 
 try:
     from .knowledge_pusher import KnowledgePusher
@@ -345,15 +356,30 @@ class WorkflowEngine:
         try:
             all_names = [p.value for p in phases]
             completed = [p.value for p in phases if p in results and results[p].success]
+            canonical_current_phase = canonical_stage_for_engine_phase(current_phase)
+            canonical_completed = []
+            for phase_name in completed:
+                canonical_name = canonical_stage_for_engine_phase(phase_name)
+                if canonical_name not in canonical_completed:
+                    canonical_completed.append(canonical_name)
             phase_idx = all_names.index(current_phase) if current_phase in all_names else 0
             remaining = all_names[phase_idx:]
+            canonical_remaining = []
+            for phase_name in remaining:
+                canonical_name = canonical_stage_for_engine_phase(phase_name)
+                if canonical_name not in canonical_remaining:
+                    canonical_remaining.append(canonical_name)
 
             state = {
                 "current_phase": current_phase,
+                "canonical_phase": canonical_current_phase,
                 "phase_index": phase_idx + 1,
                 "total_phases": len(phases),
                 "phases_completed": completed,
                 "phases_remaining": remaining,
+                "canonical_phases_completed": canonical_completed,
+                "canonical_phases_remaining": canonical_remaining,
+                "active_experts": list(active_experts_for_stage(canonical_current_phase)),
                 "started_at": self._pipeline_started_at,
                 "last_updated": datetime.now(timezone.utc).isoformat(),
             }
@@ -365,6 +391,37 @@ class WorkflowEngine:
                 json.dumps(state, indent=2, ensure_ascii=False) + "\n",
                 encoding="utf-8",
             )
+            current_stage_status = "completed" if current_phase in completed else "running"
+            record_stage_progress(
+                self.project_dir,
+                stage=canonical_current_phase,
+                status=current_stage_status,
+                run_id=str(self._pipeline_started_at or "").strip(),
+                active_experts=state["active_experts"],
+                source="pipeline_state",
+                details={
+                    "engine_phase": current_phase,
+                    "phase_index": phase_idx + 1,
+                    "total_phases": len(phases),
+                    "canonical_phases_completed": canonical_completed,
+                    "canonical_phases_remaining": canonical_remaining,
+                },
+            )
+            for completed_stage in canonical_completed:
+                if completed_stage == canonical_current_phase:
+                    continue
+                record_stage_progress(
+                    self.project_dir,
+                    stage=completed_stage,
+                    status="completed",
+                    run_id=str(self._pipeline_started_at or "").strip(),
+                    source="pipeline_state",
+                    details={
+                        "engine_phase": current_phase,
+                        "phase_index": phase_idx + 1,
+                        "total_phases": len(phases),
+                    },
+                )
         except Exception:
             pass  # Never break the pipeline for state tracking
 
@@ -502,8 +559,22 @@ class WorkflowEngine:
             context = WorkflowContext(project_dir=self.project_dir, config=self.config_manager)
         self._seed_context_user_input(context)
 
+        explicit_phase_selection = phases is not None
         if phases is None:
             phases = self._get_phases_from_config()
+        elif explicit_phase_selection:
+            require_docs_confirmation(
+                self.project_dir,
+                action="workflow_engine_run",
+                requested_phases=[phase.value for phase in phases],
+                require_context=False,
+            )
+            require_preview_confirmation(
+                self.project_dir,
+                action="workflow_engine_run",
+                requested_phases=[phase.value for phase in phases],
+                require_context=True,
+            )
 
         # 启动治理层
         project_name = context.user_input.get("name", self.config_manager.config.name or "project")
@@ -911,7 +982,7 @@ class WorkflowEngine:
             "delivery": Phase.DELIVERY,
             "deployment": Phase.DEPLOYMENT,
         }
-        for p in config_phases:
+        for p in resolve_engine_phase_names(config_phases):
             if p in phase_map:
                 phases.append(phase_map[p])
         return phases
@@ -1414,6 +1485,14 @@ class WorkflowEngine:
             self.logger.info(f"AI 提示词已生成: {prompt_path}")
         except Exception as e:
             self.logger.warning(f"AI 提示词生成失败（非阻塞）: {e}")
+
+        try:
+            record_docs_generated(
+                self.project_dir,
+                run_id=str(context.metadata.get("workflow_run_id", "")).strip(),
+            )
+        except Exception as e:
+            self.logger.warning(f"记录 docs stage ledger 失败（非阻塞）: {e}")
 
         return {
             "status": "documents_generated",

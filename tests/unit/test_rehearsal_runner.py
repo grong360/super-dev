@@ -1,6 +1,8 @@
+import json
 from pathlib import Path
 
 from super_dev.deployers.rehearsal_runner import LaunchRehearsalRunner
+from super_dev.evidence_identity import build_evidence_identity
 
 
 def _prepare_common_artifacts(temp_project_dir: Path, project_name: str) -> None:
@@ -122,6 +124,131 @@ def test_rehearsal_runner_detects_quality_gate_failed_text(temp_project_dir: Pat
     assert quality_checks
     assert quality_checks[0].passed is False
     assert result.passed is False
+
+
+def test_rehearsal_runner_surfaces_quality_gate_executive_summary(temp_project_dir: Path) -> None:
+    project_name = "demo"
+    _prepare_common_artifacts(temp_project_dir, project_name=project_name)
+
+    (temp_project_dir / "output" / f"{project_name}-quality-gate.md").write_text(
+        (
+            "# 质量门禁报告\n\n"
+            "**状态**: <span style='color:red'>未通过</span>\n"
+            "**总分**: 78/100\n\n"
+            "---\n\n"
+            "## 执行摘要\n\n"
+            "质量门禁未通过，当前得分 78/100，加权分 76.0/100。"
+            "优先修复：宿主兼容性。 宿主验收存在分层差异：codex-cli 已人工通过，"
+            "但仓库级 continuity / harness / runtime 证据仍未闭环。\n"
+        ),
+        encoding="utf-8",
+    )
+
+    runner = LaunchRehearsalRunner(
+        project_dir=temp_project_dir,
+        project_name=project_name,
+        cicd_platform="github",
+    )
+    result = runner.run()
+    quality_check = next(item for item in result.checks if item.name == "Quality Gate")
+
+    assert quality_check.passed is False
+    assert "codex-cli 已人工通过" in quality_check.detail
+
+
+def test_rehearsal_runner_prefers_quality_gate_json_payload(temp_project_dir: Path) -> None:
+    project_name = "demo"
+    _prepare_common_artifacts(temp_project_dir, project_name=project_name)
+    (temp_project_dir / "output" / f"{project_name}-quality-gate.json").write_text(
+        (
+            "{\n"
+            '  "passed": false,\n'
+            '  "total_score": 76,\n'
+            '  "summary": {\n'
+            '    "executive_summary": "质量门禁未通过，当前得分 76/100。优先修复：宿主兼容性。"\n'
+            "  }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    runner = LaunchRehearsalRunner(
+        project_dir=temp_project_dir,
+        project_name=project_name,
+        cicd_platform="github",
+    )
+    result = runner.run()
+    quality_check = next(item for item in result.checks if item.name == "Quality Gate")
+
+    assert quality_check.passed is False
+    assert "quality score=76" in quality_check.detail
+    assert "优先修复：宿主兼容性" in quality_check.detail
+
+
+def test_rehearsal_runner_surfaces_frontend_governance_state_from_quality_gate_json(
+    temp_project_dir: Path,
+) -> None:
+    project_name = "demo"
+    _prepare_common_artifacts(temp_project_dir, project_name=project_name)
+    (temp_project_dir / "output" / f"{project_name}-quality-gate.json").write_text(
+        (
+            "{\n"
+            '  "passed": false,\n'
+            '  "total_score": 74,\n'
+            '  "summary": {\n'
+            '    "executive_summary": "质量门禁未通过，当前得分 74/100。优先修复：UI 契约执行。 UI 阶段当前存在 source/runtime 证据漂移，mismatch=screen_recipes。"\n'
+            "  }\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    runner = LaunchRehearsalRunner(
+        project_dir=temp_project_dir,
+        project_name=project_name,
+        cicd_platform="github",
+    )
+    result = runner.run()
+    quality_check = next(item for item in result.checks if item.name == "Quality Gate")
+
+    assert quality_check.passed is False
+    assert "ui_governance=source_runtime_drift" in quality_check.detail
+
+
+def test_rehearsal_runner_writes_evidence_identity(temp_project_dir: Path) -> None:
+    project_name = "demo"
+    _prepare_common_artifacts(temp_project_dir, project_name=project_name)
+    (temp_project_dir / "output" / f"{project_name}-proof-pack.json").write_text(
+        '{"status":"ready"}',
+        encoding="utf-8",
+    )
+    (temp_project_dir / "output" / f"{project_name}-release-readiness.json").write_text(
+        '{"passed":true}',
+        encoding="utf-8",
+    )
+
+    runner = LaunchRehearsalRunner(
+        project_dir=temp_project_dir,
+        project_name=project_name,
+        cicd_platform="github",
+    )
+    result = runner.run()
+    files = runner.write(result)
+    payload = json.loads(files["json"].read_text(encoding="utf-8"))
+
+    assert "evidence_identity" in payload
+    expected = build_evidence_identity(
+        temp_project_dir,
+        artifact_name="rehearsal-report",
+        dependencies=[
+            temp_project_dir / "output" / f"{project_name}-quality-gate.json",
+            temp_project_dir / "output" / f"{project_name}-quality-gate.md",
+            temp_project_dir / "output" / f"{project_name}-release-readiness.json",
+            temp_project_dir / "output" / f"{project_name}-proof-pack.json",
+            temp_project_dir / "output" / "delivery" / f"{project_name}-delivery-manifest.json",
+        ],
+    )
+    assert payload["evidence_identity"]["inputs_digest"] == expected["inputs_digest"]
 
 
 def test_rehearsal_runner_accepts_legacy_redteam_markdown_without_score(temp_project_dir: Path) -> None:

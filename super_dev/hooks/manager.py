@@ -57,7 +57,9 @@ class HookManager:
         self._callbacks: dict[str, list] = {}  # Python callback hooks
 
     @classmethod
-    def from_yaml_config(cls, yaml_config: dict[str, Any], project_dir: Path | None = None):
+    def from_yaml_config(
+        cls, yaml_config: dict[str, Any], project_dir: Path | None = None
+    ) -> HookManager:
         """从 super-dev.yaml 的 hooks 段创建管理器"""
         config = HookConfig.from_dict(yaml_config.get("hooks"))
         return cls(config=config, project_dir=project_dir)

@@ -409,7 +409,7 @@ class SpecValidator:
             action_plan.append(
                 {
                     "step": "进入实现闭环",
-                    "command": f"super-dev task run {change_id}",
+                    "command": f"在宿主里继续当前 change `{change_id}` 的实现与验证闭环",
                     "priority": "P2",
                 }
             )

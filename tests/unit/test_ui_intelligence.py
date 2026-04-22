@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from PIL import Image
@@ -115,6 +116,39 @@ class TestUIIntelligenceAdvisor:
         assert any("iOS 真机" in item or "Android" in item for item in rn["framework_playbook"]["validation_surfaces"])
         assert flutter["framework_playbook"]["framework"] == "Flutter"
         assert any("ThemeData" in item for item in flutter["framework_playbook"]["delivery_evidence"])
+
+    def test_recommend_emits_art_direction_candidates_and_guardrails(self):
+        advisor = UIIntelligenceAdvisor()
+
+        profile = advisor.recommend(
+            description="高端品牌官网，需要强烈品牌张力、案例证明和清晰 CTA",
+            frontend="react",
+            product_type="landing",
+            industry="general",
+            style="luxury",
+        )
+
+        assert len(profile["art_direction_candidates"]) >= 2
+        assert (
+            profile["design_direction_manifest"]["selected_direction"]
+            == profile["art_direction_candidates"][0]["name"]
+        )
+        assert len(profile["anti_ai_slop_guardrails"]["forbidden_motifs"]) >= 3
+        assert profile["brand_signal_manifest"]["tone_descriptors"]
+        assert profile["proof_composition_rules"]["hero_proof_stack"]
+        assert profile["component_craft_requirements"]
+        assert profile["layout_tension_rules"]
+        critique_dimensions = {
+            item["dimension"] for item in profile["critique_rubric"] if isinstance(item, dict)
+        }
+        assert {
+            "philosophy_alignment",
+            "visual_hierarchy",
+            "brand_authority",
+            "craft_quality",
+            "functionality",
+            "originality",
+        }.issubset(critique_dimensions)
 
 
 class TestUIReviewReviewer:
@@ -252,6 +286,80 @@ class TestUIReviewReviewer:
         assert any("导航信息架构不足" in title for title in titles)
         assert any("首屏 CTA 层级不足" in title for title in titles)
         assert any("首屏信息密度不足" in title for title in titles)
+
+    def test_review_flags_missing_art_direction_guardrails(self, temp_project_dir: Path):
+        output_dir = temp_project_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "demo-uiux.md").write_text(
+            "# demo\n\n## 设计 Intelligence 结论\n\n## 组件生态与实现基线\n\n## 页面骨架优先级\n\n## 图标、图表与内容模块\n\n## 商业化与信任设计\n\n## 多端适配与平台化设计策略\n\n## 商业级设计质量门禁\n\n## 精美 UI 执行工作流（Stitch 范式）\n\n## 组件落地清单（Tailwind / 生态组件）\n\nWEB\nH5\n微信小程序\nAPP\n桌面端\n",
+            encoding="utf-8",
+        )
+        (output_dir / "demo-ui-contract.json").write_text(
+            json.dumps(
+                {
+                    "emoji_policy": {
+                        "allowed_in_ui": False,
+                        "allowed_as_icon": False,
+                        "allowed_during_development": False,
+                        "rule": "禁止 emoji",
+                    },
+                    "screen_recipes": [
+                        {
+                            "label": "North Star Hero",
+                            "section_order": ["hero", "proof", "cta"],
+                            "trust_modules": ["案例", "FAQ"],
+                            "required_states": ["loading", "error"],
+                        }
+                    ],
+                    "design_context_protocol": {
+                        "preferred_import_order": ["tokens", "components"],
+                        "github_import_targets": ["layout"],
+                        "single_source_rule": "single source",
+                    },
+                    "tweak_strategy": {
+                        "mode": "single-source prototype with tweakable variations",
+                        "default_controls": ["信息密度", "标题张力"],
+                        "persistence_rule": "persist",
+                    },
+                    "verification_handoff": {
+                        "verification_order": ["preview", "ui-review"],
+                        "required_artifacts": ["output/frontend/index.html"],
+                        "acceptance_checks": ["no emoji"],
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (temp_project_dir / "preview.html").write_text(
+            """
+<!doctype html>
+<html>
+  <body>
+    <header><nav><a href="#hero">Home</a></nav></header>
+    <main>
+      <section><h1>Launch faster</h1><button>Start</button></section>
+      <section><h2>Proof</h2><p>Case study and FAQ</p></section>
+      <section><h2>CTA</h2><a href="#cta">Contact</a></section>
+    </main>
+    <footer></footer>
+  </body>
+</html>
+""",
+            encoding="utf-8",
+        )
+
+        reviewer = UIReviewReviewer(
+            project_dir=temp_project_dir,
+            name="demo",
+            tech_stack={"frontend": "react", "backend": "node", "platform": "web"},
+        )
+        report = reviewer.review()
+
+        titles = [item.title for item in report.findings]
+        assert any("缺少可比较的视觉方向候选" in title for title in titles)
+        assert report.alignment_summary["art_direction_candidates"]["passed"] is False
+        assert report.alignment_summary["anti_ai_slop_guardrails"]["passed"] is False
 
     def test_review_flags_emoji_icons_and_claude_like_shell(self, temp_project_dir: Path):
         output_dir = temp_project_dir / "output"
@@ -426,6 +534,202 @@ export function App() {
 
         titles = [item.title for item in report.findings]
         assert any("Design Token 接入实现" in title for title in titles)
+
+    def test_review_flags_missing_claude_design_protocol_fields(self, temp_project_dir: Path):
+        output_dir = temp_project_dir / "output"
+        frontend_output = output_dir / "frontend"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        frontend_output.mkdir(parents=True, exist_ok=True)
+        (output_dir / "protocol-uiux.md").write_text(
+            (
+                "# protocol\n\n## 设计 Intelligence 结论\n\n"
+                "**主视觉气质**: 编辑感、品牌化、商业完成度优先\n"
+                "**字体组合**: Space Grotesk / Inter\n"
+                "**配色逻辑**: Editorial Blue（主色 #0F172A / 强调色 #2563EB）\n"
+                "**图标系统**: Lucide Icons\n"
+                "**首选组件生态**: shadcn/ui + Radix UI + Tailwind CSS\n"
+                "## 组件生态与实现基线\n\n## 页面骨架优先级\n\n## 图标、图表与内容模块\n\n## 商业化与信任设计\n"
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "protocol-ui-contract.json").write_text(
+            (
+                "{\n"
+                '  "icon_system": "Lucide Icons",\n'
+                '  "emoji_policy": {"allowed_in_ui": false, "allowed_as_icon": false, "allowed_during_development": false},\n'
+                '  "typography_preset": {"heading": "Space Grotesk", "body": "Inter"},\n'
+                '  "ui_library_preference": {"final_selected": "shadcn/ui + Radix UI + Tailwind CSS"},\n'
+                '  "design_tokens": {"css_variables": ":root { --color-primary: #0F172A; }"}\n'
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        (frontend_output / "design-tokens.css").write_text(
+            ":root { --color-primary: #0F172A; }\n",
+            encoding="utf-8",
+        )
+        frontend_dir = temp_project_dir / "frontend"
+        frontend_dir.mkdir(parents=True, exist_ok=True)
+        (frontend_dir / "App.tsx").write_text(
+            "import 'output/frontend/design-tokens.css';\nexport function App(){ return <main style={{color:'var(--color-primary)'}}><nav>Nav</nav><section>Ready</section></main>; }",
+            encoding="utf-8",
+        )
+
+        reviewer = UIReviewReviewer(
+            project_dir=temp_project_dir,
+            name="protocol",
+            tech_stack={"frontend": "react", "backend": "node", "platform": "web"},
+        )
+        report = reviewer.review()
+
+        titles = [item.title for item in report.findings]
+        assert any("Claude-Design 风格执行协议未冻结" in title for title in titles)
+        assert report.alignment_summary["screen_recipes"]["passed"] is False
+
+    def test_review_flags_missing_frontend_runtime_for_claude_design_protocol(
+        self, temp_project_dir: Path
+    ):
+        output_dir = temp_project_dir / "output"
+        frontend_output = output_dir / "frontend"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        frontend_output.mkdir(parents=True, exist_ok=True)
+        (output_dir / "runtime-uiux.md").write_text(
+            (
+                "# runtime\n\n## 设计 Intelligence 结论\n\n"
+                "**主视觉气质**: 编辑感、品牌化、商业完成度优先\n"
+                "**字体组合**: Space Grotesk / Inter\n"
+                "**配色逻辑**: Editorial Blue（主色 #0F172A / 强调色 #2563EB）\n"
+                "**图标系统**: Lucide Icons\n"
+                "**首选组件生态**: shadcn/ui + Radix UI + Tailwind CSS\n"
+                "## 组件生态与实现基线\n\n## 页面骨架优先级\n\n## 图标、图表与内容模块\n\n## 商业化与信任设计\n"
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "runtime-ui-contract.json").write_text(
+            (
+                "{\n"
+                '  "icon_system": "Lucide Icons",\n'
+                '  "emoji_policy": {"allowed_in_ui": false, "allowed_as_icon": false, "allowed_during_development": false},\n'
+                '  "typography_preset": {"heading": "Space Grotesk", "body": "Inter"},\n'
+                '  "ui_library_preference": {"final_selected": "shadcn/ui + Radix UI + Tailwind CSS"},\n'
+                '  "design_tokens": {"css_variables": ":root { --color-primary: #0F172A; }"},\n'
+                '  "screen_recipes": [{"label": "North Star Hero", "section_order": ["hero"], "trust_modules": ["客户案例"], "required_states": ["loading"]}],\n'
+                '  "design_context_protocol": {"preferred_import_order": ["tokens"], "github_import_targets": ["theme.ts"], "single_source_rule": "single source prototype"},\n'
+                '  "tweak_strategy": {"mode": "single-source prototype", "default_controls": ["信息密度"], "persistence_rule": "persist tweak decisions into the same prototype"},\n'
+                '  "verification_handoff": {"verification_order": ["preview"], "required_artifacts": ["output/frontend/index.html"], "acceptance_checks": ["no emoji"]}\n'
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        (frontend_output / "design-tokens.css").write_text(
+            ":root { --color-primary: #0F172A; }\n",
+            encoding="utf-8",
+        )
+        frontend_dir = temp_project_dir / "frontend"
+        frontend_dir.mkdir(parents=True, exist_ok=True)
+        (frontend_dir / "App.tsx").write_text(
+            (
+                "import 'output/frontend/design-tokens.css';\n"
+                "export function App(){ return <main>"
+                "<section>North Star Hero</section><section>hero</section><section>客户案例</section>"
+                "<section>tokens theme.ts single source prototype</section>"
+                "<section>信息密度 persist tweak decisions into the same prototype</section>"
+                "<section>preview output/frontend/index.html no emoji</section>"
+                "</main>; }"
+            ),
+            encoding="utf-8",
+        )
+
+        reviewer = UIReviewReviewer(
+            project_dir=temp_project_dir,
+            name="runtime",
+            tech_stack={"frontend": "react", "backend": "node", "platform": "web"},
+        )
+        report = reviewer.review()
+
+        titles = [item.title for item in report.findings]
+        assert any("frontend runtime 缺少 Claude-Design 协议证据" in title for title in titles)
+        assert report.alignment_summary["runtime_claude_design_protocol"]["passed"] is False
+
+    def test_review_flags_runtime_mismatch_for_claude_design_protocol(
+        self, temp_project_dir: Path
+    ):
+        output_dir = temp_project_dir / "output"
+        frontend_output = output_dir / "frontend"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        frontend_output.mkdir(parents=True, exist_ok=True)
+        (output_dir / "runtime-mismatch-uiux.md").write_text(
+            (
+                "# runtime mismatch\n\n## 设计 Intelligence 结论\n\n"
+                "**主视觉气质**: 编辑感、品牌化、商业完成度优先\n"
+                "**字体组合**: Space Grotesk / Inter\n"
+                "**配色逻辑**: Editorial Blue（主色 #0F172A / 强调色 #2563EB）\n"
+                "**图标系统**: Lucide Icons\n"
+                "**首选组件生态**: shadcn/ui + Radix UI + Tailwind CSS\n"
+                "## 组件生态与实现基线\n\n## 页面骨架优先级\n\n## 图标、图表与内容模块\n\n## 商业化与信任设计\n"
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "runtime-mismatch-ui-contract.json").write_text(
+            (
+                "{\n"
+                '  "icon_system": "Lucide Icons",\n'
+                '  "emoji_policy": {"allowed_in_ui": false, "allowed_as_icon": false, "allowed_during_development": false},\n'
+                '  "typography_preset": {"heading": "Space Grotesk", "body": "Inter"},\n'
+                '  "ui_library_preference": {"final_selected": "shadcn/ui + Radix UI + Tailwind CSS"},\n'
+                '  "design_tokens": {"css_variables": ":root { --color-primary: #0F172A; }"},\n'
+                '  "screen_recipes": [{"label": "North Star Hero", "section_order": ["hero"], "trust_modules": ["客户案例"], "required_states": ["loading"]}],\n'
+                '  "design_context_protocol": {"preferred_import_order": ["tokens"], "github_import_targets": ["theme.ts"], "single_source_rule": "single source prototype"},\n'
+                '  "tweak_strategy": {"mode": "single-source prototype", "default_controls": ["信息密度"], "persistence_rule": "persist tweak decisions into the same prototype"},\n'
+                '  "verification_handoff": {"verification_order": ["preview"], "required_artifacts": ["output/frontend/index.html"], "acceptance_checks": ["no emoji"]}\n'
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / "runtime-mismatch-frontend-runtime.json").write_text(
+            (
+                "{\n"
+                '  "passed": true,\n'
+                '  "checks": {\n'
+                '    "ui_screen_recipes": false,\n'
+                '    "ui_design_context_protocol": true,\n'
+                '    "ui_tweak_strategy": true,\n'
+                '    "ui_verification_handoff": false\n'
+                "  }\n"
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        (frontend_output / "design-tokens.css").write_text(
+            ":root { --color-primary: #0F172A; }\n",
+            encoding="utf-8",
+        )
+        frontend_dir = temp_project_dir / "frontend"
+        frontend_dir.mkdir(parents=True, exist_ok=True)
+        (frontend_dir / "App.tsx").write_text(
+            (
+                "import 'output/frontend/design-tokens.css';\n"
+                "export function App(){ return <main>"
+                "<section>North Star Hero</section><section>hero</section><section>客户案例</section>"
+                "<section>tokens theme.ts single source prototype</section>"
+                "<section>信息密度 persist tweak decisions into the same prototype</section>"
+                "<section>preview output/frontend/index.html no emoji</section>"
+                "</main>; }"
+            ),
+            encoding="utf-8",
+        )
+
+        reviewer = UIReviewReviewer(
+            project_dir=temp_project_dir,
+            name="runtime-mismatch",
+            tech_stack={"frontend": "react", "backend": "node", "platform": "web"},
+        )
+        report = reviewer.review()
+
+        titles = [item.title for item in report.findings]
+        assert any("UI Review 与 frontend runtime 的 Claude-Design 结论不一致" in title for title in titles)
+        assert report.alignment_summary["runtime_claude_design_protocol"]["passed"] is False
+        assert report.alignment_summary["source_claude_design_protocol"]["passed"] is True
 
     def test_review_tracks_framework_playbook_execution_for_uniapp(self, temp_project_dir: Path):
         output_dir = temp_project_dir / "output"
@@ -751,3 +1055,49 @@ export function App() {
         assert metrics["blank_ratio"] < 1
         assert metrics["accent_ratio"] > 0
         assert metrics["unique_colors"] >= 2
+        assert "dominant_color_ratio" in metrics
+        assert "contrast_span" in metrics
+
+    def test_screenshot_analysis_detects_flat_single_surface_risk(self, temp_project_dir: Path):
+        image_path = temp_project_dir / "flat-shot.png"
+        image = Image.new("RGB", (180, 120), "#f7f7f7")
+        for x in range(70, 110):
+            for y in range(48, 72):
+                image.putpixel((x, y), (235, 235, 235))
+        image.save(image_path)
+
+        reviewer = UIReviewReviewer(
+            project_dir=temp_project_dir,
+            name="flat",
+            tech_stack={"frontend": "react", "backend": "node", "platform": "web"},
+        )
+        metrics = reviewer._analyze_screenshot(image_path)
+
+        assert metrics["dominant_color_ratio"] > 0.78
+        assert metrics["contrast_span"] < 0.18
+
+    def test_review_flags_flat_screenshot_visual_risk(self, temp_project_dir: Path):
+        (temp_project_dir / "preview.html").write_text(
+            "<!doctype html><html><body><main><section><h1>Preview</h1></section></main></body></html>",
+            encoding="utf-8",
+        )
+        image_path = temp_project_dir / "flat-review.png"
+        image = Image.new("RGB", (200, 140), "#f7f7f7")
+        for x in range(88, 112):
+            for y in range(58, 82):
+                image.putpixel((x, y), (236, 236, 236))
+        image.save(image_path)
+
+        reviewer = UIReviewReviewer(
+            project_dir=temp_project_dir,
+            name="flat-review",
+            tech_stack={"frontend": "react", "backend": "node", "platform": "web"},
+        )
+        reviewer._capture_preview_screenshot = lambda _: image_path  # type: ignore[method-assign]
+
+        report = reviewer.review()
+
+        titles = [item.title for item in report.findings]
+        assert any("截图明暗层级不足" in title for title in titles)
+        assert any("截图视觉表面过于单一" in title for title in titles)
+        assert report.alignment_summary["screenshot_visual_judge"]["passed"] is False

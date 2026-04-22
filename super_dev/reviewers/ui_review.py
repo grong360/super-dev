@@ -17,11 +17,15 @@ import subprocess
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from PIL import Image
 
 from ..design import UIIntelligenceAdvisor
+from ..ui_contract_governance import (
+    CLAUDE_DESIGN_RUNTIME_CHECKS,
+    required_claude_design_runtime_checks,
+)
 
 _logger = logging.getLogger("super_dev.reviewers.ui_review")
 
@@ -69,6 +73,27 @@ class UIReviewReport:
     def passed(self) -> bool:
         return self.critical_count == 0 and self.score >= 80
 
+    @property
+    def executive_summary(self) -> str:
+        if self.passed:
+            return (
+                f"当前 UI 审查已通过，score={self.score}/100。"
+                " 从产品视角看，页面已经具备对外演示、继续联调和进入交付验收的基础可信度。"
+            )
+
+        top_findings = [item.title for item in self.findings[:3]]
+        top_text = "、".join(top_findings) if top_findings else "关键商业级 UI 风险"
+        if self.critical_count > 0:
+            risk_text = "当前仍有会直接破坏演示观感或商业信任感的高优先级问题。"
+        elif self.high_count > 0:
+            risk_text = "当前虽然能继续开发，但用户仍会明显感知到页面不够成熟或不够像正式商业产品。"
+        else:
+            risk_text = "当前还存在一批会拖慢验收效率和细节打磨的问题。"
+        return (
+            f"当前 UI 审查未通过，score={self.score}/100。"
+            f" {risk_text} 优先修复：{top_text}。"
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "project_name": self.project_name,
@@ -95,11 +120,15 @@ class UIReviewReport:
             "",
             "---",
             "",
+            "## 高层判断",
+            "",
+            self.executive_summary,
+            "",
             "## 优点",
             "",
         ]
         if self.strengths:
-            lines.extend(f"- {item}" for item in self.strengths)
+            lines.extend(f"- {strength}" for strength in self.strengths)
         else:
             lines.append("- 暂无显著优势记录。")
 
@@ -129,7 +158,7 @@ class UIReviewReport:
             lines.append("- 无额外备注。")
 
         if self.alignment_summary:
-            lines.extend(["", "## UI 契约对齐摘���", ""])
+            lines.extend(["", "## UI 契约对齐摘要", ""])
             for item in self._alignment_markdown_lines():
                 lines.append(f"- {item}")
 
@@ -140,25 +169,25 @@ class UIReviewReport:
             if f.title.startswith("[UI 专家]") or f.title.startswith("[UX 专家]")
         ]
         if expert_findings:
-            lines.extend(["", "## UI/UX ��家视角", ""])
+            lines.extend(["", "## UI/UX 专家视角", ""])
             ui_items = [f for f in expert_findings if f.title.startswith("[UI 专家]")]
             ux_items = [f for f in expert_findings if f.title.startswith("[UX 专家]")]
             if ui_items:
                 lines.append("### UI 专家 (设计Token/品牌一致性/组件状态/反AI模板)")
                 lines.append("")
-                for item in ui_items:
-                    marker = item.level.upper()
+                for finding in ui_items:
+                    marker = finding.level.upper()
                     lines.append(
-                        f"- [{marker}] {item.title.replace('[UI 专家] ', '')}: {item.description}"
+                        f"- [{marker}] {finding.title.replace('[UI 专家] ', '')}: {finding.description}"
                     )
                 lines.append("")
             if ux_items:
                 lines.append("### UX 专家 (用户旅程/导航层级/表单设计/可访问性)")
                 lines.append("")
-                for item in ux_items:
-                    marker = item.level.upper()
+                for finding in ux_items:
+                    marker = finding.level.upper()
                     lines.append(
-                        f"- [{marker}] {item.title.replace('[UX 专家] ', '')}: {item.description}"
+                        f"- [{marker}] {finding.title.replace('[UX 专家] ', '')}: {finding.description}"
                     )
                 lines.append("")
 
@@ -287,6 +316,12 @@ class UIReviewReviewer:
         )
         uiux_decisions = self._extract_uiux_decisions(uiux_content)
         ui_contract = self._load_ui_contract()
+        frontend_runtime = self._load_frontend_runtime_report()
+        runtime_checks = (
+            frontend_runtime.get("checks", {})
+            if isinstance(frontend_runtime.get("checks"), dict)
+            else {}
+        )
 
         source_files = self._collect_frontend_files()
         source_content = "\n".join(
@@ -297,7 +332,8 @@ class UIReviewReviewer:
         preview_content = (
             preview_path.read_text(encoding="utf-8", errors="ignore") if preview_path else ""
         )
-        combined_visual_content = "\n".join([uiux_content, source_content, preview_content])
+        # 对源码与预览做运行态审查；UIUX 文档本身不应触发 emoji / 反模式扫描。
+        combined_visual_content = "\n".join([source_content, preview_content])
         preview_summary = self._inspect_preview_html(preview_content) if preview_content else {}
         screenshot_path = self._capture_preview_screenshot(preview_path) if preview_path else None
         screenshot_metrics = self._analyze_screenshot(screenshot_path) if screenshot_path else {}
@@ -319,10 +355,9 @@ class UIReviewReviewer:
                 ),
             }
         }
-        emoji_policy = (
-            ui_contract.get("emoji_policy", {})
-            if isinstance(ui_contract.get("emoji_policy"), dict)
-            else {}
+        raw_emoji_policy = ui_contract.get("emoji_policy")
+        emoji_policy: dict[str, Any] = (
+            cast(dict[str, Any], raw_emoji_policy) if isinstance(raw_emoji_policy, dict) else {}
         )
         alignment_summary["emoji_policy"] = {
             "label": "Emoji 禁令",
@@ -336,15 +371,322 @@ class UIReviewReviewer:
             "observed": emoji_policy.get("rule", "") if emoji_policy else "",
         }
         cross_platform_frontend = self._is_cross_platform_frontend(frontend)
-        framework_playbook = (
-            ui_contract.get("framework_playbook")
-            if isinstance(ui_contract.get("framework_playbook"), dict)
+        raw_framework_playbook = ui_contract.get("framework_playbook")
+        framework_playbook: dict[str, Any] = (
+            cast(dict[str, Any], raw_framework_playbook)
+            if isinstance(raw_framework_playbook, dict)
             else {}
+        )
+        raw_screen_recipes = ui_contract.get("screen_recipes")
+        screen_recipes: list[dict[str, Any]] = (
+            cast(list[dict[str, Any]], raw_screen_recipes)
+            if isinstance(raw_screen_recipes, list)
+            else []
+        )
+        raw_design_context_protocol = ui_contract.get("design_context_protocol")
+        design_context_protocol: dict[str, Any] = (
+            cast(dict[str, Any], raw_design_context_protocol)
+            if isinstance(raw_design_context_protocol, dict)
+            else {}
+        )
+        raw_tweak_strategy = ui_contract.get("tweak_strategy")
+        tweak_strategy: dict[str, Any] = (
+            cast(dict[str, Any], raw_tweak_strategy) if isinstance(raw_tweak_strategy, dict) else {}
+        )
+        raw_verification_handoff = ui_contract.get("verification_handoff")
+        verification_handoff: dict[str, Any] = (
+            cast(dict[str, Any], raw_verification_handoff)
+            if isinstance(raw_verification_handoff, dict)
+            else {}
+        )
+        raw_art_direction_candidates = ui_contract.get("art_direction_candidates")
+        art_direction_candidates: list[dict[str, Any]] = (
+            cast(list[dict[str, Any]], raw_art_direction_candidates)
+            if isinstance(raw_art_direction_candidates, list)
+            else []
+        )
+        raw_design_direction_manifest = ui_contract.get("design_direction_manifest")
+        design_direction_manifest: dict[str, Any] = (
+            cast(dict[str, Any], raw_design_direction_manifest)
+            if isinstance(raw_design_direction_manifest, dict)
+            else {}
+        )
+        raw_brand_signal_manifest = ui_contract.get("brand_signal_manifest")
+        brand_signal_manifest: dict[str, Any] = (
+            cast(dict[str, Any], raw_brand_signal_manifest)
+            if isinstance(raw_brand_signal_manifest, dict)
+            else {}
+        )
+        raw_proof_composition_rules = ui_contract.get("proof_composition_rules")
+        proof_composition_rules: dict[str, Any] = (
+            cast(dict[str, Any], raw_proof_composition_rules)
+            if isinstance(raw_proof_composition_rules, dict)
+            else {}
+        )
+        raw_component_craft_requirements = ui_contract.get("component_craft_requirements")
+        component_craft_requirements: list[str] = (
+            cast(list[str], raw_component_craft_requirements)
+            if isinstance(raw_component_craft_requirements, list)
+            else []
+        )
+        raw_layout_tension_rules = ui_contract.get("layout_tension_rules")
+        layout_tension_rules: list[str] = (
+            cast(list[str], raw_layout_tension_rules)
+            if isinstance(raw_layout_tension_rules, list)
+            else []
+        )
+        raw_anti_ai_slop_guardrails = ui_contract.get("anti_ai_slop_guardrails")
+        anti_ai_slop_guardrails: dict[str, Any] = (
+            cast(dict[str, Any], raw_anti_ai_slop_guardrails)
+            if isinstance(raw_anti_ai_slop_guardrails, dict)
+            else {}
+        )
+        raw_critique_rubric = ui_contract.get("critique_rubric")
+        critique_rubric: list[dict[str, Any]] = (
+            cast(list[dict[str, Any]], raw_critique_rubric)
+            if isinstance(raw_critique_rubric, list)
+            else []
+        )
+        screen_recipe_passed = bool(screen_recipes) and all(
+            isinstance(item, dict)
+            and bool(item.get("section_order"))
+            and bool(item.get("trust_modules"))
+            and bool(item.get("required_states"))
+            for item in screen_recipes
+        )
+        art_direction_candidates_passed = len(art_direction_candidates) >= 2 and all(
+            isinstance(item, dict)
+            and bool(item.get("name"))
+            and bool(item.get("philosophy"))
+            and bool(item.get("hero_treatment"))
+            for item in art_direction_candidates[:3]
+        )
+        design_direction_manifest_passed = (
+            bool(design_direction_manifest.get("selected_direction"))
+            and bool(design_direction_manifest.get("narrative_mode"))
+            and bool(design_direction_manifest.get("proof_strategy"))
+            and bool(design_direction_manifest.get("visual_tension"))
+        )
+        brand_signal_manifest_passed = (
+            bool(brand_signal_manifest.get("tone_descriptors"))
+            and bool(brand_signal_manifest.get("credibility_devices"))
+            and bool(brand_signal_manifest.get("premium_surfaces"))
+            and bool(brand_signal_manifest.get("authority_markers"))
+        )
+        proof_composition_rules_passed = (
+            bool(proof_composition_rules.get("hero_proof_stack"))
+            and bool(proof_composition_rules.get("trust_sequence"))
+            and bool(proof_composition_rules.get("evidence_priority"))
+            and bool(proof_composition_rules.get("proof_density_rule"))
+        )
+        component_craft_requirements_passed = len(component_craft_requirements) >= 3
+        layout_tension_rules_passed = len(layout_tension_rules) >= 3
+        anti_ai_slop_guardrails_passed = (
+            bool(anti_ai_slop_guardrails.get("forbidden_motifs"))
+            and bool(anti_ai_slop_guardrails.get("hierarchy_rules"))
+            and bool(anti_ai_slop_guardrails.get("originality_checks"))
+            and bool(anti_ai_slop_guardrails.get("craft_checks"))
+        )
+        critique_labels = {
+            str(item.get("dimension", "")).strip()
+            for item in critique_rubric
+            if isinstance(item, dict)
+        }
+        critique_rubric_passed = {
+            "philosophy_alignment",
+            "visual_hierarchy",
+            "brand_authority",
+            "craft_quality",
+            "functionality",
+            "originality",
+        }.issubset(critique_labels)
+        preferred_import_order = cast(
+            list[str], design_context_protocol.get("preferred_import_order", [])
+        )
+        github_import_targets = cast(
+            list[str], design_context_protocol.get("github_import_targets", [])
+        )
+        default_controls = cast(list[str], tweak_strategy.get("default_controls", []))
+        verification_order = cast(list[str], verification_handoff.get("verification_order", []))
+        design_context_passed = (
+            bool(preferred_import_order)
+            and bool(github_import_targets)
+            and bool(design_context_protocol.get("single_source_rule"))
+        )
+        tweak_strategy_passed = (
+            bool(tweak_strategy.get("mode"))
+            and bool(default_controls)
+            and bool(tweak_strategy.get("persistence_rule"))
+        )
+        verification_handoff_passed = (
+            bool(verification_order)
+            and bool(verification_handoff.get("required_artifacts"))
+            and bool(verification_handoff.get("acceptance_checks"))
+        )
+        source_protocol_states = self._check_claude_design_protocol_execution(
+            ui_contract=ui_contract,
+            source_content=source_content,
+            preview_content=preview_content,
         )
         framework_playbook_passed = self._framework_playbook_complete(framework_playbook)
         has_native_capabilities = bool(framework_playbook.get("native_capabilities"))
         has_validation_surfaces = bool(framework_playbook.get("validation_surfaces"))
         has_delivery_evidence = bool(framework_playbook.get("delivery_evidence"))
+        alignment_summary["screen_recipes"] = {
+            "label": "页面配方冻结",
+            "passed": screen_recipe_passed,
+            "expected": "关键页面需冻结 section order / trust modules / required states",
+            "observed": ", ".join(
+                str(item.get("label", "")) for item in screen_recipes[:3] if isinstance(item, dict)
+            ),
+        }
+        alignment_summary["art_direction_candidates"] = {
+            "label": "视觉方向候选",
+            "passed": art_direction_candidates_passed,
+            "expected": "至少 2 个可比较的 art direction candidates，包含哲学、hero 与 proof 策略",
+            "observed": ", ".join(
+                str(item.get("name", "")) for item in art_direction_candidates[:3] if isinstance(item, dict)
+            ),
+        }
+        alignment_summary["design_direction_manifest"] = {
+            "label": "主视觉哲学冻结",
+            "passed": design_direction_manifest_passed,
+            "expected": "必须冻结 selected direction / narrative mode / proof strategy / visual tension",
+            "observed": " | ".join(
+                str(item)
+                for item in [
+                    design_direction_manifest.get("selected_direction", ""),
+                    design_direction_manifest.get("narrative_mode", ""),
+                    design_direction_manifest.get("proof_strategy", ""),
+                ]
+                if item
+            ),
+        }
+        alignment_summary["brand_signal_manifest"] = {
+            "label": "品牌信号与权威感",
+            "passed": brand_signal_manifest_passed,
+            "expected": "必须冻结 tone descriptors / credibility devices / premium surfaces / authority markers",
+            "observed": ", ".join(brand_signal_manifest.get("tone_descriptors", [])[:4]),
+        }
+        alignment_summary["proof_composition_rules"] = {
+            "label": "证明构图规则",
+            "passed": proof_composition_rules_passed,
+            "expected": "必须冻结 hero proof stack / trust sequence / evidence priority / proof density rule",
+            "observed": ", ".join(proof_composition_rules.get("hero_proof_stack", [])[:4]),
+        }
+        alignment_summary["component_craft_requirements"] = {
+            "label": "组件工艺要求",
+            "passed": component_craft_requirements_passed,
+            "expected": "必须明确组件品牌化重写、状态矩阵、图标纪律与 token 工艺",
+            "observed": ", ".join(component_craft_requirements[:4]),
+        }
+        alignment_summary["layout_tension_rules"] = {
+            "label": "布局张力纪律",
+            "passed": layout_tension_rules_passed,
+            "expected": "必须冻结页面节奏、收放关系与张力建立规则",
+            "observed": ", ".join(layout_tension_rules[:4]),
+        }
+        alignment_summary["anti_ai_slop_guardrails"] = {
+            "label": "反 AI 味护栏",
+            "passed": anti_ai_slop_guardrails_passed,
+            "expected": "必须冻结 forbidden motifs / hierarchy rules / originality checks / craft checks",
+            "observed": ", ".join(
+                list(anti_ai_slop_guardrails.get("forbidden_motifs", []))[:4]
+            ),
+        }
+        alignment_summary["critique_rubric"] = {
+            "label": "设计批评标尺",
+            "passed": critique_rubric_passed,
+            "expected": "philosophy alignment / visual hierarchy / craft quality / functionality / originality",
+            "observed": ", ".join(sorted(critique_labels)),
+        }
+        alignment_summary["design_context_protocol"] = {
+            "label": "设计上下文协议",
+            "passed": design_context_passed,
+            "expected": "必须明确真实代码/主题导入优先级、GitHub 导入目标与单一真源规则",
+            "observed": ", ".join(preferred_import_order[:3]),
+        }
+        alignment_summary["tweak_strategy"] = {
+            "label": "Tweaks 变体策略",
+            "passed": tweak_strategy_passed,
+            "expected": "必须冻结 tweak mode / default controls / persistence rule",
+            "observed": ", ".join(default_controls[:4]),
+        }
+        alignment_summary["verification_handoff"] = {
+            "label": "验证与交付协议",
+            "passed": verification_handoff_passed,
+            "expected": "必须冻结 verification order / required artifacts / acceptance checks",
+            "observed": ", ".join(verification_order[:4]),
+        }
+        protocol_alignment_states = {
+            "screen_recipes": screen_recipe_passed,
+            "design_context_protocol": design_context_passed,
+            "tweak_strategy": tweak_strategy_passed,
+            "verification_handoff": verification_handoff_passed,
+        }
+        required_runtime_checks = required_claude_design_runtime_checks(ui_contract)
+        runtime_protocol_missing = [
+            check_name for check_name in required_runtime_checks if check_name not in runtime_checks
+        ]
+        runtime_protocol_failed = [
+            check_name
+            for check_name in required_runtime_checks
+            if check_name in runtime_checks and not bool(runtime_checks.get(check_name, False))
+        ]
+        runtime_protocol_mismatches = [
+            alignment_key
+            for check_name, alignment_key in CLAUDE_DESIGN_RUNTIME_CHECKS.items()
+            if check_name in required_runtime_checks
+            and check_name in runtime_checks
+            and bool(runtime_checks.get(check_name, False))
+            != bool(source_protocol_states.get(alignment_key, False))
+        ]
+        runtime_protocol_passed = (
+            bool(frontend_runtime)
+            and not runtime_protocol_missing
+            and not runtime_protocol_failed
+            and not runtime_protocol_mismatches
+        )
+        runtime_protocol_observed_parts: list[str] = []
+        if not frontend_runtime:
+            runtime_protocol_observed_parts.append("frontend runtime missing")
+        if runtime_protocol_missing:
+            runtime_protocol_observed_parts.append(
+                "missing="
+                + ", ".join(
+                    CLAUDE_DESIGN_RUNTIME_CHECKS.get(name, name) for name in runtime_protocol_missing
+                )
+            )
+        if runtime_protocol_failed:
+            runtime_protocol_observed_parts.append(
+                "failed="
+                + ", ".join(
+                    CLAUDE_DESIGN_RUNTIME_CHECKS.get(name, name) for name in runtime_protocol_failed
+                )
+            )
+        if runtime_protocol_mismatches:
+            runtime_protocol_observed_parts.append(
+                "mismatch=" + ", ".join(runtime_protocol_mismatches)
+            )
+        if runtime_protocol_passed:
+            runtime_protocol_observed_parts.append("aligned with frontend-runtime")
+        alignment_summary["runtime_claude_design_protocol"] = {
+            "label": "运行时 Claude-Design 协议一致性",
+            "passed": runtime_protocol_passed if required_runtime_checks else True,
+            "expected": "frontend-runtime 与 UI review 对同一套 screen recipes / protocol / tweaks / handoff 给出一致结论",
+            "observed": " | ".join(runtime_protocol_observed_parts)
+            if runtime_protocol_observed_parts
+            else "not required",
+        }
+        if required_runtime_checks:
+            alignment_summary["source_claude_design_protocol"] = {
+                "label": "源码/预览 Claude-Design 协议信号",
+                "passed": all(bool(source_protocol_states.get(name, False)) for name in protocol_alignment_states),
+                "expected": "源码或预览中应体现 recipe label / section order / trust modules / protocol / tweaks / handoff 的执行痕迹",
+                "observed": ", ".join(
+                    name for name, passed in source_protocol_states.items() if passed
+                ),
+            }
         alignment_summary["framework_playbook"] = {
             "label": "跨平台框架 Playbook",
             "passed": framework_playbook_passed if cross_platform_frontend else True,
@@ -417,6 +759,165 @@ class UIReviewReviewer:
                     )
                 )
                 score -= 12
+            if ui_contract and not art_direction_candidates_passed:
+                findings.append(
+                    UIReviewFinding(
+                        level="medium",
+                        title="UI 契约缺少可比较的视觉方向候选",
+                        description="当前 UI 契约没有冻结至少 2 个可比较的视觉方向候选，宿主容易退回到一版默认模板而没有真正做设计取舍。",
+                        recommendation="补齐 art direction candidates，至少为每个候选写明设计哲学、Hero 处理方式、证明策略与反 cliché 禁区。",
+                    )
+                )
+                score -= 8
+            elif ui_contract:
+                strengths.append("UI 契约已冻结可比较的视觉方向候选。")
+            if ui_contract and not design_direction_manifest_passed:
+                findings.append(
+                    UIReviewFinding(
+                        level="medium",
+                        title="UI 契约未冻结主视觉哲学",
+                        description="当前 UI 契约仍偏向组件与结构说明，没有把主视觉方向、叙事方式、证明策略和视觉张力冻结为一套明确主方案。",
+                        recommendation="补齐 design direction manifest，明确 selected direction、narrative mode、visual tension 与 proof strategy。",
+                    )
+                )
+                score -= 8
+            elif ui_contract:
+                strengths.append("UI 契约已冻结主视觉哲学与叙事方式。")
+            if ui_contract and not brand_signal_manifest_passed:
+                findings.append(
+                    UIReviewFinding(
+                        level="medium",
+                        title="UI 契约缺少品牌信号与权威感清单",
+                        description="当前 UI 契约还没有把品牌语气、可信装置、高级完成面和权威感标记冻结下来，宿主容易做出“能用但不够像大厂产品”的页面。",
+                        recommendation="补齐 brand_signal_manifest，明确 tone descriptors、credibility devices、premium surfaces 与 authority markers，让宿主知道页面必须如何建立品牌和权威感。",
+                    )
+                )
+                score -= 8
+            elif ui_contract:
+                strengths.append("UI 契约已冻结品牌信号与权威感要求。")
+            if ui_contract and not proof_composition_rules_passed:
+                findings.append(
+                    UIReviewFinding(
+                        level="medium",
+                        title="UI 契约缺少证明构图规则",
+                        description="当前 UI 契约没有把 Hero 证明栈、信任顺序、证据优先级和密度规则冻结下来，宿主容易把页面做成只有卖点没有证明的模板页。",
+                        recommendation="补齐 proof_composition_rules，让宿主先安排价值主张、真实证据和信任模块的出现顺序，再去铺页面。",
+                    )
+                )
+                score -= 8
+            elif ui_contract:
+                strengths.append("UI 契约已冻结证明构图与信任顺序。")
+            if ui_contract and not component_craft_requirements_passed:
+                findings.append(
+                    UIReviewFinding(
+                        level="medium",
+                        title="UI 契约缺少组件工艺要求",
+                        description="当前 UI 契约没有把组件状态矩阵、token 工艺和品牌化重写要求冻结下来，宿主容易停留在默认组件库观感。",
+                        recommendation="补齐 component_craft_requirements，明确图标纪律、组件状态矩阵、品牌化重写和 token 约束。",
+                    )
+                )
+                score -= 8
+            elif ui_contract:
+                strengths.append("UI 契约已冻结组件工艺与状态矩阵要求。")
+            if ui_contract and not layout_tension_rules_passed:
+                findings.append(
+                    UIReviewFinding(
+                        level="medium",
+                        title="UI 契约缺少布局张力纪律",
+                        description="当前 UI 契约没有冻结页面的收放关系、密度节奏和张力建立规则，宿主容易把整页做成平均用力的模板布局。",
+                        recommendation="补齐 layout_tension_rules，明确哪里展开、哪里压缩、如何用结构建立高级感，而不是靠随机装饰。",
+                    )
+                )
+                score -= 8
+            elif ui_contract:
+                strengths.append("UI 契约已冻结布局张力与页面节奏纪律。")
+            if ui_contract and not anti_ai_slop_guardrails_passed:
+                findings.append(
+                    UIReviewFinding(
+                        level="high",
+                        title="UI 契约缺少反 AI 味护栏",
+                        description="没有把科技 cliché、层级纪律、原创度检查和工艺约束冻结下来，宿主在实现阶段很容易再次滑向 AI 味过重的通用页面。",
+                        recommendation="在 anti_ai_slop_guardrails 中冻结 forbidden motifs、hierarchy rules、originality checks 与 craft checks，并让 UI review 对这些项给出明确结论。",
+                    )
+                )
+                score -= 12
+            elif ui_contract:
+                strengths.append("UI 契约已明确反 AI 味护栏和原创度检查。")
+            if ui_contract and not critique_rubric_passed:
+                findings.append(
+                    UIReviewFinding(
+                        level="medium",
+                        title="UI 契约缺少五维设计批评标尺",
+                        description="当前 UI 契约没有把哲学一致性、视觉层级、细节工艺、功能性和原创度固化为正式评估维度。",
+                        recommendation="补齐 critique_rubric，让设计评审不只判断“能不能用”，还要判断“是否高级、是否原创、是否有工艺”。",
+                    )
+                )
+                score -= 8
+            protocol_gaps = []
+            if not screen_recipe_passed:
+                protocol_gaps.append("screen_recipes")
+            if not design_context_passed:
+                protocol_gaps.append("design_context_protocol")
+            if not tweak_strategy_passed:
+                protocol_gaps.append("tweak_strategy")
+            if not verification_handoff_passed:
+                protocol_gaps.append("verification_handoff")
+            if ui_contract and protocol_gaps:
+                findings.append(
+                    UIReviewFinding(
+                        level="medium",
+                        title="Claude-Design 风格执行协议未冻结",
+                        description="UI 契约还没有完整冻结页面配方、上下文导入协议、Tweaks 变体策略或验证交付协议，宿主容易再次退回到泛化页面生成。",
+                        recommendation="补齐 output/*-ui-contract.json 中的 screen_recipes、design_context_protocol、tweak_strategy、verification_handoff，并让前端实现围绕这些冻结字段组织页面。",
+                        evidence=protocol_gaps,
+                    )
+                )
+                score -= 10
+            if required_runtime_checks and not frontend_runtime:
+                findings.append(
+                    UIReviewFinding(
+                        level="medium",
+                        title="frontend runtime 缺少 Claude-Design 协议证据",
+                        description="UI 契约已经冻结 Claude-Design 风格执行协议，但还没有 frontend runtime 报告来证明页面配方、上下文协议、Tweaks 和验证交付链已真实进入运行产物。",
+                        recommendation="先重新执行 frontend runtime，确保 runtime 报告写出 ui_screen_recipes / ui_design_context_protocol / ui_tweak_strategy / ui_verification_handoff 四项结果。",
+                        evidence=[
+                            "frontend-runtime missing",
+                            *[CLAUDE_DESIGN_RUNTIME_CHECKS.get(item, item) for item in required_runtime_checks],
+                        ],
+                    )
+                )
+                score -= 8
+            elif runtime_protocol_mismatches:
+                findings.append(
+                    UIReviewFinding(
+                        level="medium",
+                        title="UI Review 与 frontend runtime 的 Claude-Design 结论不一致",
+                        description="源码/预览级 UI review 与 frontend runtime 对同一套 Claude-Design 协议给出了不同结论，这通常意味着 runtime 证据已经过期，或者 UI 改动后没有重新生成运行报告。",
+                        recommendation="不要继续沿用旧 runtime 证据；先重新执行 frontend runtime 与 UI review，确认两边对 screen_recipes / protocol / tweaks / handoff 的结论重新对齐。",
+                        evidence=runtime_protocol_mismatches,
+                    )
+                )
+                score -= 8
+            elif runtime_protocol_failed or runtime_protocol_missing:
+                findings.append(
+                    UIReviewFinding(
+                        level="medium",
+                        title="frontend runtime 未证明 Claude-Design 执行协议",
+                        description="虽然 UI 契约已经冻结 Claude-Design 风格执行协议，但 frontend runtime 仍未证明页面配方、上下文协议、Tweaks 或验证交付链已经真实进入运行态。",
+                        recommendation="按当前 UI 契约修正前端并重新执行 frontend runtime，重点补齐运行时对 screen_recipes / design_context_protocol / tweak_strategy / verification_handoff 的证据。",
+                        evidence=[
+                            *[
+                                CLAUDE_DESIGN_RUNTIME_CHECKS.get(item, item)
+                                for item in runtime_protocol_missing
+                            ],
+                            *[
+                                CLAUDE_DESIGN_RUNTIME_CHECKS.get(item, item)
+                                for item in runtime_protocol_failed
+                            ],
+                        ],
+                    )
+                )
+                score -= 8
             if cross_platform_frontend and not framework_playbook_passed:
                 findings.append(
                     UIReviewFinding(
@@ -487,6 +988,8 @@ class UIReviewReviewer:
                 "图标系统",
                 "Design Token 冻结输出",
                 "备选实现路径",
+                "Screen Recipes（页面配方冻结）",
+                "Claude-Design 风格执行协议",
             ]
             missing_decision_markers = [
                 item for item in ui_decision_markers if item not in uiux_content
@@ -810,9 +1313,10 @@ class UIReviewReviewer:
                 else:
                     strengths.append("源码已显式接入 UI 契约对应的 design tokens。")
 
+                raw_framework_playbook = ui_contract.get("framework_playbook")
                 framework_playbook = (
-                    ui_contract.get("framework_playbook")
-                    if isinstance(ui_contract.get("framework_playbook"), dict)
+                    cast(dict[str, Any], raw_framework_playbook)
+                    if isinstance(raw_framework_playbook, dict)
                     else {}
                 )
                 if framework_playbook:
@@ -1054,6 +1558,58 @@ class UIReviewReviewer:
         else:
             notes.append("当前未检测到前端源码，仅完成文档级 UI 审查；实现后建议再次运行。")
 
+        if preview_summary and "layout_shell" not in alignment_summary:
+            expected_layout = "非聊天壳层，按产品类型组织导航、主体内容和关键动作"
+            nav_markers = self._extract_navigation_shell_markers(source_content)
+            clone_hits = sorted({item for item in self.CLAUDE_CLONE_RE.findall(source_content)})[:10]
+            suspicious_hits = self.SUSPICIOUS_PATTERN_RE.findall(source_content)
+            emoji_hits = sorted({item for item in self.EMOJI_RE.findall(combined_visual_content)})[:10]
+            observed_layout_parts = [
+                f"sections={preview_summary['sections']}",
+                f"headings={preview_summary['headings']}",
+                f"nav_links={preview_summary['nav_links']}",
+                f"first_section_cta={preview_summary['first_section_cta']}",
+            ]
+            if nav_markers:
+                observed_layout_parts.append(f"source_nav={', '.join(nav_markers[:6])}")
+            if clone_hits and not conversational_product:
+                observed_layout_parts.append("chat-shell pattern detected")
+            if product_type in {"landing", "saas", "ecommerce"}:
+                layout_shell_passed = (
+                    preview_summary["sections"] >= 3
+                    and preview_summary["nav_links"] >= 1
+                    and preview_summary["first_section_cta"] >= 1
+                )
+            else:
+                layout_shell_passed = (
+                    preview_summary["sections"] >= 2 and preview_summary["headings"] >= 2
+                )
+            alignment_summary["layout_shell"] = {
+                "label": "页面骨架",
+                "passed": layout_shell_passed,
+                "expected": expected_layout,
+                "observed": " | ".join(observed_layout_parts),
+            }
+            alignment_summary["navigation_shell"] = {
+                "label": "导航骨架",
+                "passed": bool(preview_summary.get("nav_links", 0)),
+                "expected": "源码或预览中存在导航 / header / sidebar / breadcrumb 等骨架信号",
+                "observed": " | ".join(observed_layout_parts),
+            }
+            banned_hits = []
+            if suspicious_hits:
+                banned_hits.extend(sorted({item for item in suspicious_hits}))
+            if emoji_hits:
+                banned_hits.extend(emoji_hits)
+            if clone_hits and not conversational_product:
+                banned_hits.extend(clone_hits)
+            alignment_summary["banned_patterns"] = {
+                "label": "反模式约束",
+                "passed": len(banned_hits) == 0,
+                "expected": "无 emoji 图标、无 Claude 聊天壳层、无模板化渐变/关键词",
+                "observed": ", ".join(banned_hits[:10]),
+            }
+
         if preview_summary:
             if preview_summary["sections"] < 3:
                 findings.append(
@@ -1194,6 +1750,20 @@ class UIReviewReviewer:
 
         if screenshot_path and screenshot_metrics:
             notes.append(f"已生成预览截图: {screenshot_path}")
+            alignment_summary["screenshot_visual_judge"] = {
+                "label": "截图级视觉验收",
+                "passed": (
+                    screenshot_metrics.get("blank_ratio", 1.0) <= 0.78
+                    and screenshot_metrics.get("contrast_span", 0.0) >= 0.18
+                    and screenshot_metrics.get("dominant_color_ratio", 1.0) <= 0.78
+                ),
+                "expected": "页面不能过空、过平、过单一，必须有足够的层级与视觉变化",
+                "observed": (
+                    f"blank={screenshot_metrics.get('blank_ratio', 0):.2f}, "
+                    f"contrast={screenshot_metrics.get('contrast_span', 0):.2f}, "
+                    f"dominant={screenshot_metrics.get('dominant_color_ratio', 0):.2f}"
+                ),
+            }
             if screenshot_metrics["blank_ratio"] > 0.78:
                 findings.append(
                     UIReviewFinding(
@@ -1208,6 +1778,20 @@ class UIReviewReviewer:
             else:
                 strengths.append("截图层面未出现明显的超高留白占比。")
 
+            if screenshot_metrics["contrast_span"] < 0.18:
+                findings.append(
+                    UIReviewFinding(
+                        level="medium",
+                        title="截图明暗层级不足",
+                        description="截图整体亮度跨度过窄，界面可能只有一层浅色平面，缺少成熟商业产品应有的视觉起伏与层级反差。",
+                        recommendation="增强标题、卡片、分区、背景层和重点模块之间的明暗与材质差异，避免整页像一张平面白板。",
+                        evidence=[f"contrast_span={screenshot_metrics['contrast_span']:.2f}"],
+                    )
+                )
+                score -= 6
+            else:
+                strengths.append("截图具备基础的明暗层级变化。")
+
             if screenshot_metrics["unique_colors"] < 24:
                 findings.append(
                     UIReviewFinding(
@@ -1219,6 +1803,22 @@ class UIReviewReviewer:
                     )
                 )
                 score -= 4
+
+            if screenshot_metrics["dominant_color_ratio"] > 0.78:
+                findings.append(
+                    UIReviewFinding(
+                        level="low",
+                        title="截图视觉表面过于单一",
+                        description="截图中单一颜色表面占比过高，页面可能只有一层背景和少量内容，更像占位稿或 AI 模板，而不是成熟商业界面。",
+                        recommendation="增加区块层、内容层、强调层和证明层的视觉切分，让页面形成更清晰的节奏与信息密度。",
+                        evidence=[
+                            f"dominant_color_ratio={screenshot_metrics['dominant_color_ratio']:.2f}"
+                        ],
+                    )
+                )
+                score -= 5
+            else:
+                strengths.append("截图没有出现单一表面吞没全页的问题。")
 
             if screenshot_metrics["accent_ratio"] < 0.006:
                 findings.append(
@@ -1502,15 +2102,34 @@ class UIReviewReviewer:
             ".next",
             "coverage",
         }
+        candidate_roots = [
+            self.project_dir / "output" / "frontend",
+            self.project_dir / "frontend",
+            self.project_dir / "src",
+            self.project_dir / "app",
+            self.project_dir / "components",
+            self.project_dir / "pages",
+            self.project_dir / "super-dev-website" / "app",
+            self.project_dir / "super-dev-website" / "components",
+            self.project_dir / "super-dev-website" / "styles",
+            self.project_dir / "super-dev-website" / "lib",
+        ]
         files: list[Path] = []
-        for path in self.project_dir.rglob("*"):
-            if not path.is_file():
+        seen: set[Path] = set()
+        for root in candidate_roots:
+            if not root.exists():
                 continue
-            if path.suffix.lower() not in allowed_suffixes:
-                continue
-            if any(part in excluded_dirs for part in path.parts):
-                continue
-            files.append(path)
+            iterator = [root] if root.is_file() else root.rglob("*")
+            for path in iterator:
+                if not path.is_file():
+                    continue
+                if path.suffix.lower() not in allowed_suffixes:
+                    continue
+                if any(part in excluded_dirs for part in path.parts):
+                    continue
+                if path not in seen:
+                    seen.add(path)
+                    files.append(path)
         return files
 
     def _find_preview_file(self) -> Path | None:
@@ -1518,6 +2137,7 @@ class UIReviewReviewer:
             self.project_dir / "preview.html",
             self.project_dir / "output" / "frontend" / "index.html",
             self.project_dir / "frontend" / "index.html",
+            self.project_dir / "super-dev-website" / "out" / "index.html",
             self.project_dir / "index.html",
         ]
         for candidate in candidates:
@@ -1582,9 +2202,11 @@ class UIReviewReviewer:
         blank_pixels = 0
         accent_pixels = 0
         reduced = []
+        brightness_values: list[float] = []
         for r, g, b in pixels:
             brightness = (r + g + b) / 3
             spread = max(r, g, b) - min(r, g, b)
+            brightness_values.append(brightness)
             if brightness > 235 and spread < 16:
                 blank_pixels += 1
             if spread > 60 and 35 < brightness < 220:
@@ -1592,10 +2214,19 @@ class UIReviewReviewer:
             reduced.append((r // 32, g // 32, b // 32))
 
         total = len(pixels)
+        color_histogram: dict[tuple[int, int, int], int] = {}
+        for color in reduced:
+            color_histogram[color] = color_histogram.get(color, 0) + 1
+        dominant_color_ratio = (max(color_histogram.values()) / total) if color_histogram else 1.0
+        contrast_span = (
+            (max(brightness_values) - min(brightness_values)) / 255 if brightness_values else 0.0
+        )
         return {
             "blank_ratio": blank_pixels / total,
             "accent_ratio": accent_pixels / total,
             "unique_colors": len(set(reduced)),
+            "dominant_color_ratio": dominant_color_ratio,
+            "contrast_span": contrast_span,
         }
 
     def _read_package_json(self) -> dict[str, Any] | None:
@@ -1605,7 +2236,8 @@ class UIReviewReviewer:
         ):
             if candidate.exists():
                 try:
-                    return json.loads(candidate.read_text(encoding="utf-8"))
+                    payload: object = json.loads(candidate.read_text(encoding="utf-8"))
+                    return cast(dict[str, Any], payload) if isinstance(payload, dict) else None
                 except (json.JSONDecodeError, OSError):
                     return None
         return None
@@ -1615,11 +2247,157 @@ class UIReviewReviewer:
         if not contract_path.exists():
             return {}
         try:
-            payload = json.loads(contract_path.read_text(encoding="utf-8"))
+            payload: object = json.loads(contract_path.read_text(encoding="utf-8"))
         except Exception as e:
             _logger.debug(f"Failed to parse UI contract: {e}")
             return {}
-        return payload if isinstance(payload, dict) else {}
+        return cast(dict[str, Any], payload) if isinstance(payload, dict) else {}
+
+    def _load_frontend_runtime_report(self) -> dict[str, Any]:
+        runtime_path = self.project_dir / "output" / f"{self.name}-frontend-runtime.json"
+        if not runtime_path.exists():
+            return {}
+        try:
+            payload: object = json.loads(runtime_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            _logger.debug(f"Failed to parse frontend runtime report: {e}")
+            return {}
+        return cast(dict[str, Any], payload) if isinstance(payload, dict) else {}
+
+    def _normalized_contains_any(self, combined: str, candidates: list[str]) -> bool:
+        lowered = combined.lower()
+        normalized = re.sub(r"[-_/]+", " ", lowered)
+        for candidate in candidates:
+            token = str(candidate).strip().lower()
+            if not token:
+                continue
+            if "/" in token:
+                token = Path(token).name.lower()
+            normalized_token = re.sub(r"[-_/]+", " ", token)
+            if token in lowered or normalized_token in normalized:
+                return True
+        return False
+
+    def _check_claude_design_protocol_execution(
+        self,
+        *,
+        ui_contract: dict[str, Any],
+        source_content: str,
+        preview_content: str,
+    ) -> dict[str, bool]:
+        combined = "\n".join([source_content, preview_content])
+        states: dict[str, bool] = {}
+        screen_recipes = (
+            ui_contract.get("screen_recipes")
+            if isinstance(ui_contract.get("screen_recipes"), list)
+            else []
+        )
+        if screen_recipes:
+            labels = [
+                str(item.get("label", "")).strip()
+                for item in screen_recipes
+                if isinstance(item, dict)
+            ]
+            sections = [
+                str(section).strip()
+                for item in screen_recipes
+                if isinstance(item, dict)
+                for section in item.get("section_order", []) or []
+            ]
+            trust_modules = [
+                str(module).strip()
+                for item in screen_recipes
+                if isinstance(item, dict)
+                for module in item.get("trust_modules", []) or []
+            ]
+            required_states = [
+                str(state).strip()
+                for item in screen_recipes
+                if isinstance(item, dict)
+                for state in item.get("required_states", []) or []
+            ]
+            states["screen_recipes"] = (
+                self._normalized_contains_any(combined, labels)
+                and self._normalized_contains_any(combined, sections)
+                and (
+                    self._normalized_contains_any(combined, trust_modules)
+                    or self._normalized_contains_any(combined, required_states)
+                )
+            )
+
+        design_context_protocol = (
+            ui_contract.get("design_context_protocol")
+            if isinstance(ui_contract.get("design_context_protocol"), dict)
+            else {}
+        )
+        if design_context_protocol:
+            states["design_context_protocol"] = (
+                self._normalized_contains_any(
+                    combined,
+                    [
+                        *(
+                            str(item).strip()
+                            for item in design_context_protocol.get("preferred_import_order", []) or []
+                        ),
+                        *(
+                            str(item).strip()
+                            for item in design_context_protocol.get("github_import_targets", []) or []
+                        ),
+                    ],
+                )
+                and self._normalized_contains_any(
+                    combined,
+                    [str(design_context_protocol.get("single_source_rule", "")).strip()],
+                )
+            )
+
+        tweak_strategy = (
+            ui_contract.get("tweak_strategy")
+            if isinstance(ui_contract.get("tweak_strategy"), dict)
+            else {}
+        )
+        if tweak_strategy:
+            states["tweak_strategy"] = (
+                self._normalized_contains_any(combined, [str(tweak_strategy.get("mode", "")).strip()])
+                and self._normalized_contains_any(
+                    combined,
+                    [str(item).strip() for item in tweak_strategy.get("default_controls", []) or []],
+                )
+                and self._normalized_contains_any(
+                    combined, [str(tweak_strategy.get("persistence_rule", "")).strip()]
+                )
+            )
+
+        verification_handoff = (
+            ui_contract.get("verification_handoff")
+            if isinstance(ui_contract.get("verification_handoff"), dict)
+            else {}
+        )
+        if verification_handoff:
+            states["verification_handoff"] = (
+                self._normalized_contains_any(
+                    combined,
+                    [
+                        str(item).strip()
+                        for item in verification_handoff.get("verification_order", []) or []
+                    ],
+                )
+                and self._normalized_contains_any(
+                    combined,
+                    [
+                        str(item).strip()
+                        for item in verification_handoff.get("required_artifacts", []) or []
+                    ],
+                )
+                and self._normalized_contains_any(
+                    combined,
+                    [
+                        str(item).strip()
+                        for item in verification_handoff.get("acceptance_checks", []) or []
+                    ],
+                )
+            )
+        return states
 
     def _load_project_config(self) -> dict[str, Any]:
         config_path = self.project_dir / "super-dev.yaml"

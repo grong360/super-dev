@@ -119,14 +119,14 @@ class WorkflowHarnessReport:
             lines.append("- 当前没有统一运行时时间线。")
         lines.extend(["", "## Blockers", ""])
         if self.blockers:
-            for item in self.blockers:
-                lines.append(f"- {item}")
+            for blocker in self.blockers:
+                lines.append(f"- {blocker}")
         else:
             lines.append("- 当前没有 workflow continuity 阻塞项。")
         lines.extend(["", "## Next Actions", ""])
         if self.next_actions:
-            for item in self.next_actions:
-                lines.append(f"- {item}")
+            for action in self.next_actions:
+                lines.append(f"- {action}")
         else:
             lines.append("- 当前 workflow continuity 证据已经齐全。")
         return "\n".join(lines).rstrip() + "\n"

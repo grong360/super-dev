@@ -23,6 +23,24 @@ def _latest(output_dir: Path, pattern: str) -> Path | None:
     return max(candidates, key=lambda item: item.stat().st_mtime)
 
 
+def _is_stale(path: Path | None, *, dependencies: list[Path | None]) -> bool:
+    if path is None or not path.exists():
+        return False
+    try:
+        artifact_mtime = path.stat().st_mtime
+    except OSError:
+        return False
+    for dependency in dependencies:
+        if dependency is None or not dependency.exists():
+            continue
+        try:
+            if dependency.stat().st_mtime > artifact_mtime:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 @dataclass
 class FrameworkHarnessReport:
     project_name: str
@@ -133,10 +151,9 @@ class FrameworkHarnessBuilder:
 
         analysis = payload.get("analysis", {}) if isinstance(payload.get("analysis"), dict) else {}
         frontend_value = str(analysis.get("frontend") or "").lower().strip()
-        framework_playbook = (
-            payload.get("framework_playbook")
-            if isinstance(payload.get("framework_playbook"), dict)
-            else {}
+        framework_playbook_payload = payload.get("framework_playbook")
+        framework_playbook: dict[str, Any] = (
+            framework_playbook_payload if isinstance(framework_playbook_payload, dict) else {}
         )
         framework_name = str(framework_playbook.get("framework") or "").strip()
         enabled = is_cross_platform_frontend(frontend_value) or bool(framework_name)
@@ -178,24 +195,30 @@ class FrameworkHarnessBuilder:
         runtime_file = _latest(self.output_dir, "*-frontend-runtime.json")
         if runtime_file is not None:
             report.source_files["frontend_runtime"] = str(runtime_file)
-            try:
-                runtime_payload = json.loads(runtime_file.read_text(encoding="utf-8"))
-            except Exception:
-                runtime_payload = {}
-            runtime_checks = (
-                runtime_payload.get("checks", {}) if isinstance(runtime_payload, dict) else {}
-            )
-            report.checks["frontend_runtime_framework_execution"] = (
-                isinstance(runtime_payload, dict)
-                and bool(runtime_payload.get("passed", False))
-                and isinstance(runtime_checks, dict)
-                and bool(runtime_checks.get("ui_framework_playbook", False))
-                and bool(runtime_checks.get("ui_framework_execution", False))
-            )
-            if not report.checks["frontend_runtime_framework_execution"]:
+            if _is_stale(runtime_file, dependencies=[ui_contract_file]):
+                report.checks["frontend_runtime_framework_execution"] = False
                 report.blockers.append(
-                    f"{report.framework} frontend runtime 尚未证明框架专项执行与交付证据已真实落地"
+                    f"{report.framework} frontend runtime 报告已过期，需要基于最新 UI 契约重新生成"
                 )
+            else:
+                try:
+                    runtime_payload = json.loads(runtime_file.read_text(encoding="utf-8"))
+                except Exception:
+                    runtime_payload = {}
+                runtime_checks = (
+                    runtime_payload.get("checks", {}) if isinstance(runtime_payload, dict) else {}
+                )
+                report.checks["frontend_runtime_framework_execution"] = (
+                    isinstance(runtime_payload, dict)
+                    and bool(runtime_payload.get("passed", False))
+                    and isinstance(runtime_checks, dict)
+                    and bool(runtime_checks.get("ui_framework_playbook", False))
+                    and bool(runtime_checks.get("ui_framework_execution", False))
+                )
+                if not report.checks["frontend_runtime_framework_execution"]:
+                    report.blockers.append(
+                        f"{report.framework} frontend runtime 尚未证明框架专项执行与交付证据已真实落地"
+                    )
         else:
             report.checks["frontend_runtime_framework_execution"] = False
             report.blockers.append(f"{report.framework} frontend runtime 报告缺失")
@@ -203,22 +226,28 @@ class FrameworkHarnessBuilder:
         alignment_file = _latest(self.output_dir, "*-ui-contract-alignment.json")
         if alignment_file is not None:
             report.source_files["ui_contract_alignment"] = str(alignment_file)
-            try:
-                alignment_payload = json.loads(alignment_file.read_text(encoding="utf-8"))
-            except Exception:
-                alignment_payload = {}
-            framework_execution = (
-                alignment_payload.get("framework_execution")
-                if isinstance(alignment_payload, dict)
-                else {}
-            )
-            report.checks["ui_contract_alignment_framework_execution"] = bool(
-                isinstance(framework_execution, dict) and framework_execution.get("passed", False)
-            )
-            if not report.checks["ui_contract_alignment_framework_execution"]:
+            if _is_stale(alignment_file, dependencies=[ui_contract_file]):
+                report.checks["ui_contract_alignment_framework_execution"] = False
                 report.blockers.append(
-                    f"{report.framework} UI 契约对齐报告未证明 framework execution 通过"
+                    f"{report.framework} UI 契约对齐报告已过期，需要基于最新 UI 契约重新生成"
                 )
+            else:
+                try:
+                    alignment_payload = json.loads(alignment_file.read_text(encoding="utf-8"))
+                except Exception:
+                    alignment_payload = {}
+                framework_execution = (
+                    alignment_payload.get("framework_execution")
+                    if isinstance(alignment_payload, dict)
+                    else {}
+                )
+                report.checks["ui_contract_alignment_framework_execution"] = bool(
+                    isinstance(framework_execution, dict) and framework_execution.get("passed", False)
+                )
+                if not report.checks["ui_contract_alignment_framework_execution"]:
+                    report.blockers.append(
+                        f"{report.framework} UI 契约对齐报告未证明 framework execution 通过"
+                    )
         else:
             report.checks["ui_contract_alignment_framework_execution"] = False
             report.blockers.append(f"{report.framework} UI 契约对齐报告缺失")

@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..evidence_identity import build_evidence_identity
 from ..reviewers.redteam import load_redteam_evidence
 
 
@@ -43,6 +44,7 @@ class RehearsalResult:
     checks: list[RehearsalCheck] = field(default_factory=list)
     threshold: int = 80
     generated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    evidence_identity: dict[str, Any] = field(default_factory=dict)
 
     @property
     def failed_checks(self) -> list[RehearsalCheck]:
@@ -78,6 +80,7 @@ class RehearsalResult:
             "threshold": self.threshold,
             "failed_checks": [check.name for check in self.failed_checks],
             "checks": [check.to_dict() for check in self.checks],
+            "evidence_identity": dict(self.evidence_identity),
         }
 
     def to_markdown(self) -> str:
@@ -183,6 +186,20 @@ class LaunchRehearsalRunner:
         output_dir.mkdir(parents=True, exist_ok=True)
         md_file = output_dir / f"{self.project_name}-rehearsal-report.md"
         json_file = output_dir / f"{self.project_name}-rehearsal-report.json"
+        rehearsal_result.evidence_identity = build_evidence_identity(
+            self.project_dir,
+            artifact_name="rehearsal-report",
+            dependencies=[
+                self.project_dir / "output" / f"{self.project_name}-quality-gate.json",
+                self.project_dir / "output" / f"{self.project_name}-quality-gate.md",
+                self.project_dir / "output" / f"{self.project_name}-release-readiness.json",
+                self.project_dir / "output" / f"{self.project_name}-proof-pack.json",
+                self.project_dir
+                / "output"
+                / "delivery"
+                / f"{self.project_name}-delivery-manifest.json",
+            ],
+        )
         md_file.write_text(rehearsal_result.to_markdown(), encoding="utf-8")
         json_file.write_text(
             json.dumps(rehearsal_result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
@@ -207,7 +224,34 @@ class LaunchRehearsalRunner:
         )
 
     def _check_quality_gate_report(self) -> RehearsalCheck:
+        json_path = self.project_dir / "output" / f"{self.project_name}-quality-gate.json"
         file_path = self.project_dir / "output" / f"{self.project_name}-quality-gate.md"
+        if json_path.exists():
+            try:
+                payload = json.loads(json_path.read_text(encoding="utf-8"))
+            except Exception:
+                payload = {}
+            if isinstance(payload, dict) and payload:
+                passed = bool(payload.get("passed", False))
+                total_score = payload.get("total_score", 0)
+                summary_payload = payload.get("summary", {})
+                if not isinstance(summary_payload, dict):
+                    summary_payload = {}
+                executive_summary = str(summary_payload.get("executive_summary", "")).strip()
+                detail = f"quality score={total_score}"
+                if not passed:
+                    detail = f"quality gate report indicates failed; quality score={total_score}"
+                if executive_summary:
+                    detail = f"{detail}: {executive_summary}"
+                governance_state = self._extract_frontend_governance_state(executive_summary)
+                if governance_state and not passed:
+                    detail = f"{detail}; ui_governance={governance_state}"
+                return RehearsalCheck(
+                    "Quality Gate",
+                    passed,
+                    detail,
+                    severity="critical" if not passed else "medium",
+                )
         if not file_path.exists():
             return RehearsalCheck(
                 "Quality Gate", False, "missing output/*-quality-gate.md", severity="critical"
@@ -215,9 +259,16 @@ class LaunchRehearsalRunner:
 
         text = file_path.read_text(encoding="utf-8", errors="ignore")
         lowered = text.lower()
+        executive_summary = self._extract_quality_gate_executive_summary(text)
         if "未通过" in text or "failed" in lowered:
+            detail = "quality gate report indicates failed"
+            if executive_summary:
+                detail = f"{detail}: {executive_summary}"
+            governance_state = self._extract_frontend_governance_state(executive_summary)
+            if governance_state:
+                detail = f"{detail}; ui_governance={governance_state}"
             return RehearsalCheck(
-                "Quality Gate", False, "quality gate report indicates failed", severity="critical"
+                "Quality Gate", False, detail, severity="critical"
             )
 
         score_match = re.search(r"(总分|Score)\D+(\d{1,3})/100", text, re.IGNORECASE)
@@ -235,6 +286,32 @@ class LaunchRehearsalRunner:
         return RehearsalCheck(
             "Quality Gate", passed, detail, severity="critical" if not passed else "medium"
         )
+
+    def _extract_quality_gate_executive_summary(self, text: str) -> str:
+        marker = "## 执行摘要"
+        if marker not in text:
+            return ""
+        _, _, remainder = text.partition(marker)
+        lines = [line.strip() for line in remainder.splitlines()]
+        for line in lines:
+            if not line or line.startswith("#") or line == "---":
+                continue
+            return line
+        return ""
+
+    def _extract_frontend_governance_state(self, executive_summary: str) -> str:
+        summary = str(executive_summary).strip()
+        if not summary:
+            return ""
+        if "契约冻结" in summary:
+            return "contract_freeze_incomplete"
+        if "source/runtime 证据漂移" in summary:
+            return "source_runtime_drift"
+        if "runtime 证明" in summary:
+            return "runtime_execution_missing"
+        if "源码/预览落地" in summary:
+            return "source_execution_missing"
+        return ""
 
     def _check_pipeline_metrics(self) -> RehearsalCheck:
         metrics_file = self.project_dir / "output" / f"{self.project_name}-pipeline-metrics.json"

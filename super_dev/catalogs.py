@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import os
 from pathlib import Path
+from typing import Any, cast
 
 from .host_adapters import get_pass_criteria, get_resume_checklist, get_runtime_checklist
 
@@ -39,6 +40,16 @@ FULL_FRONTEND_TEMPLATE_CATALOG: list[dict[str, str]] = [
     {"id": "astro", "name": "Astro"},
     {"id": "solid", "name": "Solid"},
     {"id": "qwik", "name": "Qwik"},
+    {"id": "expo", "name": "Expo"},
+    {"id": "react-native", "name": "React Native"},
+    {"id": "flutter", "name": "Flutter"},
+    {"id": "uni-app", "name": "uni-app"},
+    {"id": "taro", "name": "Taro"},
+    {"id": "tauri", "name": "Tauri"},
+    {"id": "electron", "name": "Electron"},
+    {"id": "wails", "name": "Wails"},
+    {"id": "ionic", "name": "Ionic"},
+    {"id": "capacitor", "name": "Capacitor"},
     {"id": "react", "name": "React"},
     {"id": "vue", "name": "Vue"},
     {"id": "svelte", "name": "Svelte"},
@@ -139,52 +150,72 @@ CICD_PLATFORM_TARGET_IDS: tuple[str, ...] = tuple(
 
 HOST_TOOL_CATALOG: list[dict[str, str]] = [
     {"id": "antigravity", "name": "Antigravity"},
+    {"id": "claude", "name": "Claude"},
     {"id": "claude-code", "name": "Claude Code"},
     {"id": "cline", "name": "Cline"},
     {"id": "codebuddy-cli", "name": "CodeBuddy CLI"},
     {"id": "codebuddy", "name": "CodeBuddy"},
-    {"id": "codex-cli", "name": "Codex"},
+    {"id": "codebuddy-cn", "name": "CodeBuddyCN"},
+    {"id": "droid-cli", "name": "Droid CLI"},
+    {"id": "codex", "name": "Codex"},
+    {"id": "codex-cli", "name": "Codex CLI"},
     {"id": "copilot-cli", "name": "Copilot CLI"},
     {"id": "cursor-cli", "name": "Cursor CLI"},
     {"id": "windsurf", "name": "Windsurf"},
     {"id": "gemini-cli", "name": "Gemini CLI"},
+    {"id": "kimi-code", "name": "Kimi Code"},
     {"id": "kilo-code", "name": "Kilo Code"},
     {"id": "kiro-cli", "name": "Kiro CLI"},
     {"id": "opencode", "name": "OpenCode"},
     {"id": "qoder-cli", "name": "Qoder CLI"},
+    {"id": "qwen-code", "name": "Qwen Code"},
     {"id": "roo-code", "name": "Roo Code"},
-    {"id": "vscode-copilot", "name": "GitHub Copilot"},
+    {"id": "vscode-copilot", "name": "Copilot"},
     {"id": "cursor", "name": "Cursor"},
     {"id": "kiro", "name": "Kiro"},
     {"id": "qoder", "name": "Qoder"},
     {"id": "trae", "name": "Trae"},
-    {"id": "openclaw", "name": "OpenClaw"},
+    {"id": "trae-cn", "name": "TraeCN"},
+    {"id": "trae-solo", "name": "Trae SOLO"},
+    {"id": "trae-solocn", "name": "Trae SOLOCN"},
     {"id": "workbuddy", "name": "WorkBuddy"},
 ]
 
 HOST_TOOL_IDS: tuple[str, ...] = tuple(item["id"] for item in HOST_TOOL_CATALOG)
 HOST_TOOL_NAME_MAP: dict[str, str] = {item["id"]: item["name"] for item in HOST_TOOL_CATALOG}
 HOST_TOOL_ALIASES: dict[str, list[str]] = {
-    "claude-code": ["claude", "claudecode"],
-    "codex-cli": ["codex"],
+    "claude": ["claude-app", "claude-desktop"],
+    "claude-code": ["claude-cli", "claudecode"],
+    "droid-cli": ["droid", "factory", "factory-droid"],
+    "codebuddy-cn": ["codebuddycn"],
+    "codex": ["codex-app", "codex-desktop"],
+    "codex-cli": ["codexcli", "openai-codex-cli"],
     "copilot-cli": ["copilot"],
     "cursor-cli": ["cursor-agent"],
     "gemini-cli": ["gemini"],
+    "kimi-code": ["kimi", "moonshot-kimi"],
     "opencode": ["open-code"],
+    "qwen-code": ["qwen", "qwen-cli", "qwencli"],
+    "trae-cn": ["traecn", "trae-ide-cn"],
+    "trae-solo": ["traesolo"],
+    "trae-solocn": ["trae-solo-cn", "traecnsolo"],
     "workbuddy": ["work-buddy", "腾讯虾"],
     "vscode-copilot": ["copilot-chat", "vscode"],
 }
 
 PRIMARY_CLI_HOST_TOOL_IDS: tuple[str, ...] = (
     "claude-code",
+    "droid-cli",
     "codex-cli",
     "copilot-cli",
     "gemini-cli",
+    "kimi-code",
     "opencode",
     "kiro-cli",
     "cursor-cli",
     "qoder-cli",
     "codebuddy-cli",
+    "qwen-code",
 )
 
 PRIMARY_IDE_HOST_TOOL_IDS: tuple[str, ...] = (
@@ -194,47 +225,98 @@ PRIMARY_IDE_HOST_TOOL_IDS: tuple[str, ...] = (
     "kiro",
     "qoder",
     "codebuddy",
-    "workbuddy",
     "trae",
-    "vscode-copilot",
-    "roo-code",
-    "kilo-code",
-    "cline",
+    "trae-cn",
+    "codebuddy-cn",
 )
 
-PRIMARY_HOST_TOOL_IDS: tuple[str, ...] = PRIMARY_CLI_HOST_TOOL_IDS + PRIMARY_IDE_HOST_TOOL_IDS
-SPECIAL_INSTALL_HOST_TOOL_IDS: tuple[str, ...] = ("openclaw",)
+DESKTOP_ASSISTANT_HOST_TOOL_IDS: tuple[str, ...] = (
+    "claude",
+    "codex",
+    "workbuddy",
+    "trae-solo",
+    "trae-solocn",
+)
+
+PRIMARY_HOST_TOOL_IDS: tuple[str, ...] = (
+    PRIMARY_CLI_HOST_TOOL_IDS + PRIMARY_IDE_HOST_TOOL_IDS + DESKTOP_ASSISTANT_HOST_TOOL_IDS
+)
+SPECIAL_INSTALL_HOST_TOOL_IDS: tuple[str, ...] = ()
 PRODUCT_HOST_TOOL_IDS: tuple[str, ...] = PRIMARY_HOST_TOOL_IDS + SPECIAL_INSTALL_HOST_TOOL_IDS
 
 CLI_HOST_TOOL_IDS: tuple[str, ...] = (
     "claude-code",
     "codebuddy-cli",
+    "droid-cli",
     "codex-cli",
     "copilot-cli",
     "cursor-cli",
     "gemini-cli",
+    "kimi-code",
     "kiro-cli",
-    "openclaw",
     "opencode",
     "qoder-cli",
+    "qwen-code",
+)
+IDE_HOST_TOOL_IDS: tuple[str, ...] = (
+    "antigravity",
+    "cline",
+    "codebuddy",
+    "codebuddy-cn",
+    "cursor",
+    "kiro",
+    "kilo-code",
+    "qoder",
+    "roo-code",
+    "trae",
+    "trae-cn",
+    "vscode-copilot",
+    "windsurf",
+)
+ASSISTANT_HOST_TOOL_IDS: tuple[str, ...] = (
+    "claude",
+    "codex",
+    "trae-solo",
+    "trae-solocn",
+    "workbuddy",
 )
 
-HOST_TOOL_CATEGORY_MAP: dict[str, str] = {
-    host_id: ("cli" if host_id in CLI_HOST_TOOL_IDS else "ide") for host_id in HOST_TOOL_IDS
-}
+HOST_TOOL_CATEGORY_MAP: dict[str, str] = {}
+for _host_id in HOST_TOOL_IDS:
+    if _host_id in CLI_HOST_TOOL_IDS:
+        HOST_TOOL_CATEGORY_MAP[_host_id] = "cli"
+    elif _host_id in ASSISTANT_HOST_TOOL_IDS:
+        HOST_TOOL_CATEGORY_MAP[_host_id] = "assistant"
+    else:
+        HOST_TOOL_CATEGORY_MAP[_host_id] = "ide"
 
 HOST_RUNTIME_VALIDATION_OVERRIDES: dict[str, dict[str, list[str]]] = {
     "antigravity": {
         "runtime_checklist": [
             "确认当前 Antigravity Prompt / Agent Chat 绑定的是目标项目，而不是其他工作区。",
-            "确认 `GEMINI.md`、`.agent/workflows/super-dev.md` 与 `.gemini/commands/super-dev.md` 已在新会话里一起生效。",
+            "确认 `GEMINI.md`、`.gemini/commands/super-dev.toml` 与当前推荐 `.agent/workflows/super-dev.md` 已在新会话里一起生效。",
             "确认触发后直接进入 Super Dev 流水线，而不是退回普通 Gemini 对话。",
         ],
         "pass_criteria": [
-            "Antigravity 在新聊天里真实读取了 GEMINI 上下文、workflow 与命令面。",
+            "Antigravity 在新聊天里真实读取了 GEMINI 上下文、custom commands 与当前推荐 workflow。",
         ],
         "resume_checklist": [
-            "Antigravity 恢复时要确认重新打开的 Prompt / Agent Chat 已重新加载 GEMINI 上下文与 workflow。",
+            "Antigravity 恢复时要确认重新打开的 Prompt / Agent Chat 已重新加载 GEMINI 上下文、custom commands 与当前推荐 workflow。",
+        ],
+    },
+    "droid-cli": {
+        "runtime_checklist": [
+            "确认当前 Droid CLI 会话就在目标项目目录中，并且项目根 `AGENTS.md` 已被当前会话读取。",
+            "确认 `.factory/rules/`、`.factory/commands/` 与 `.factory/skills/` 已存在并在当前会话中可见。",
+            "确认 `/super-dev` 或 `/super-dev-seeai` 能在当前 Droid 会话中直接触发，而不是退回普通聊天。",
+            "若使用续跑，确认 `droid exec --session-id <id> \"continue with next steps\"` 能继续当前 session。",
+        ],
+        "pass_criteria": [
+            "Droid CLI 在当前项目会话中真实读取 `AGENTS.md + .factory/rules + .factory/commands + .factory/skills`，并稳定进入 Super Dev 流程。",
+            "Droid CLI 的 SEEAI 入口在同一 session 中仍保留比赛快链路和恢复能力。",
+        ],
+        "resume_checklist": [
+            "Droid CLI 恢复时优先确认当前 session 仍绑定目标项目，并在需要时使用 `droid exec --session-id <id>` 继续。",
         ],
     },
     "claude-code": {
@@ -290,25 +372,25 @@ HOST_RUNTIME_VALIDATION_OVERRIDES: dict[str, dict[str, list[str]]] = {
     },
     "codebuddy": {
         "runtime_checklist": [
-            "确认当前 CodeBuddy IDE Agent Chat 绑定的是目标项目，而不是其他工作区。",
+            "确认当前 CodeBuddy Agent Chat 绑定的是目标项目，而不是其他工作区。",
             "确认 `.codebuddy/commands/`、`.codebuddy/agents/` 与 `.codebuddy/skills/` 已在当前会话真实生效。",
             "确认用户继续说“改一下 / 补充 / 继续改”时，CodeBuddy 仍然停留在当前确认门内。",
             "比赛模式验收时，确认 `/super-dev-seeai` 或 `super-dev-seeai:` 进入的是 30 分钟比赛链路，而不是标准 preview gate 流程。",
             "确认比赛模式下固定同一个 Agent Chat 仍能持续沿用当前上下文，不因子会话切换而丢失范围控制。",
         ],
         "pass_criteria": [
-            "CodeBuddy IDE 在目标工作区真实读取了 commands、agents 与 skills。",
-            "CodeBuddy IDE 的 SEEAI 入口会保留 compact 文档确认门，并在 Spec 后直接进入一体化快速开发。",
+            "CodeBuddy 在目标工作区真实读取了 commands、agents 与 skills。",
+            "CodeBuddy 的 SEEAI 入口会保留 compact 文档确认门，并在 Spec 后直接进入一体化快速开发。",
         ],
         "resume_checklist": [
-            "CodeBuddy IDE 恢复时要确认 Agent Chat 仍在目标项目，并继续当前确认门而不是重新开题。",
+            "CodeBuddy 恢复时要确认 Agent Chat 仍在目标项目，并继续当前确认门而不是重新开题。",
             "若当前是 SEEAI 比赛模式，恢复后仍应保持在同一个比赛冲刺会话里，而不是切回标准模式。",
         ],
     },
     "codex-cli": {
         "runtime_checklist": [
             "确认接入完成后已经彻底重开 codex，新会话会重新加载 AGENTS.md 与官方 Skills。",
-            "确认项目根 `AGENTS.md`、项目级 `.agents/skills/super-dev/`、全局 `CODEX_HOME/AGENTS.md`（默认 `~/.codex/AGENTS.md`）与官方用户级 Skills 一起生效。",
+            "确认项目根 `AGENTS.md`、项目级 `.agents/skills/super-dev/` 与官方用户级 Skills 一起生效；只有显式启用 `--with-user-surfaces` 时才再检查 `CODEX_HOME/AGENTS.md`（默认 `~/.codex/AGENTS.md`）。",
             "确认 repo plugin enhancement 已落地：`.agents/plugins/marketplace.json` 与 `plugins/super-dev-codex/.codex-plugin/plugin.json` 存在，并且 Codex App/Desktop 能看到本地 plugin 面。",
             "确认 Codex CLI 当前终端就在目标项目目录里，并优先使用 `$super-dev` 显式调用 Skill。",
             "确认 Codex App/Desktop 若在 `/` 列表里出现 `super-dev`，它被当作已启用 Skill 入口，而不是项目自定义 slash 文件。",
@@ -319,7 +401,7 @@ HOST_RUNTIME_VALIDATION_OVERRIDES: dict[str, dict[str, list[str]]] = {
             "若被用于 Claude-Codex 混合模式审查，确认 codex --quiet --prompt 可正常执行。",
         ],
         "pass_criteria": [
-            "重开 codex 后的新会话确实加载了项目 AGENTS.md、项目级 `.agents/skills/super-dev/`、全局 AGENTS 与官方 Skills，并识别 repo plugin enhancement。",
+            "重开 codex 后的新会话确实加载了项目 AGENTS.md、项目级 `.agents/skills/super-dev/` 与官方 Skills，并识别 repo plugin enhancement；若显式启用了 `--with-user-surfaces`，则额外确认全局 AGENTS 已生效。",
             "无论使用 Codex App/Desktop 的 `/super-dev` Skill 入口、CLI 的 `$super-dev`，还是 `super-dev:` 回退入口，都会进入同一条 Super Dev 流程。",
             "Codex 的 SEEAI 模式会优先保住比赛主路径：先跑出可演示界面，再补 wow 点，初始化失败会主动降级到更轻的回退栈。",
         ],
@@ -344,7 +426,7 @@ HOST_RUNTIME_VALIDATION_OVERRIDES: dict[str, dict[str, list[str]]] = {
     },
     "cursor-cli": {
         "runtime_checklist": [
-            "确认当前 Cursor CLI 终端就在目标项目目录，再触发 `/super-dev`。",
+            "确认当前 Cursor CLI 终端就在目标项目目录，并已读取项目根 `AGENTS.md` / `CLAUDE.md` 与 `.cursor/rules/`。",
             "如果命令列表未刷新，先重开一次 Cursor CLI 会话再验收。",
             "确认规则来自当前项目而不是其他工作区残留上下文。",
         ],
@@ -383,28 +465,28 @@ HOST_RUNTIME_VALIDATION_OVERRIDES: dict[str, dict[str, list[str]]] = {
     },
     "kiro-cli": {
         "runtime_checklist": [
-            "确认当前 Kiro CLI 会话就在目标项目目录，并已重新加载 `.kiro/steering/` 与 `.kiro/skills/`。",
-            "确认使用 `super-dev:` 触发时，Kiro CLI 按 steering 流程执行而不是普通聊天。",
+            "确认当前 Kiro CLI 会话就在目标项目目录，并已重新加载 `AGENTS.md`、`.kiro/steering/` 与 `.kiro/skills/`。",
+            "确认使用 `/super-dev` 触发时，Kiro CLI 按 steering 流程执行而不是普通聊天。",
             "确认文档返工、确认门与继续修改都还能留在当前流程内。",
         ],
         "pass_criteria": [
-            "Kiro CLI 在新会话里真实读取了 steering 与 skills，并保持流程连续。",
+            "Kiro CLI 在新会话里真实读取了 AGENTS.md、steering 与 skills，并保持流程连续。",
         ],
         "resume_checklist": [
-            "Kiro CLI 恢复时要确认新会话再次加载 `.kiro/steering/` 与 skills。",
+            "Kiro CLI 恢复时要确认新会话再次加载 AGENTS.md、`.kiro/steering/` 与 skills。",
         ],
     },
     "kiro": {
         "runtime_checklist": [
             "确认当前 Kiro IDE Agent Chat 打开的就是目标项目，而不是其他工作区。",
-            "确认 `.kiro/steering/` 与 `.kiro/skills/` 已在新的 Agent Chat 里生效。",
+            "确认 `AGENTS.md`、`.kiro/steering/` 与 `.kiro/skills/` 已在新的 Agent Chat 里生效。",
             "确认用户在确认门里补充和修改时，Kiro IDE 仍然留在 Super Dev 流程内。",
         ],
         "pass_criteria": [
-            "Kiro IDE 在目标工作区真实读取了 steering 与 skills。",
+            "Kiro IDE 在目标工作区真实读取了 AGENTS.md、steering 与 skills。",
         ],
         "resume_checklist": [
-            "Kiro IDE 恢复时要确认重新打开的 Agent Chat 仍加载当前项目的 steering 与 skills。",
+            "Kiro IDE 恢复时要确认重新打开的 Agent Chat 仍加载当前项目的 AGENTS.md、steering 与 skills。",
         ],
     },
     "kilo-code": {
@@ -501,30 +583,14 @@ HOST_RUNTIME_VALIDATION_OVERRIDES: dict[str, dict[str, list[str]]] = {
     "windsurf": {
         "runtime_checklist": [
             "确认当前 Windsurf Agent Chat / Workflow 入口绑定的是目标项目工作区。",
-            "确认 `.windsurf/rules/`、`.windsurf/workflows/` 与 `.windsurf/skills/` 已在当前会话真实加载。",
+            "确认 `AGENTS.md`、`.windsurf/rules/`、`.windsurf/workflows/` 与 `.windsurf/skills/` 已在当前会话真实加载。",
             "确认通过 workflow 或 `/super-dev` 返工时，Windsurf 仍然留在当前流程内。",
         ],
         "pass_criteria": [
-            "Windsurf 在目标工作区真实读取了 rules、workflows 与 skills。",
+            "Windsurf 在目标工作区真实读取了 AGENTS、rules、workflows 与 skills。",
         ],
         "resume_checklist": [
-            "Windsurf 恢复时要确认 Agent Chat / Workflow 已重新加载当前项目的 rules、workflow 与 skills。",
-        ],
-    },
-    "openclaw": {
-        "runtime_checklist": [
-            "确认当前 OpenClaw Agent 会话绑定的是目标项目工作区，并且 plugin 安装后已经重启 Gateway 或新开会话。",
-            "确认 `.openclaw/rules/super-dev.md`、`.openclaw/commands/super-dev.md`、`.openclaw/commands/super-dev-seeai.md` 与 `~/.openclaw/skills/` 已被当前会话真实加载。",
-            "确认比赛模式优先可通过 `/super-dev-seeai` 或 `super-dev-seeai:` 进入；如果 slash 面板未刷新，也不会阻塞比赛入口。",
-            "确认比赛模式中段不会频繁调用 Tool 打断开发，而是在 sprint 末段再统一做质量/状态收口。",
-        ],
-        "pass_criteria": [
-            "OpenClaw 在目标工作区真实读取了 rules、commands 与 skills，且标准模式与 SEEAI 比赛模式都能进入同一条 Super Dev 合同体系。",
-            "OpenClaw 的 SEEAI 入口会保留 compact 文档确认门，并在 Spec 后直接进入一体化快速开发与最终 polish。",
-        ],
-        "resume_checklist": [
-            "OpenClaw 恢复时要确认重新打开的 Agent 会话仍绑定目标项目，并重新加载 `.openclaw/commands/` 与 skills。",
-            "若当前处于 SEEAI 比赛模式，恢复后仍应回到当前比赛冲刺，而不是重新开始普通流水线。",
+            "Windsurf 恢复时要确认 Agent Chat / Workflow 已重新加载当前项目的 AGENTS、rules、workflow 与 skills。",
         ],
     },
 }
@@ -545,24 +611,32 @@ def host_runtime_validation_overrides(target: str) -> dict[str, list[str]]:
 
 HOST_COMMAND_CANDIDATES: dict[str, list[str]] = {
     "antigravity": ["antigravity"],
+    "claude": ["claude"],
     "claude-code": ["claude", "claude-code"],
     "cline": ["cline"],
     "codebuddy-cli": ["codebuddy", "codebuddy-cli"],
+    "codebuddy-cn": ["codebuddy-cn"],
+    "droid-cli": ["droid", "factory-droid"],
     "codebuddy": ["codebuddy"],
+    "codex": ["codex"],
     "codex-cli": ["codex"],
     "copilot-cli": ["copilot", "copilot-cli"],
     "cursor-cli": ["cursor-agent", "cursor", "cursor-cli"],
     "windsurf": ["windsurf"],
     "gemini-cli": ["gemini", "gemini-cli"],
+    "kimi-code": ["kimi", "kimi-code"],
     "kilo-code": ["kilo-code"],
     "kiro-cli": ["kiro"],
     "opencode": ["opencode"],
     "qoder-cli": ["qoder", "qoder-cli"],
+    "qwen-code": ["qwen", "qwen-code"],
     "roo-code": ["roo", "roo-code"],
     "cursor": ["cursor"],
-    "openclaw": ["openclaw", "openclaw-cli"],
     "qoder": ["qoder"],
     "trae": ["trae"],
+    "trae-cn": ["trae-cn", "traecn"],
+    "trae-solo": ["trae-solo", "traesolo"],
+    "trae-solocn": ["trae-solocn", "traecnsolo"],
     "workbuddy": ["workbuddy"],
 }
 
@@ -577,12 +651,38 @@ HOST_PATH_PATTERNS: dict[str, list[str]] = {
         "%PROGRAMFILES%/Antigravity/Antigravity.exe",
         "%PROGRAMFILES(X86)%/Antigravity/Antigravity.exe",
     ],
+    "claude": [
+        "~/Applications/Claude.app",
+        "/Applications/Claude.app",
+        "%LOCALAPPDATA%/Programs/Claude/Claude.exe",
+        "%PROGRAMFILES%/Claude/Claude.exe",
+        "%PROGRAMFILES(X86)%/Claude/Claude.exe",
+    ],
     "codebuddy": [
         "~/Applications/CodeBuddy.app",
         "/Applications/CodeBuddy.app",
         "%LOCALAPPDATA%/Programs/CodeBuddy/CodeBuddy.exe",
         "%PROGRAMFILES%/CodeBuddy/CodeBuddy.exe",
         "%PROGRAMFILES(X86)%/CodeBuddy/CodeBuddy.exe",
+    ],
+    "codebuddy-cn": [
+        "~/Applications/CodeBuddy.app",
+        "/Applications/CodeBuddy.app",
+        "%LOCALAPPDATA%/Programs/CodeBuddy/CodeBuddy.exe",
+        "%PROGRAMFILES%/CodeBuddy/CodeBuddy.exe",
+        "%PROGRAMFILES(X86)%/CodeBuddy/CodeBuddy.exe",
+    ],
+    "codex": [
+        "~/Applications/Codex.app",
+        "/Applications/Codex.app",
+        "~/Applications/OpenAI Codex.app",
+        "/Applications/OpenAI Codex.app",
+        "%LOCALAPPDATA%/Programs/Codex/Codex.exe",
+        "%PROGRAMFILES%/Codex/Codex.exe",
+        "%PROGRAMFILES(X86)%/Codex/Codex.exe",
+        "%LOCALAPPDATA%/Programs/OpenAI Codex/Codex.exe",
+        "%PROGRAMFILES%/OpenAI Codex/Codex.exe",
+        "%PROGRAMFILES(X86)%/OpenAI Codex/Codex.exe",
     ],
     "codex-cli": [
         "~/Applications/Codex.app",
@@ -595,6 +695,12 @@ HOST_PATH_PATTERNS: dict[str, list[str]] = {
         "%LOCALAPPDATA%/Programs/OpenAI Codex/Codex.exe",
         "%PROGRAMFILES%/OpenAI Codex/Codex.exe",
         "%PROGRAMFILES(X86)%/OpenAI Codex/Codex.exe",
+    ],
+    "kimi-code": [
+        "~/.kimi",
+    ],
+    "qwen-code": [
+        "~/.qwen",
     ],
     "cursor-cli": [
         "~/Applications/Cursor.app",
@@ -639,6 +745,13 @@ HOST_PATH_PATTERNS: dict[str, list[str]] = {
         "%PROGRAMFILES(X86)%/Qoder/Qoder.exe",
     ],
     "trae": [
+        "~/Applications/Trae.app",
+        "/Applications/Trae.app",
+        "%LOCALAPPDATA%/Programs/Trae/Trae.exe",
+        "%PROGRAMFILES%/Trae/Trae.exe",
+        "%PROGRAMFILES(X86)%/Trae/Trae.exe",
+    ],
+    "trae-cn": [
         "~/Applications/Trae.app",
         "/Applications/Trae.app",
         "%LOCALAPPDATA%/Programs/Trae/Trae.exe",
@@ -756,7 +869,9 @@ def _normalize_windows_launch_target(value: str) -> str:
 
 def _windows_registry_path_candidates(host_id: str) -> list[str]:
     with contextlib.suppress(ImportError):
-        import winreg  # type: ignore
+        import winreg as _winreg  # type: ignore[import-not-found]
+
+        winreg = cast(Any, _winreg)
 
         seen: set[str] = set()
         candidates: list[str] = []
@@ -870,6 +985,9 @@ def normalize_host_tool_id(value: str) -> str:
     for host_id, host_name in HOST_TOOL_NAME_MAP.items():
         simplified_name = host_name.lower().replace("_", "-").replace(" ", "-")
         simplified_without_cli = simplified_name.removesuffix("-cli")
-        if normalized in {simplified_name, simplified_without_cli}:
+        candidates = {simplified_name}
+        if simplified_without_cli not in HOST_TOOL_IDS:
+            candidates.add(simplified_without_cli)
+        if normalized in candidates:
             return host_id
     return normalized

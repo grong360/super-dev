@@ -29,20 +29,3 @@ def save_checkpoint(project_dir: Path, phase: str, context: dict[str, Any]) -> P
     filepath.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8")
     return filepath
 
-
-def load_checkpoint(project_dir: Path) -> dict[str, Any] | None:
-    """Load the latest checkpoint if available."""
-    filepath = project_dir / CHECKPOINT_DIR / "latest.json"
-    if not filepath.exists():
-        return None
-    try:
-        return json.loads(filepath.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
-
-
-def clear_checkpoint(project_dir: Path) -> None:
-    """Clear checkpoint after successful pipeline completion."""
-    filepath = project_dir / CHECKPOINT_DIR / "latest.json"
-    if filepath.exists():
-        filepath.unlink()

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import glob
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -311,7 +312,9 @@ class ValidationRuleEngine:
     def __init__(self, project_dir: Path) -> None:
         self.project_dir = project_dir.resolve()
         self.rules: list[ValidationRule] = []
-        self._custom_checkers: dict[str, Any] = {}
+        self._custom_checkers: dict[
+            str, Callable[[ValidationRule, dict[str, Any]], ValidationResult]
+        ] = {}
         self._load_default_rules()
         self._load_project_rules(project_dir)
 
@@ -399,7 +402,11 @@ class ValidationRuleEngine:
             result = [r for r in result if r.phase == phase or r.phase == "all"]
         return result
 
-    def register_custom_checker(self, check_type: str, checker: Any) -> None:
+    def register_custom_checker(
+        self,
+        check_type: str,
+        checker: Callable[[ValidationRule, dict[str, Any]], ValidationResult],
+    ) -> None:
         """注册自定义检查器。
 
         ``checker`` 需为可调用对象，签名为
@@ -624,18 +631,26 @@ class ValidationRuleEngine:
         project_dir = Path(context.get("project_dir", self.project_dir))
         pattern = rule.check_config.get("file_pattern", "")
         bad_patterns = rule.check_config.get("patterns", [])
+        exclude_patterns = rule.check_config.get("exclude_patterns", [])
 
         matches = glob.glob(str(project_dir / pattern), recursive=True)
         violations: list[str] = []
+        excluded_paths: set[Path] = set()
+        for exclude_pattern in exclude_patterns:
+            for filepath in glob.glob(str(project_dir / str(exclude_pattern)), recursive=True):
+                excluded_paths.add(Path(filepath))
 
         for filepath in matches:
+            candidate_path = Path(filepath)
+            if candidate_path in excluded_paths:
+                continue
             try:
-                content = Path(filepath).read_text(encoding="utf-8", errors="replace")
+                content = candidate_path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
             for pat in bad_patterns:
                 if re.search(pat, content):
-                    rel = str(Path(filepath).relative_to(project_dir))
+                    rel = str(candidate_path.relative_to(project_dir))
                     violations.append(f"{rel} 匹配 '{pat}'")
 
         if not violations:

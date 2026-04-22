@@ -1,5 +1,5 @@
 """
-前端骨架生成器 - 先交付可演示前端
+前端实施蓝图生成器 - 先冻结宿主可执行的前端参考面
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 class FrontendScaffoldBuilder:
-    """生成可直接打开的前端骨架页面"""
+    """生成宿主可直接评审和继续实现的前端实施参考页"""
 
     def __init__(
         self,
@@ -30,7 +30,7 @@ class FrontendScaffoldBuilder:
         phases: list[dict],
         docs: dict,
     ) -> dict:
-        """写入前端骨架文件并返回路径"""
+        """写入前端实施参考文件并返回路径"""
         output_dir = self.project_dir / "output" / "frontend"
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -50,12 +50,182 @@ class FrontendScaffoldBuilder:
             self._build_js(requirements, phases, docs, ui_contract), encoding="utf-8"
         )
 
-        return {
+        result = {
             "html": str(html_path),
             "css": str(css_path),
             "tokens": str(tokens_path),
             "js": str(js_path),
         }
+        framework_scaffold = self._generate_framework_scaffold(ui_contract)
+        if framework_scaffold:
+            result["framework_scaffold"] = framework_scaffold
+        return result
+
+    def _resolve_direction_profile(self, ui_contract: dict) -> dict:
+        art_direction_candidates = (
+            ui_contract.get("art_direction_candidates")
+            if isinstance(ui_contract.get("art_direction_candidates"), list)
+            else []
+        )
+        design_direction_manifest = (
+            ui_contract.get("design_direction_manifest")
+            if isinstance(ui_contract.get("design_direction_manifest"), dict)
+            else {}
+        )
+        anti_slop_guardrails = (
+            ui_contract.get("anti_ai_slop_guardrails")
+            if isinstance(ui_contract.get("anti_ai_slop_guardrails"), dict)
+            else {}
+        )
+        primary = art_direction_candidates[0] if art_direction_candidates else {}
+        direction_id = (
+            design_direction_manifest.get("direction_id")
+            or primary.get("id")
+            or "modern-commercial"
+        )
+        selected = next(
+            (item for item in art_direction_candidates if item.get("id") == direction_id),
+            primary,
+        )
+        anti_cliches = list(selected.get("anti_cliches", [])[:3]) or list(
+            anti_slop_guardrails.get("candidate_anti_cliches", [])[:3]
+        )
+        return {
+            "direction_id": direction_id,
+            "name": (
+                design_direction_manifest.get("selected_direction")
+                or selected.get("name")
+                or "Frozen UI Contract"
+            ),
+            "philosophy": (
+                design_direction_manifest.get("philosophy")
+                or selected.get("philosophy")
+                or "先锁定视觉哲学，再组织层级、证明和交互。"
+            ),
+            "hero_treatment": (
+                design_direction_manifest.get("hero_treatment")
+                or selected.get("hero_treatment")
+                or "首屏同时承担价值主张、证据和行动入口。"
+            ),
+            "proof_strategy": (
+                design_direction_manifest.get("proof_strategy")
+                or selected.get("proof_strategy")
+                or "优先使用截图、案例、数据和流程证明。"
+            ),
+            "visual_tension": (
+                design_direction_manifest.get("visual_tension")
+                or selected.get("visual_tension")
+                or "通过排版、留白和重点色建立张力。"
+            ),
+            "narrative_mode": (
+                design_direction_manifest.get("narrative_mode")
+                or selected.get("narrative_mode")
+                or "先理解价值，再进入证明和能力模块。"
+            ),
+            "palette_strategy": (
+                design_direction_manifest.get("palette_strategy")
+                or selected.get("palette_strategy")
+                or "先控制颜色数量，再决定强调色位置。"
+            ),
+            "why_this_direction": design_direction_manifest.get("why_this_direction") or "",
+            "reference_anchor": design_direction_manifest.get("reference_anchor") or "",
+            "anti_cliches": anti_cliches,
+            "tweak_axes": list(selected.get("tweak_axes", [])[:4]),
+            "density": (
+                ui_contract.get("information_density")
+                or design_direction_manifest.get("density_tempo")
+                or "medium"
+            ),
+        }
+
+    def _framework_ui_profile(self, ui_contract: dict) -> dict:
+        palette = ui_contract.get("color_palette", {})
+        typography = ui_contract.get("typography_preset", {})
+        generated = ui_contract.get("generated_design_system", {})
+        radius = generated.get("radius", {}) if isinstance(generated, dict) else {}
+        return {
+            "colors": {
+                "primary": palette.get("primary", "#0f7cfa"),
+                "accent": palette.get("accent", "#f65f22"),
+                "background": palette.get("background", "#f5f8ff"),
+                "foreground": palette.get("text", "#172133"),
+                "border": palette.get("border", "#dfe7f3"),
+                "muted": self._lighten(palette.get("background", "#f5f8ff"), 0.04),
+                "muted_foreground": self._darken(palette.get("text", "#172133"), 0.62),
+                "secondary": self._lighten(palette.get("primary", "#0f7cfa"), 0.45),
+                "ring": palette.get("primary", "#0f7cfa"),
+            },
+            "fonts": {
+                "sans": typography.get("body", "Inter"),
+                "mono": "JetBrains Mono",
+            },
+            "radius": {
+                "lg": radius.get("lg", "18px"),
+                "md": radius.get("md", "12px"),
+                "sm": radius.get("sm", "8px"),
+            },
+        }
+
+    def _generate_framework_scaffold(self, ui_contract: dict) -> dict | None:
+        frontend = str(self.frontend or "react").strip().lower()
+        if frontend in {"next", "nextjs"}:
+            from super_dev.creators.nextjs_scaffold import NextjsScaffoldGenerator
+
+            files = NextjsScaffoldGenerator().generate(
+                self.project_dir,
+                self.name,
+                ui_profile=self._framework_ui_profile(ui_contract),
+            )
+            root = self.project_dir / "output" / "nextjs-scaffold"
+            return {
+                "kind": "nextjs-app-router",
+                "root": str(root),
+                "files": [str(path) for path in files],
+            }
+        if frontend in {"vue", "vue3", "nuxt", "vue-vite"}:
+            files = self.generate_vue3_project()
+            root = self.project_dir / "output" / "frontend-vue3"
+            return {"kind": "vue3-vite", "root": str(root), "files": list(files.values())}
+        if frontend in {"angular"}:
+            files = self.generate_angular_project()
+            root = self.project_dir / "output" / "frontend-angular"
+            return {"kind": "angular", "root": str(root), "files": list(files.values())}
+        if frontend in {"svelte", "sveltekit"}:
+            files = self.generate_svelte_project()
+            root = self.project_dir / "output" / "frontend-svelte"
+            return {"kind": "sveltekit", "root": str(root), "files": list(files.values())}
+        if frontend in {"react", "react-vite", "remix", "gatsby"}:
+            files = self.generate_react_vite_project(ui_contract)
+            root = self.project_dir / "output" / "frontend-react"
+            kind = "react-vite"
+            if frontend == "remix":
+                kind = "remix-family-preview"
+            elif frontend == "gatsby":
+                kind = "gatsby-family-preview"
+            return {"kind": kind, "root": str(root), "files": list(files.values())}
+        if frontend in {"expo", "react-native"}:
+            files = self.generate_expo_project(ui_contract, flavor=frontend)
+            root = self.project_dir / "output" / "frontend-expo"
+            kind = "expo-managed" if frontend == "expo" else "react-native-expo"
+            return {"kind": kind, "root": str(root), "files": list(files.values())}
+        if frontend in {"flutter"}:
+            files = self.generate_flutter_project(ui_contract)
+            root = self.project_dir / "output" / "frontend-flutter"
+            return {"kind": "flutter", "root": str(root), "files": list(files.values())}
+        if frontend in {"uni-app", "uniapp", "taro"}:
+            files = self.generate_miniapp_project(ui_contract, flavor=frontend)
+            root = self.project_dir / "output" / "frontend-miniapp"
+            kind = "uni-app" if frontend in {"uni-app", "uniapp"} else "taro-family-preview"
+            return {"kind": kind, "root": str(root), "files": list(files.values())}
+        if frontend in {"tauri", "electron", "wails"}:
+            files = self.generate_desktop_shell_project(ui_contract, flavor=frontend)
+            root = self.project_dir / "output" / "frontend-desktop-shell"
+            return {"kind": f"{frontend}-desktop-shell", "root": str(root), "files": list(files.values())}
+        if frontend in {"ionic", "capacitor"}:
+            files = self.generate_hybrid_shell_project(ui_contract, flavor=frontend)
+            root = self.project_dir / "output" / "frontend-hybrid-shell"
+            return {"kind": f"{frontend}-hybrid-shell", "root": str(root), "files": list(files.values())}
+        return None
 
     def _build_html(self, ui_contract: dict) -> str:
         typography = ui_contract.get("typography_preset", {})
@@ -83,6 +253,40 @@ class FrontendScaffoldBuilder:
             or preference.get("preferred")
             or "shadcn/ui + Radix UI + Tailwind CSS"
         )
+        screen_recipes = (
+            ui_contract.get("screen_recipes")
+            if isinstance(ui_contract.get("screen_recipes"), list)
+            else []
+        )
+        direction_profile = self._resolve_direction_profile(ui_contract)
+        primary_recipe = screen_recipes[0] if screen_recipes else {}
+        verification_handoff = (
+            ui_contract.get("verification_handoff")
+            if isinstance(ui_contract.get("verification_handoff"), dict)
+            else {}
+        )
+        selected_reference = (
+            ui_contract.get("selected_design_reference")
+            if isinstance(ui_contract.get("selected_design_reference"), dict)
+            else {}
+        )
+        reference_name = selected_reference.get("name") or "Frozen UI Contract"
+        hero_panel_title = primary_recipe.get("label") or "Design Execution Blueprint"
+        hero_panel_copy = (
+            primary_recipe.get("objective")
+            or "把页面配方、设计上下文、Tweaks 和交付证据锁进同一条 UI 闭环。"
+        )
+        trust_module_count = len(primary_recipe.get("trust_modules", []))
+        verification_count = len(verification_handoff.get("verification_order", []))
+        direction_name = direction_profile["name"]
+        anti_cliche_markup = "\n".join(
+            f'              <li>{html.escape(item)}</li>'
+            for item in direction_profile["anti_cliches"][:3]
+        )
+        axis_markup = "\n".join(
+            f'              <span>{html.escape(item)}</span>'
+            for item in direction_profile["tweak_axes"][:4]
+        )
         return f"""<!doctype html>
 <html lang="zh-CN">
   <head>
@@ -95,7 +299,7 @@ class FrontendScaffoldBuilder:
     <link rel="stylesheet" href="./design-tokens.css" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
+  <body data-direction="{html.escape(str(direction_profile['direction_id']))}" data-density="{html.escape(str(direction_profile['density']))}">
     <div class="bg-layer"></div>
     <main class="shell">
       <nav class="topbar">
@@ -105,6 +309,8 @@ class FrontendScaffoldBuilder:
         </div>
         <div class="top-actions">
           <a href="#trust">客户证明</a>
+          <a href="#recipe-map">页面配方</a>
+          <a href="#design-directions">视觉方向</a>
           <a href="#workspace">交付路径</a>
           <a class="primary-link" href="#doc-links">查看文档</a>
         </div>
@@ -121,28 +327,60 @@ class FrontendScaffoldBuilder:
             <span>Mode: 需求文档驱动</span>
             <span>Icons: {html.escape(icon_system)}</span>
             <span>UI: {html.escape(primary_library)}</span>
+            <span>Direction: {html.escape(str(direction_name))}</span>
+            <span>Reference: {html.escape(reference_name)}</span>
           </div>
           <div class="hero-actions">
             <a class="button button-primary" href="#doc-links">打开核心文档</a>
-            <a class="button button-secondary" href="#workspace">查看交付流程</a>
+            <a class="button button-secondary" href="#recipe-map">查看页面配方</a>
           </div>
           <ul class="trust-strip">
             <li>商业级流程治理</li>
             <li>研究报告与 UI/UX 规范先行</li>
-            <li>质量门禁与交付审计可追踪</li>
+            <li>Screen recipes / Tweaks / Runtime evidence 全链闭环</li>
           </ul>
         </div>
         <div class="hero-panel" aria-label="产品演示摘要">
           <div class="panel-card">
             <p class="panel-label">Preview Snapshot</p>
-            <h2>从需求到交付的工作台</h2>
-            <p>把 Research、PRD、Architecture、UI/UX、Spec、Quality Gate 放进同一条可审计的交付链。</p>
+            <h2>{html.escape(hero_panel_title)}</h2>
+            <p>{html.escape(hero_panel_copy)}</p>
             <div class="metric-grid">
-              <div><strong>12</strong><span>阶段治理</span></div>
-              <div><strong>3</strong><span>核心文档</span></div>
-              <div><strong>80+</strong><span>质量门禁</span></div>
+              <div><strong>{len(screen_recipes) or 1}</strong><span>页面配方</span></div>
+              <div><strong>{trust_module_count or 3}</strong><span>信任模块</span></div>
+              <div><strong>{verification_count or 4}</strong><span>验证节点</span></div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="card direction-stage" aria-labelledby="direction-stage-title">
+        <div class="direction-stage-copy">
+          <p class="eyebrow">Signature Art Direction</p>
+          <h2 id="direction-stage-title">{html.escape(direction_name)}</h2>
+          <p class="direction-philosophy">{html.escape(str(direction_profile["philosophy"]))}</p>
+          <p class="direction-why">{html.escape(str(direction_profile["why_this_direction"]))}</p>
+          <div class="direction-signals">
+            <span>Hero: {html.escape(str(direction_profile["hero_treatment"]))}</span>
+            <span>Proof: {html.escape(str(direction_profile["proof_strategy"]))}</span>
+            <span>Tension: {html.escape(str(direction_profile["visual_tension"]))}</span>
+          </div>
+          <div class="direction-axes">
+{axis_markup or '              <span>信息密度</span>'}
+          </div>
+        </div>
+        <div class="direction-stage-proof">
+          <article class="signature-proof">
+            <p class="panel-label">Narrative Mode</p>
+            <h3>{html.escape(str(direction_profile["narrative_mode"]))}</h3>
+            <p>{html.escape(str(direction_profile["palette_strategy"]))}</p>
+          </article>
+          <article class="signature-proof anti-cliche-proof">
+            <p class="panel-label">Anti-Cliche Guardrails</p>
+            <ul class="delivery-list">
+{anti_cliche_markup or '              <li>禁止流行 AI 模板化视觉。</li>'}
+            </ul>
+          </article>
         </div>
       </section>
 
@@ -192,11 +430,40 @@ class FrontendScaffoldBuilder:
         </div>
       </section>
 
+      <section id="recipe-map" class="card">
+        <div class="section-head">
+          <h2>页面配方</h2>
+          <p>先冻结关键页面的结构顺序、组件重点、信任模块和状态要求，再开始写页面。</p>
+        </div>
+        <div id="recipe-grid" class="recipe-grid"></div>
+      </section>
+
+      <section id="design-directions" class="card split">
+        <div>
+          <div class="section-head">
+            <h2>视觉方向候选</h2>
+            <p>先在 2-3 个明确设计哲学之间做选择，而不是直接输出一版模板页。</p>
+          </div>
+          <div id="direction-grid" class="recipe-grid"></div>
+        </div>
+        <div>
+          <div class="section-head">
+            <h2>反 AI 味护栏</h2>
+            <p>禁止科技 cliché、聊天壳模板和无意义炫技，用层级、证据和工艺建立高级感。</p>
+          </div>
+          <ul id="anti-slop-list" class="delivery-list"></ul>
+          <div class="sub-card">
+            <p class="panel-label">Critique Rubric</p>
+            <ul id="critique-rubric" class="delivery-list"></ul>
+          </div>
+        </div>
+      </section>
+
       <section class="card split preview-proof">
         <div>
           <div class="section-head">
             <h2>页面骨架</h2>
-            <p>对外页面要有价值表达、信任证明、能力模块和明确 CTA。</p>
+            <p>对外页面要有价值表达、信任证明、能力模块和明确 CTA，内部工作台要有导航、状态与操作路径。</p>
           </div>
           <ul class="delivery-list">
             <li>Hero + 价值主张 + CTA</li>
@@ -214,6 +481,31 @@ class FrontendScaffoldBuilder:
             <strong>Case Study Ready</strong>
             <p>支持把页面、文档、任务状态和质量报告一起用于内部评审或商业验证。</p>
             <a class="inline-link" href="#faq">查看 FAQ</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="card split execution-protocol">
+        <div>
+          <div class="section-head">
+            <h2>上下文与 Tweaks 协议</h2>
+            <p>优先吸收真实代码与设计上下文，用单一主原型承载变体，而不是分叉出多份页面。</p>
+          </div>
+          <ul id="context-protocol" class="delivery-list"></ul>
+          <div class="sub-card">
+            <p class="panel-label">Tweaks</p>
+            <ul id="tweak-controls" class="delivery-list"></ul>
+          </div>
+        </div>
+        <div>
+          <div class="section-head">
+            <h2>验证与交付</h2>
+            <p>把 preview、runtime、UI review 和最终交付证据放进同一条前端闭环，而不是只看页面能否打开。</p>
+          </div>
+          <ul id="verification-steps" class="delivery-list"></ul>
+          <div class="sub-card">
+            <p class="panel-label">Handoff</p>
+            <ul id="handoff-artifacts" class="delivery-list"></ul>
           </div>
         </div>
       </section>
@@ -244,7 +536,7 @@ class FrontendScaffoldBuilder:
         </div>
         <ul class="delivery-list">
           <li>阶段 1: PRD / 架构 / UIUX 文档</li>
-          <li>阶段 2: 前端骨架与核心页面</li>
+          <li>阶段 2: 前端实施蓝图与核心页面</li>
           <li>阶段 3: 后端与数据库能力</li>
           <li>阶段 4: 联调、测试、质量门禁</li>
           <li>阶段 5: 发布、监控与迭代</li>
@@ -291,6 +583,8 @@ class FrontendScaffoldBuilder:
   --bg-0: __BG0__;
   --bg-1: __BG1__;
   --surface: rgba(255, 255, 255, 0.86);
+  --surface-strong: rgba(255, 255, 255, 0.96);
+  --panel-surface: rgba(255, 255, 255, 0.98);
   --stroke: __STROKE__;
   --text: __TEXT__;
   --muted: __MUTED__;
@@ -298,6 +592,19 @@ class FrontendScaffoldBuilder:
   --accent: __ACCENT__;
   --radius: __RADIUS__;
   --shadow: __SHADOW__;
+  --shell-width: 1120px;
+  --hero-grid-left: 1.4fr;
+  --hero-grid-right: 0.9fr;
+  --hero-padding: 28px 28px 26px;
+  --hero-surface: var(--surface);
+  --hero-outline: none;
+  --hero-radius: var(--radius);
+  --section-gap: 18px;
+  --recipe-surface: __PRIMARY_ALPHA_06__;
+  --chip-surface: __ACCENT_ALPHA_10__;
+  --panel-highlight: __PRIMARY_ALPHA_08__;
+  --direction-stage-surface: rgba(255, 255, 255, 0.92);
+  --display-letter-spacing: -0.03em;
   --font-heading: "__HEADING_FONT__", sans-serif;
   --font-body: "__BODY_FONT__", system-ui, sans-serif;
 }
@@ -325,7 +632,7 @@ body {
 }
 
 .shell {
-  max-width: 1120px;
+  max-width: var(--shell-width);
   margin: 0 auto;
   padding: 40px 20px 64px;
   position: relative;
@@ -377,14 +684,16 @@ body {
 
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
-  gap: 18px;
-  padding: 28px 28px 26px;
+  grid-template-columns: minmax(0, var(--hero-grid-left)) minmax(280px, var(--hero-grid-right));
+  gap: var(--section-gap);
+  padding: var(--hero-padding);
   border: 1px solid var(--stroke);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border-radius: var(--hero-radius);
+  background: var(--hero-surface);
   box-shadow: var(--shadow);
   backdrop-filter: blur(6px);
+  outline: var(--hero-outline);
+  outline-offset: -1px;
 }
 
 .eyebrow {
@@ -400,6 +709,7 @@ body {
   margin: 10px 0 8px;
   font-family: var(--font-heading);
   font-size: clamp(28px, 4vw, 48px);
+  letter-spacing: var(--display-letter-spacing);
 }
 
 .summary {
@@ -478,8 +788,64 @@ body {
   width: 100%;
   border-radius: 18px;
   border: 1px solid rgba(23, 33, 51, 0.08);
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--panel-surface);
   padding: 20px;
+}
+
+.direction-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.9fr);
+  gap: var(--section-gap);
+  background: var(--direction-stage-surface);
+}
+
+.direction-stage-copy {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.direction-stage-copy h2 {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 38px);
+  font-family: var(--font-heading);
+  letter-spacing: var(--display-letter-spacing);
+}
+
+.direction-philosophy,
+.direction-why {
+  margin: 0;
+  color: var(--muted);
+  max-width: 60ch;
+}
+
+.direction-signals,
+.direction-axes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.direction-signals span,
+.direction-axes span {
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: var(--panel-highlight);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.direction-stage-proof {
+  display: grid;
+  gap: 12px;
+}
+
+.signature-proof {
+  border-radius: 18px;
+  padding: 18px;
+  border: 1px solid rgba(23, 33, 51, 0.08);
+  background: var(--panel-surface);
 }
 
 .panel-label {
@@ -499,17 +865,19 @@ body {
 }
 
 .metric-grid,
-.trust-grid {
+.trust-grid,
+.recipe-grid {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .metric-grid div,
-.trust-item {
+.trust-item,
+.recipe-card {
   border-radius: 14px;
   padding: 14px;
-  background: __PRIMARY_ALPHA_06__;
+  background: var(--recipe-surface);
 }
 
 .metric-grid strong {
@@ -521,6 +889,27 @@ body {
 .metric-grid span {
   color: var(--muted);
   font-size: 13px;
+}
+
+.recipe-card h3 {
+  margin: 0 0 10px;
+  font-family: var(--font-heading);
+}
+
+.recipe-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.recipe-meta span {
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
 }
 
 .card {
@@ -586,7 +975,7 @@ body {
   border-radius: 999px;
   padding: 7px 12px;
   font-size: 13px;
-  background: __ACCENT_ALPHA_10__;
+  background: var(--chip-surface);
   color: __ACCENT_DARK_60__;
   border: 1px solid __ACCENT_ALPHA_14__;
 }
@@ -625,6 +1014,14 @@ body {
   text-decoration: none;
 }
 
+.sub-card {
+  margin-top: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(23, 33, 51, 0.08);
+  background: rgba(255, 255, 255, 0.78);
+  padding: 16px;
+}
+
 .faq-list {
   display: grid;
   gap: 16px;
@@ -650,9 +1047,113 @@ body {
   color: var(--muted);
 }
 
+body[data-direction="editorial-swiss"] {
+  --shell-width: 1180px;
+  --hero-grid-left: 1.68fr;
+  --hero-grid-right: 0.78fr;
+  --hero-padding: 34px 34px 30px;
+  --hero-radius: 14px;
+  --hero-outline: 1px solid rgba(23, 33, 51, 0.12);
+  --recipe-surface: rgba(23, 33, 51, 0.035);
+  --panel-highlight: rgba(23, 33, 51, 0.045);
+  --display-letter-spacing: -0.05em;
+}
+
+body[data-direction="editorial-swiss"] .topbar {
+  margin-bottom: 28px;
+}
+
+body[data-direction="editorial-swiss"] .hero h1,
+body[data-direction="editorial-swiss"] .direction-stage-copy h2 {
+  text-transform: uppercase;
+  max-width: 12ch;
+}
+
+body[data-direction="editorial-swiss"] .trust-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+body[data-direction="precision-workspace"] {
+  --shell-width: 1240px;
+  --hero-grid-left: 1fr;
+  --hero-grid-right: 1.08fr;
+  --hero-padding: 24px;
+  --hero-radius: 16px;
+  --hero-surface: rgba(246, 249, 255, 0.92);
+  --direction-stage-surface: rgba(246, 249, 255, 0.94);
+  --recipe-surface: rgba(15, 124, 250, 0.045);
+}
+
+body[data-direction="precision-workspace"] .metric-grid,
+body[data-direction="precision-workspace"] .recipe-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+body[data-direction="warm-trust"] {
+  --hero-grid-left: 1.26fr;
+  --hero-grid-right: 0.94fr;
+  --hero-radius: 28px;
+  --radius: 24px;
+  --hero-surface: linear-gradient(135deg, rgba(255, 250, 245, 0.96), rgba(255, 255, 255, 0.92));
+  --direction-stage-surface: rgba(255, 251, 247, 0.95);
+  --recipe-surface: rgba(246, 95, 34, 0.07);
+  --chip-surface: rgba(246, 95, 34, 0.12);
+}
+
+body[data-direction="cinematic-product"] {
+  --bg-0: #081019;
+  --surface: rgba(10, 17, 26, 0.82);
+  --panel-surface: rgba(11, 20, 31, 0.92);
+  --text: #eef4fb;
+  --muted: rgba(238, 244, 251, 0.72);
+  --stroke: rgba(140, 168, 199, 0.18);
+  --hero-grid-left: 1.3fr;
+  --hero-grid-right: 0.98fr;
+  --hero-padding: 32px 32px 30px;
+  --hero-radius: 24px;
+  --hero-surface: linear-gradient(145deg, rgba(9, 18, 30, 0.96), rgba(12, 28, 43, 0.82));
+  --direction-stage-surface: linear-gradient(145deg, rgba(9, 18, 30, 0.92), rgba(12, 23, 37, 0.82));
+  --recipe-surface: rgba(255, 255, 255, 0.05);
+  --panel-highlight: rgba(15, 124, 250, 0.16);
+  --display-letter-spacing: -0.045em;
+}
+
+body[data-direction="cinematic-product"] .brand-mark {
+  background: linear-gradient(145deg, var(--accent), var(--primary));
+  color: #081019;
+}
+
+body[data-direction="quiet-luxury"] {
+  --hero-grid-left: 1.18fr;
+  --hero-grid-right: 0.84fr;
+  --section-gap: 24px;
+  --hero-padding: 38px 38px 34px;
+  --hero-radius: 26px;
+  --radius: 20px;
+  --direction-stage-surface: rgba(252, 249, 244, 0.96);
+  --recipe-surface: rgba(23, 33, 51, 0.03);
+}
+
+body[data-direction="playful-modular"] {
+  --hero-grid-left: 1.24fr;
+  --hero-grid-right: 0.92fr;
+  --hero-radius: 32px;
+  --radius: 28px;
+  --direction-stage-surface: rgba(247, 251, 255, 0.96);
+  --recipe-surface: rgba(15, 124, 250, 0.06);
+  --chip-surface: rgba(246, 95, 34, 0.14);
+}
+
+body[data-direction="playful-modular"] .recipe-card,
+body[data-direction="playful-modular"] .trust-item,
+body[data-direction="playful-modular"] .faq-list article {
+  border-radius: 22px;
+}
+
 @media (max-width: 860px) {
   .topbar,
-  .hero {
+  .hero,
+  .direction-stage {
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: flex-start;
@@ -668,6 +1169,7 @@ body {
 
   .metric-grid,
   .trust-grid,
+  .recipe-grid,
   .faq-list {
     grid-template-columns: 1fr;
   }
@@ -721,6 +1223,14 @@ body {
                 "surface": ui_contract.get("surface"),
                 "information_density": ui_contract.get("information_density"),
                 "framework_playbook": ui_contract.get("framework_playbook"),
+                "art_direction_candidates": ui_contract.get("art_direction_candidates"),
+                "design_direction_manifest": ui_contract.get("design_direction_manifest"),
+                "anti_ai_slop_guardrails": ui_contract.get("anti_ai_slop_guardrails"),
+                "critique_rubric": ui_contract.get("critique_rubric"),
+                "screen_recipes": ui_contract.get("screen_recipes"),
+                "design_context_protocol": ui_contract.get("design_context_protocol"),
+                "tweak_strategy": ui_contract.get("tweak_strategy"),
+                "verification_handoff": ui_contract.get("verification_handoff"),
             },
         }
         payload_str = json.dumps(payload, ensure_ascii=False, indent=2)
@@ -733,6 +1243,14 @@ const timelineContainer = document.getElementById("timeline");
 const frameworkModules = document.getElementById("framework-modules");
 const frameworkNative = document.getElementById("framework-native");
 const frameworkValidation = document.getElementById("framework-validation");
+const recipeGrid = document.getElementById("recipe-grid");
+const directionGrid = document.getElementById("direction-grid");
+const antiSlopList = document.getElementById("anti-slop-list");
+const critiqueRubric = document.getElementById("critique-rubric");
+const contextProtocol = document.getElementById("context-protocol");
+const tweakControls = document.getElementById("tweak-controls");
+const verificationSteps = document.getElementById("verification-steps");
+const handoffArtifacts = document.getElementById("handoff-artifacts");
 
 const docList = [
   {{ title: "PRD 文档", desc: "产品目标、需求边界、验收标准", path: DATA.docs.prd }},
@@ -764,6 +1282,82 @@ for (const phase of DATA.phases) {{
   const li = document.createElement("li");
   li.innerHTML = `<b>${{phase.title}}</b><p>${{phase.objective}}</p>`;
   timelineContainer.appendChild(li);
+}}
+
+for (const recipe of DATA.ui_contract.screen_recipes || []) {{
+  if (!recipeGrid) break;
+  const article = document.createElement("article");
+  article.className = "recipe-card";
+  const sections = (recipe.section_order || []).slice(0, 4).join(" / ");
+  const trustCount = (recipe.trust_modules || []).length;
+  const stateCount = (recipe.required_states || []).length;
+  article.innerHTML = `
+    <h3>${{recipe.label || "Screen Recipe"}}</h3>
+    <p>${{recipe.objective || ""}}</p>
+    <p><b>方向</b>: ${{recipe.art_direction || "-"}}</p>
+    <p><b>结构</b>: ${{sections || "-"}}</p>
+    <div class="recipe-meta">
+      <span>${{recipe.surface || "-"}}</span>
+      <span>Trust ${{trustCount}}</span>
+      <span>States ${{stateCount}}</span>
+    </div>
+  `;
+  recipeGrid.appendChild(article);
+}}
+
+for (const direction of DATA.ui_contract.art_direction_candidates || []) {{
+  if (!directionGrid) break;
+  const article = document.createElement("article");
+  article.className = "recipe-card";
+  article.innerHTML = `
+    <h3>${{direction.name || "Art Direction"}}</h3>
+    <p>${{direction.philosophy || ""}}</p>
+    <p><b>Hero</b>: ${{direction.hero_treatment || "-"}}</p>
+    <p><b>Proof</b>: ${{direction.proof_strategy || "-"}}</p>
+  `;
+  directionGrid.appendChild(article);
+}}
+
+for (const item of DATA.ui_contract.anti_ai_slop_guardrails?.forbidden_motifs || []) {{
+  if (!antiSlopList) break;
+  const li = document.createElement("li");
+  li.textContent = item;
+  antiSlopList.appendChild(li);
+}}
+
+for (const item of DATA.ui_contract.critique_rubric || []) {{
+  if (!critiqueRubric) break;
+  const li = document.createElement("li");
+  li.textContent = `${{item.label || item.dimension || "Criterion"}} ≥ ${{item.pass_threshold || "-"}}/10`;
+  critiqueRubric.appendChild(li);
+}}
+
+for (const item of DATA.ui_contract.design_context_protocol?.preferred_import_order || []) {{
+  if (!contextProtocol) break;
+  const li = document.createElement("li");
+  li.textContent = item;
+  contextProtocol.appendChild(li);
+}}
+
+for (const item of DATA.ui_contract.tweak_strategy?.default_controls || []) {{
+  if (!tweakControls) break;
+  const li = document.createElement("li");
+  li.textContent = item;
+  tweakControls.appendChild(li);
+}}
+
+for (const item of DATA.ui_contract.verification_handoff?.verification_order || []) {{
+  if (!verificationSteps) break;
+  const li = document.createElement("li");
+  li.textContent = item;
+  verificationSteps.appendChild(li);
+}}
+
+for (const item of DATA.ui_contract.verification_handoff?.required_artifacts || []) {{
+  if (!handoffArtifacts) break;
+  const li = document.createElement("li");
+  li.textContent = item;
+  handoffArtifacts.appendChild(li);
 }}
 
 const frameworkPlaybook = DATA.ui_contract.framework_playbook || null;
@@ -814,7 +1408,21 @@ function relativePath(path) {{
             frontend=self.frontend,
             backend="node",
         )
-        return generator.generate_ui_contract()
+        contract = generator.generate_ui_contract()
+        if isinstance(contract, dict):
+            contract.setdefault(
+                "_artifact_meta",
+                {
+                    "generated_by": "FrontendScaffoldBuilder._load_ui_contract",
+                    "reason": "ui-contract artifact was missing and has been materialized for downstream stages",
+                },
+            )
+            contract_path.parent.mkdir(parents=True, exist_ok=True)
+            contract_path.write_text(
+                json.dumps(contract, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        return contract
 
     def _build_google_fonts_url(self, typography: dict) -> str:
         families: list[str] = []
@@ -859,6 +1467,694 @@ function relativePath(path) {{
             return "rgba(0, 0, 0, 0.08)"
         r, g, b = int(hex_color[:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
         return f"rgba({r}, {g}, {b}, {alpha:.2f})"
+
+    # ------------------------------------------------------------------
+    # React + Vite Project Template
+    # ------------------------------------------------------------------
+
+    def generate_react_vite_project(self, ui_contract: dict) -> dict[str, str]:
+        """生成 React + Vite + TypeScript 实施参考模板。"""
+        output_dir = self.project_dir / "output" / "frontend-react"
+        src_dir = output_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        files: dict[str, str] = {}
+        direction = self._resolve_direction_profile(ui_contract)
+        palette = ui_contract.get("color_palette", {})
+        typography = ui_contract.get("typography_preset", {})
+        primary = palette.get("primary", "#0f7cfa")
+        accent = palette.get("accent", "#f65f22")
+        background = palette.get("background", "#f5f8ff")
+        text = palette.get("text", "#172133")
+        border = palette.get("border", "#dfe7f3")
+        heading_font = typography.get("heading", "Manrope")
+        body_font = typography.get("body", "Inter")
+        anti_cliches = json.dumps(direction.get("anti_cliches", []), ensure_ascii=False, indent=2)
+        tweak_axes = json.dumps(direction.get("tweak_axes", []), ensure_ascii=False, indent=2)
+
+        pkg = output_dir / "package.json"
+        pkg.write_text(
+            json.dumps(
+                {
+                    "name": f"{self.name}-frontend",
+                    "private": True,
+                    "version": "0.1.0",
+                    "type": "module",
+                    "scripts": {
+                        "dev": "vite",
+                        "build": "tsc -b && vite build",
+                        "preview": "vite preview",
+                    },
+                    "dependencies": {
+                        "react": "^19.0.0",
+                        "react-dom": "^19.0.0",
+                    },
+                    "devDependencies": {
+                        "@types/react": "^19.0.0",
+                        "@types/react-dom": "^19.0.0",
+                        "@vitejs/plugin-react": "^5.0.0",
+                        "typescript": "^5.7.0",
+                        "vite": "^6.0.0",
+                    },
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        files["package.json"] = str(pkg)
+
+        vite_config = output_dir / "vite.config.ts"
+        vite_config.write_text(
+            (
+                'import { defineConfig } from "vite";\n'
+                'import react from "@vitejs/plugin-react";\n\n'
+                "export default defineConfig({\n"
+                "  plugins: [react()],\n"
+                "  server: {\n"
+                "    port: 3000,\n"
+                "  },\n"
+                "});\n"
+            ),
+            encoding="utf-8",
+        )
+        files["vite.config.ts"] = str(vite_config)
+
+        tsconfig = output_dir / "tsconfig.json"
+        tsconfig.write_text(
+            json.dumps(
+                {
+                    "compilerOptions": {
+                        "target": "ES2020",
+                        "useDefineForClassFields": True,
+                        "lib": ["ES2020", "DOM", "DOM.Iterable"],
+                        "module": "ESNext",
+                        "skipLibCheck": True,
+                        "moduleResolution": "Bundler",
+                        "allowImportingTsExtensions": True,
+                        "resolveJsonModule": True,
+                        "isolatedModules": True,
+                        "noEmit": True,
+                        "jsx": "react-jsx",
+                        "strict": True,
+                    },
+                    "include": ["src"],
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        files["tsconfig.json"] = str(tsconfig)
+
+        index_html = output_dir / "index.html"
+        index_html.write_text(
+            (
+                "<!doctype html>\n"
+                '<html lang="zh-CN">\n'
+                "  <head>\n"
+                '    <meta charset="UTF-8" />\n'
+                '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n'
+                f"    <title>{html.escape(self.name)} · React Blueprint</title>\n"
+                '    <link rel="preconnect" href="https://fonts.googleapis.com" />\n'
+                '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />\n'
+                f'    <link href="{self._build_google_fonts_url(typography)}" rel="stylesheet" />\n'
+                "  </head>\n"
+                "  <body>\n"
+                '    <div id="root"></div>\n'
+                '    <script type="module" src="/src/main.tsx"></script>\n'
+                "  </body>\n"
+                "</html>\n"
+            ),
+            encoding="utf-8",
+        )
+        files["index.html"] = str(index_html)
+
+        main_tsx = src_dir / "main.tsx"
+        main_tsx.write_text(
+            (
+                'import { StrictMode } from "react";\n'
+                'import { createRoot } from "react-dom/client";\n'
+                'import "./styles.css";\n'
+                'import { App } from "./App";\n\n'
+                'createRoot(document.getElementById("root")!).render(\n'
+                "  <StrictMode>\n"
+                "    <App />\n"
+                "  </StrictMode>,\n"
+                ");\n"
+            ),
+            encoding="utf-8",
+        )
+        files["src/main.tsx"] = str(main_tsx)
+
+        app_tsx = src_dir / "App.tsx"
+        app_tsx.write_text(
+            (
+                'const antiCliches = '
+                + anti_cliches
+                + " as const;\n"
+                + 'const tweakAxes = '
+                + tweak_axes
+                + " as const;\n\n"
+                + "export function App() {\n"
+                + "  return (\n"
+                + f'    <main className="app-shell" data-direction={json.dumps(direction["direction_id"], ensure_ascii=False)}>\n'
+                + '      <section className="hero-card">\n'
+                + f'        <p className="eyebrow">{html.escape(str(direction["name"]))}</p>\n'
+                + f"        <h1>{html.escape(self.name)}</h1>\n"
+                + f'        <p className="summary">{html.escape(self.description)}</p>\n'
+                + f'        <p className="philosophy">{html.escape(str(direction["philosophy"]))}</p>\n'
+                + '        <div className="meta-row">\n'
+                + f'          <span>Hero: {html.escape(str(direction["hero_treatment"]))}</span>\n'
+                + f'          <span>Proof: {html.escape(str(direction["proof_strategy"]))}</span>\n'
+                + "        </div>\n"
+                + "      </section>\n"
+                + '      <section className="direction-grid">\n'
+                + '        <article className="direction-card">\n'
+                + '          <h2>Anti-Cliche Guardrails</h2>\n'
+                + "          <ul>{antiCliches.map((item) => <li key={item}>{item}</li>)}</ul>\n"
+                + "        </article>\n"
+                + '        <article className="direction-card">\n'
+                + '          <h2>Tweak Axes</h2>\n'
+                + "          <ul>{tweakAxes.map((item) => <li key={item}>{item}</li>)}</ul>\n"
+                + "        </article>\n"
+                + "      </section>\n"
+                + "    </main>\n"
+                + "  );\n"
+                + "}\n"
+            ),
+            encoding="utf-8",
+        )
+        files["src/App.tsx"] = str(app_tsx)
+
+        styles = src_dir / "styles.css"
+        styles.write_text(
+            (
+                ":root {\n"
+                f"  --bg: {background};\n"
+                f"  --surface: {self._alpha('#FFFFFF', 0.96)};\n"
+                f"  --text: {text};\n"
+                f"  --muted: {self._darken(text, 0.62)};\n"
+                f"  --primary: {primary};\n"
+                f"  --accent: {accent};\n"
+                f"  --border: {self._alpha(border, 0.78)};\n"
+                f'  --font-heading: "{heading_font}", sans-serif;\n'
+                f'  --font-body: "{body_font}", system-ui, sans-serif;\n'
+                "}\n\n"
+                "* { box-sizing: border-box; }\n"
+                "body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-body); }\n"
+                ".app-shell { max-width: 1120px; margin: 0 auto; padding: 40px 20px 64px; }\n"
+                ".hero-card, .direction-card { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; box-shadow: 0 18px 40px rgba(13, 33, 57, 0.09); }\n"
+                ".hero-card { padding: 32px; }\n"
+                ".eyebrow { margin: 0 0 12px; color: var(--primary); text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; font-weight: 800; }\n"
+                "h1, h2 { font-family: var(--font-heading); letter-spacing: -0.03em; }\n"
+                "h1 { margin: 0 0 12px; font-size: clamp(34px, 5vw, 64px); }\n"
+                ".summary, .philosophy { margin: 0 0 14px; max-width: 64ch; color: var(--muted); }\n"
+                ".meta-row { display: flex; flex-wrap: wrap; gap: 10px; }\n"
+                ".meta-row span { padding: 8px 12px; border-radius: 999px; background: rgba(15,124,250,0.08); font-size: 13px; font-weight: 700; }\n"
+                ".direction-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 18px; }\n"
+                ".direction-card { padding: 22px; }\n"
+                ".direction-card ul { margin: 0; padding-left: 18px; display: grid; gap: 8px; }\n"
+                '.app-shell[data-direction="cinematic-product"] .hero-card { background: linear-gradient(145deg, rgba(9, 18, 30, 0.96), rgba(12, 28, 43, 0.82)); color: #eef4fb; }\n'
+                '.app-shell[data-direction="editorial-swiss"] h1 { text-transform: uppercase; max-width: 10ch; }\n'
+                '@media (max-width: 860px) { .direction-grid { grid-template-columns: 1fr; } }\n'
+            ),
+            encoding="utf-8",
+        )
+        files["src/styles.css"] = str(styles)
+
+        return files
+
+    # ------------------------------------------------------------------
+    # Expo / React Native Project Template
+    # ------------------------------------------------------------------
+
+    def generate_expo_project(self, ui_contract: dict, *, flavor: str) -> dict[str, str]:
+        """生成 Expo 托管的 React Native 实施参考模板。"""
+        output_dir = self.project_dir / "output" / "frontend-expo"
+        app_dir = output_dir / "app"
+        app_dir.mkdir(parents=True, exist_ok=True)
+        files: dict[str, str] = {}
+        palette = ui_contract.get("color_palette", {})
+        typography = ui_contract.get("typography_preset", {})
+        direction = self._resolve_direction_profile(ui_contract)
+
+        package_path = output_dir / "package.json"
+        package_path.write_text(
+            json.dumps(
+                {
+                    "name": f"{self.name}-mobile",
+                    "private": True,
+                    "version": "0.1.0",
+                    "main": "expo-router/entry",
+                    "scripts": {
+                        "start": "expo start",
+                        "android": "expo run:android",
+                        "ios": "expo run:ios",
+                        "web": "expo start --web",
+                    },
+                    "dependencies": {
+                        "expo": "^54.0.0",
+                        "expo-router": "^5.0.0",
+                        "react": "^19.0.0",
+                        "react-native": "0.81.0",
+                    },
+                    "devDependencies": {"typescript": "^5.7.0"},
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        files["package.json"] = str(package_path)
+
+        app_json = output_dir / "app.json"
+        app_json.write_text(
+            json.dumps(
+                {
+                    "expo": {
+                        "name": self.name,
+                        "slug": self.name.lower().replace(" ", "-"),
+                        "scheme": self.name.lower().replace(" ", "-"),
+                        "orientation": "portrait",
+                        "plugins": ["expo-router"],
+                    }
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        files["app.json"] = str(app_json)
+
+        index_tsx = app_dir / "index.tsx"
+        index_tsx.write_text(
+            (
+                'import { SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";\n\n'
+                f"const antiCliches = {json.dumps(direction.get('anti_cliches', []), ensure_ascii=False)};\n\n"
+                "export default function HomeScreen() {\n"
+                "  return (\n"
+                "    <SafeAreaView style={styles.safeArea}>\n"
+                "      <ScrollView contentContainerStyle={styles.container}>\n"
+                f'        <Text style={{{{styles.eyebrow}}}}>{html.escape(str(direction["name"]))}</Text>\n'
+                f'        <Text style={{{{styles.title}}}}>{html.escape(self.name)}</Text>\n'
+                f'        <Text style={{{{styles.summary}}}}>{html.escape(self.description)}</Text>\n'
+                f'        <Text style={{{{styles.philosophy}}}}>{html.escape(str(direction["philosophy"]))}</Text>\n'
+                '        <View style={styles.card}>\n'
+                '          <Text style={styles.cardTitle}>Native Flow Checklist</Text>\n'
+                '          <Text style={styles.cardBody}>Navigation, deep link, permission, offline cache, share and notification paths should be validated on device.</Text>\n'
+                "        </View>\n"
+                '        <View style={styles.card}>\n'
+                '          <Text style={styles.cardTitle}>Anti-Cliche Guardrails</Text>\n'
+                "          {antiCliches.map((item) => (\n"
+                '            <Text key={item} style={styles.listItem}>• {item}</Text>\n'
+                "          ))}\n"
+                "        </View>\n"
+                "      </ScrollView>\n"
+                "    </SafeAreaView>\n"
+                "  );\n"
+                "}\n\n"
+                "const styles = StyleSheet.create({\n"
+                f"  safeArea: {{ flex: 1, backgroundColor: {json.dumps(palette.get('background', '#F5F8FF'))} }},\n"
+                '  container: { padding: 24, gap: 18 },\n'
+                f"  eyebrow: {{ color: {json.dumps(palette.get('primary', '#0F7CFA'))}, fontSize: 12, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' }},\n"
+                f"  title: {{ color: {json.dumps(palette.get('text', '#172133'))}, fontSize: 34, lineHeight: 40, fontWeight: '800', fontFamily: {json.dumps(typography.get('heading', 'System'))} }},\n"
+                f"  summary: {{ color: {json.dumps(self._darken(palette.get('text', '#172133'), 0.62))}, fontSize: 17, lineHeight: 26, fontFamily: {json.dumps(typography.get('body', 'System'))} }},\n"
+                f"  philosophy: {{ color: {json.dumps(self._darken(palette.get('text', '#172133'), 0.72))}, fontSize: 15, lineHeight: 24 }},\n"
+                f"  card: {{ backgroundColor: '#FFFFFF', borderRadius: 24, padding: 18, borderWidth: 1, borderColor: {json.dumps(self._alpha(palette.get('border', '#DFE7F3'), 0.85))} }},\n"
+                f"  cardTitle: {{ color: {json.dumps(palette.get('text', '#172133'))}, fontSize: 18, fontWeight: '700', marginBottom: 8 }},\n"
+                f"  cardBody: {{ color: {json.dumps(self._darken(palette.get('text', '#172133'), 0.66))}, fontSize: 14, lineHeight: 21 }},\n"
+                f"  listItem: {{ color: {json.dumps(self._darken(palette.get('text', '#172133'), 0.7))}, fontSize: 14, lineHeight: 22, marginTop: 6 }},\n"
+                "});\n"
+            ),
+            encoding="utf-8",
+        )
+        files["app/index.tsx"] = str(index_tsx)
+
+        return files
+
+    # ------------------------------------------------------------------
+    # Flutter Project Template
+    # ------------------------------------------------------------------
+
+    def generate_flutter_project(self, ui_contract: dict) -> dict[str, str]:
+        """生成 Flutter 实施参考模板。"""
+        output_dir = self.project_dir / "output" / "frontend-flutter"
+        lib_dir = output_dir / "lib"
+        lib_dir.mkdir(parents=True, exist_ok=True)
+        files: dict[str, str] = {}
+        palette = ui_contract.get("color_palette", {})
+        direction = self._resolve_direction_profile(ui_contract)
+
+        pubspec = output_dir / "pubspec.yaml"
+        pubspec.write_text(
+            (
+                f"name: {self.name.lower().replace(' ', '_')}_app\n"
+                "description: Super Dev Flutter scaffold\n"
+                "publish_to: 'none'\n"
+                "environment:\n"
+                "  sdk: '>=3.4.0 <4.0.0'\n"
+                "dependencies:\n"
+                "  flutter:\n"
+                "    sdk: flutter\n"
+                "  go_router: ^14.0.0\n"
+                "  flutter_riverpod: ^2.5.0\n"
+            ),
+            encoding="utf-8",
+        )
+        files["pubspec.yaml"] = str(pubspec)
+
+        main_dart = lib_dir / "main.dart"
+        main_dart.write_text(
+            (
+                "import 'package:flutter/material.dart';\n\n"
+                "void main() {\n"
+                "  runApp(const SuperDevApp());\n"
+                "}\n\n"
+                "class SuperDevApp extends StatelessWidget {\n"
+                "  const SuperDevApp({super.key});\n\n"
+                "  @override\n"
+                "  Widget build(BuildContext context) {\n"
+                "    return MaterialApp(\n"
+                f"      title: {json.dumps(self.name)},\n"
+                "      theme: ThemeData(\n"
+                f"        colorScheme: ColorScheme.fromSeed(seedColor: const Color({self._dart_color(palette.get('primary', '#0F7CFA'))})),\n"
+                "        useMaterial3: true,\n"
+                "      ),\n"
+                "      home: const HomePage(),\n"
+                "    );\n"
+                "  }\n"
+                "}\n\n"
+                "class HomePage extends StatelessWidget {\n"
+                "  const HomePage({super.key});\n\n"
+                "  @override\n"
+                "  Widget build(BuildContext context) {\n"
+                "    return Scaffold(\n"
+                "      body: SafeArea(\n"
+                "        child: Padding(\n"
+                "          padding: const EdgeInsets.all(24),\n"
+                "          child: Column(\n"
+                "            crossAxisAlignment: CrossAxisAlignment.start,\n"
+                "            children: [\n"
+                f"              Text({json.dumps(direction['name'])}, style: Theme.of(context).textTheme.labelSmall?.copyWith(letterSpacing: 1.2, fontWeight: FontWeight.w800)),\n"
+                "              SizedBox(height: 12),\n"
+                f"              Text({json.dumps(self.name)}, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w800)),\n"
+                "              SizedBox(height: 12),\n"
+                f"              Text({json.dumps(self.description)}),\n"
+                "              SizedBox(height: 16),\n"
+                f"              Text({json.dumps(direction['philosophy'])}),\n"
+                "            ],\n"
+                "          ),\n"
+                "        ),\n"
+                "      ),\n"
+                "    );\n"
+                "  }\n"
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        files["lib/main.dart"] = str(main_dart)
+        return files
+
+    # ------------------------------------------------------------------
+    # MiniApp Project Template
+    # ------------------------------------------------------------------
+
+    def generate_miniapp_project(self, ui_contract: dict, *, flavor: str) -> dict[str, str]:
+        """生成 uni-app / Taro 家族的小程序实施参考模板。"""
+        output_dir = self.project_dir / "output" / "frontend-miniapp"
+        src_dir = output_dir / "src"
+        pages_dir = src_dir / "pages" / "index"
+        pages_dir.mkdir(parents=True, exist_ok=True)
+        files: dict[str, str] = {}
+        direction = self._resolve_direction_profile(ui_contract)
+        is_taro = flavor == "taro"
+
+        package_json = output_dir / "package.json"
+        if is_taro:
+            package_json.write_text(
+                json.dumps(
+                    {
+                        "name": f"{self.name}-miniapp",
+                        "private": True,
+                        "version": "0.1.0",
+                        "scripts": {"dev:weapp": "taro build --type weapp --watch"},
+                        "dependencies": {"react": "^19.0.0", "@tarojs/taro": "^4.0.0"},
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            files["package.json"] = str(package_json)
+
+            app_tsx = src_dir / "app.tsx"
+            app_tsx.parent.mkdir(parents=True, exist_ok=True)
+            app_tsx.write_text(
+                "import { PropsWithChildren } from 'react';\n\n"
+                "function App({ children }: PropsWithChildren) {\n"
+                "  return children;\n"
+                "}\n\n"
+                "export default App;\n",
+                encoding="utf-8",
+            )
+            files["src/app.tsx"] = str(app_tsx)
+
+            page_tsx = pages_dir / "index.tsx"
+            page_tsx.write_text(
+                (
+                    "import { View, Text } from '@tarojs/components';\n\n"
+                    "export default function IndexPage() {\n"
+                    "  return (\n"
+                    "    <View className='page'>\n"
+                    f"      <Text className='eyebrow'>{html.escape(str(direction['name']))}</Text>\n"
+                    f"      <Text className='title'>{html.escape(self.name)}</Text>\n"
+                    f"      <Text className='summary'>{html.escape(self.description)}</Text>\n"
+                    "    </View>\n"
+                    "  );\n"
+                    "}\n"
+                ),
+                encoding="utf-8",
+            )
+            files["src/pages/index/index.tsx"] = str(page_tsx)
+        else:
+            package_json.write_text(
+                json.dumps(
+                    {
+                        "name": f"{self.name}-miniapp",
+                        "private": True,
+                        "version": "0.1.0",
+                        "scripts": {"dev:h5": "uni", "dev:mp-weixin": "uni"},
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            files["package.json"] = str(package_json)
+
+            app_vue = src_dir / "App.vue"
+            app_vue.parent.mkdir(parents=True, exist_ok=True)
+            app_vue.write_text(
+                "<script setup lang=\"ts\"></script>\n\n"
+                "<template>\n"
+                "  <slot />\n"
+                "</template>\n",
+                encoding="utf-8",
+            )
+            files["src/App.vue"] = str(app_vue)
+
+            page_vue = pages_dir / "index.vue"
+            page_vue.write_text(
+                (
+                    "<template>\n"
+                    "  <view class=\"page\">\n"
+                    f"    <text class=\"eyebrow\">{html.escape(str(direction['name']))}</text>\n"
+                    f"    <text class=\"title\">{html.escape(self.name)}</text>\n"
+                    f"    <text class=\"summary\">{html.escape(self.description)}</text>\n"
+                    "  </view>\n"
+                    "</template>\n\n"
+                    "<style scoped>\n"
+                    ".page { padding: 32rpx; display: flex; flex-direction: column; gap: 20rpx; }\n"
+                    ".eyebrow { font-size: 24rpx; letter-spacing: 2rpx; text-transform: uppercase; color: #0F7CFA; }\n"
+                    ".title { font-size: 64rpx; font-weight: 800; color: #172133; }\n"
+                    ".summary { font-size: 30rpx; color: #4A5970; line-height: 1.6; }\n"
+                    "</style>\n"
+                ),
+                encoding="utf-8",
+            )
+            files["src/pages/index/index.vue"] = str(page_vue)
+
+            pages_json = output_dir / "pages.json"
+            pages_json.write_text(
+                json.dumps(
+                    {
+                        "pages": [
+                            {
+                                "path": "pages/index/index",
+                                "style": {"navigationBarTitleText": self.name},
+                            }
+                        ]
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            files["pages.json"] = str(pages_json)
+
+        return files
+
+    # ------------------------------------------------------------------
+    # Desktop Shell Project Template
+    # ------------------------------------------------------------------
+
+    def generate_desktop_shell_project(self, ui_contract: dict, *, flavor: str) -> dict[str, str]:
+        """生成桌面壳实施参考模板（Tauri / Electron / Wails）。"""
+        output_dir = self.project_dir / "output" / "frontend-desktop-shell"
+        src_dir = output_dir / "src"
+        shell_dir = output_dir / flavor
+        src_dir.mkdir(parents=True, exist_ok=True)
+        shell_dir.mkdir(parents=True, exist_ok=True)
+        files: dict[str, str] = {}
+        direction = self._resolve_direction_profile(ui_contract)
+
+        package_json = output_dir / "package.json"
+        package_json.write_text(
+            json.dumps(
+                {
+                    "name": f"{self.name}-desktop",
+                    "private": True,
+                    "version": "0.1.0",
+                    "scripts": {"dev": "vite", "build": "vite build"},
+                    "dependencies": {"react": "^19.0.0", "react-dom": "^19.0.0"},
+                    "devDependencies": {"vite": "^6.0.0", "@vitejs/plugin-react": "^5.0.0"},
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        files["package.json"] = str(package_json)
+
+        app_tsx = src_dir / "App.tsx"
+        app_tsx.write_text(
+            (
+                "export function App() {\n"
+                "  return (\n"
+                "    <main style={{padding: 24, fontFamily: 'Inter, system-ui'}}> \n"
+                f"      <p style={{textTransform: 'uppercase', color: '#0F7CFA', fontWeight: 800}}>{html.escape(str(direction['name']))}</p>\n"
+                f"      <h1>{html.escape(self.name)}</h1>\n"
+                f"      <p>{html.escape(self.description)}</p>\n"
+                "      <ul>\n"
+                "        <li>Window layout and restore</li>\n"
+                "        <li>Native file system and import/export</li>\n"
+                "        <li>Shortcut, IPC and offline recovery checks</li>\n"
+                "      </ul>\n"
+                "    </main>\n"
+                "  );\n"
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        files["src/App.tsx"] = str(app_tsx)
+
+        if flavor == "tauri":
+            tauri_conf = shell_dir / "tauri.conf.json"
+            tauri_conf.write_text(
+                json.dumps({"productName": self.name, "build": {"beforeDevCommand": "npm run dev"}}, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            files[f"{flavor}/tauri.conf.json"] = str(tauri_conf)
+        elif flavor == "electron":
+            electron_main = shell_dir / "main.ts"
+            electron_main.write_text(
+                "import { app, BrowserWindow } from 'electron';\n\n"
+                "function createWindow() {\n"
+                "  const win = new BrowserWindow({ width: 1440, height: 960 });\n"
+                "  void win.loadURL('http://localhost:3000');\n"
+                "}\n\n"
+                "app.whenReady().then(createWindow);\n",
+                encoding="utf-8",
+            )
+            files[f"{flavor}/main.ts"] = str(electron_main)
+        else:
+            wails_json = shell_dir / "wails.json"
+            wails_json.write_text(
+                json.dumps({"name": self.name, "frontend:install": "npm install"}, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            files[f"{flavor}/wails.json"] = str(wails_json)
+        return files
+
+    # ------------------------------------------------------------------
+    # Hybrid Shell Project Template
+    # ------------------------------------------------------------------
+
+    def generate_hybrid_shell_project(self, ui_contract: dict, *, flavor: str) -> dict[str, str]:
+        """生成 Ionic / Capacitor 混合壳实施参考模板。"""
+        output_dir = self.project_dir / "output" / "frontend-hybrid-shell"
+        src_dir = output_dir / "src"
+        native_dir = output_dir / flavor
+        src_dir.mkdir(parents=True, exist_ok=True)
+        native_dir.mkdir(parents=True, exist_ok=True)
+        files: dict[str, str] = {}
+        direction = self._resolve_direction_profile(ui_contract)
+
+        package_json = output_dir / "package.json"
+        package_json.write_text(
+            json.dumps(
+                {
+                    "name": f"{self.name}-hybrid",
+                    "private": True,
+                    "version": "0.1.0",
+                    "scripts": {"dev": "vite", "build": "vite build"},
+                    "dependencies": {"@capacitor/core": "^7.0.0", "react": "^19.0.0", "react-dom": "^19.0.0"},
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        files["package.json"] = str(package_json)
+
+        app_tsx = src_dir / "App.tsx"
+        app_tsx.write_text(
+            (
+                "export function App() {\n"
+                "  return (\n"
+                "    <main style={{padding: 24, fontFamily: 'Inter, system-ui'}}> \n"
+                f"      <p style={{textTransform: 'uppercase', color: '#0F7CFA', fontWeight: 800}}>{html.escape(str(direction['name']))}</p>\n"
+                f"      <h1>{html.escape(self.name)}</h1>\n"
+                "      <p>Hybrid shell scaffold for camera, share, push and offline validation.</p>\n"
+                "    </main>\n"
+                "  );\n"
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+        files["src/App.tsx"] = str(app_tsx)
+
+        capacitor_config = native_dir / "capacitor.config.ts"
+        capacitor_config.write_text(
+            (
+                'import type { CapacitorConfig } from "@capacitor/cli";\n\n'
+                "const config: CapacitorConfig = {\n"
+                f"  appId: 'dev.super.{self.name.lower().replace(' ', '')}',\n"
+                f"  appName: {json.dumps(self.name)},\n"
+                '  webDir: "dist",\n'
+                "};\n\n"
+                "export default config;\n"
+            ),
+            encoding="utf-8",
+        )
+        files[f"{flavor}/capacitor.config.ts"] = str(capacitor_config)
+        return files
+
+    def _dart_color(self, hex_color: str) -> str:
+        token = str(hex_color or "").lstrip("#")
+        if len(token) != 6:
+            token = "0F7CFA"
+        return f"0xFF{token.upper()}"
 
     # ------------------------------------------------------------------
     # Vue 3 Project Template
@@ -1051,7 +2347,7 @@ function relativePath(path) {{
     # ------------------------------------------------------------------
 
     def generate_angular_project(self) -> dict[str, str]:
-        """生成 Angular 项目模板骨架"""
+        """生成 Angular 实施参考模板"""
         output_dir = self.project_dir / "output" / "frontend-angular"
         src_dir = output_dir / "src" / "app"
         src_dir.mkdir(parents=True, exist_ok=True)
@@ -1152,7 +2448,7 @@ function relativePath(path) {{
     # ------------------------------------------------------------------
 
     def generate_svelte_project(self) -> dict[str, str]:
-        """生成 SvelteKit 项目模板骨架"""
+        """生成 SvelteKit 实施参考模板"""
         output_dir = self.project_dir / "output" / "frontend-svelte"
         src_dir = output_dir / "src"
         routes_dir = src_dir / "routes"
@@ -1229,7 +2525,7 @@ function relativePath(path) {{
     # ------------------------------------------------------------------
 
     def generate_design_system_scaffold(self) -> dict[str, str]:
-        """生成设计系统骨架（Token 文件、主题配置、组件模板）"""
+        """生成设计系统参考模板（Token 文件、主题配置、组件模板）"""
         output_dir = self.project_dir / "output" / "design-system"
         output_dir.mkdir(parents=True, exist_ok=True)
         files: dict[str, str] = {}

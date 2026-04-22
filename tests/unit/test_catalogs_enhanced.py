@@ -201,6 +201,14 @@ class TestFrontendIDDetails:
         found = any("svelte" in fid.lower() for fid in FULL_FRONTEND_TEMPLATE_IDS)
         assert found
 
+    def test_cross_platform_frontends_present(self):
+        assert "expo" in FULL_FRONTEND_TEMPLATE_IDS
+        assert "react-native" in FULL_FRONTEND_TEMPLATE_IDS
+        assert "flutter" in FULL_FRONTEND_TEMPLATE_IDS
+        assert "uni-app" in FULL_FRONTEND_TEMPLATE_IDS
+        assert "tauri" in FULL_FRONTEND_TEMPLATE_IDS
+        assert "electron" in FULL_FRONTEND_TEMPLATE_IDS
+
     def test_each_frontend_is_valid(self):
         for fid in FULL_FRONTEND_TEMPLATE_IDS:
             assert isinstance(fid, str)

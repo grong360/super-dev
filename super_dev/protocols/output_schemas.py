@@ -181,6 +181,38 @@ DORA_METRICS_SCHEMA: dict = {
 }
 
 # ---------------------------------------------------------------------------
+# Baseline Audit Schema
+# ---------------------------------------------------------------------------
+
+BASELINE_AUDIT_SCHEMA: dict = {
+    "type": "object",
+    "required": ["project_name", "work_mode"],
+    "properties": {
+        "project_name": {"type": "string"},
+        "work_mode": {
+            "type": "string",
+            "enum": ["new", "evolve", "variant", "patch", "resume"],
+        },
+        "generated_at": {"type": "string", "format": "date-time"},
+        "current_state": {"type": "object"},
+        "architecture_summary": {"type": "object"},
+        "ui_summary": {"type": "object"},
+        "constraints": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "delta_scope": {
+            "type": "object",
+            "properties": {
+                "goals": {"type": "array", "items": {"type": "string"}},
+                "affected_modules": {"type": "array", "items": {"type": "string"}},
+                "risks": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+    },
+}
+
+# ---------------------------------------------------------------------------
 # Schema 注册表
 # ---------------------------------------------------------------------------
 
@@ -190,6 +222,7 @@ _SCHEMA_REGISTRY: dict[str, dict] = {
     "traceability_matrix": TRACEABILITY_MATRIX_SCHEMA,
     "governance_report": GOVERNANCE_REPORT_SCHEMA,
     "dora_metrics": DORA_METRICS_SCHEMA,
+    "baseline_audit": BASELINE_AUDIT_SCHEMA,
 }
 
 
@@ -235,10 +268,6 @@ class OutputValidator:
     def get_schema(self, name: str) -> dict | None:  # type: ignore[type-arg]
         """获取指定 Schema，不存在时返回 ``None``。"""
         return _SCHEMA_REGISTRY.get(name)
-
-    def list_schemas(self) -> list[str]:
-        """列出所有可用 Schema 名称。"""
-        return list(_SCHEMA_REGISTRY.keys())
 
     # ------------------------------------------------------------------
     # 轻量内置验证
@@ -291,7 +320,7 @@ class OutputValidator:
             "array": list,
             "string": str,
             "integer": int,
-            "number": int | float,
+            "number": (int, float),
             "boolean": bool,
         }
         py_type = type_map.get(expected)

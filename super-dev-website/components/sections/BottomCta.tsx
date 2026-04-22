@@ -4,15 +4,25 @@ import type { SiteLocale } from '@/lib/site-locale';
 
 const COPY = {
   zh: {
-    title: '先接入宿主，再开始按流程开发。',
-    body: '安装 Super Dev，运行 super-dev 完成宿主接入，然后在宿主里输入 /super-dev 或 super-dev:。从 research 到交付的关键门禁会接管后续流程。',
-    installNote: '也可以使用',
+    title: '终端只做接入。真正的开发，5 分钟后就回宿主里开始。',
+    body: '首页不再教你背一层额外命令。安装 Super Dev，运行 super-dev 让安装器写好项目级接入面，然后直接复制宿主首句回到当前会话。research、三文档、确认门、前端预览和交付门都会沿着这条主路径继续推进。',
+    steps: [
+      '1. uv tool install super-dev',
+      '2. 运行 super-dev，让安装器给出推荐宿主和宿主首句',
+      '3. 回宿主里直接输入 /super-dev、$super-dev 或 super-dev:',
+    ],
+    installNote: '首页默认只讲 uv 安装和 super-dev 引导。源码安装、版本锁定安装与 uninstall 细节留在文档中心。',
     github: '在 GitHub 查看源代码',
   },
   en: {
-    title: 'Connect the host first, then build through the governed flow.',
-    body: 'Install Super Dev, run super-dev to onboard the host, then trigger /super-dev or super-dev: inside the host. The workflow gates take over from research through delivery.',
-    installNote: 'You can also use',
+    title: 'The terminal only onboards. Real development moves back into the host within five minutes.',
+    body: 'The homepage no longer teaches another layer of low-level commands. Install Super Dev, run super-dev so the installer writes the project-level surfaces, then copy the host-specific first prompt and return to the session you already work in. Research, the three core docs, approval gates, preview validation, and delivery all continue from there.',
+    steps: [
+      '1. uv tool install super-dev',
+      '2. Run super-dev and let the installer print the recommended host and first prompt',
+      '3. Go back into the host and start with /super-dev, $super-dev, or super-dev:',
+    ],
+    installNote: 'The homepage now teaches uv install and the super-dev onboarding path. Source installs, pinned versions, and uninstall details stay in the docs center.',
     github: 'View source on GitHub',
   },
 } as const;
@@ -29,14 +39,19 @@ export function BottomCta({ locale = 'zh' }: { locale?: SiteLocale }) {
         <h2 id="bottom-cta-title" className="text-3xl font-bold tracking-tight text-text-primary sm:text-4xl lg:text-5xl">{copy.title}</h2>
         <p className="mx-auto mt-5 max-w-3xl text-lg leading-8 text-text-secondary">{copy.body}</p>
 
-        <div className="mt-10 flex justify-center">
-          <CopyCommand command="pip install -U super-dev" className="sm:w-auto" />
+        <div className="mt-8 grid gap-3 text-left sm:grid-cols-3">
+          {copy.steps.map((step) => (
+            <div key={step} className="rounded-2xl border border-border-default bg-bg-secondary/70 px-4 py-4 text-sm leading-7 text-text-secondary">
+              {step}
+            </div>
+          ))}
         </div>
 
-        <p className="mt-4 text-sm text-text-muted">
-          {copy.installNote}{' '}
-          <code className="rounded bg-bg-secondary px-1.5 py-0.5 font-mono text-text-secondary">uv tool install super-dev</code>
-        </p>
+        <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <CopyCommand command="uv tool install super-dev" className="sm:w-auto" />
+          <CopyCommand command="super-dev" className="sm:w-auto" />
+        </div>
+        <p className="mt-4 text-sm text-text-muted">{copy.installNote}</p>
 
         <a
           href="https://github.com/shangyankeji/super-dev"

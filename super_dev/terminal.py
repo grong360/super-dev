@@ -20,8 +20,13 @@ try:
 
     RICH_AVAILABLE = True
 except ImportError:  # pragma: no cover - rich 在主环境中始终可用
-    Console = Any  # type: ignore[assignment]
-    Text = Any  # type: ignore[assignment]
+    class Console:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+    class Text(str):  # type: ignore[no-redef]
+        pass
+
     RICH_AVAILABLE = False
 
 

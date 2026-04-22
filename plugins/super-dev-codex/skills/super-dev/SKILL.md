@@ -2,7 +2,7 @@
 name: super-dev
 description: Super Dev Codex App/Desktop plugin entry.
 when_to_use: Use when the user wants to enter or resume the Super Dev pipeline inside Codex App/Desktop.
-version: 2.3.8
+version: 2.4.0
 ---
 
 # Super Dev for Codex Plugin
